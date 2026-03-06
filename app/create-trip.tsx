@@ -10,7 +10,7 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -36,14 +36,18 @@ export default function CreateTripScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { generateItinerary } = useData();
+  const { generateItinerary, itineraries, deleteItinerary } = useData();
+  const params = useLocalSearchParams<{ editId?: string }>();
 
-  const [destination, setDestination] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [budget, setBudget] = useState("");
-  const [numPeople, setNumPeople] = useState("2");
-  const [selectedPrefs, setSelectedPrefs] = useState<string[]>([]);
+  const editingItinerary = params.editId ? itineraries.find((i) => i.id === params.editId) : null;
+  const isEditing = !!editingItinerary;
+
+  const [destination, setDestination] = useState(editingItinerary?.destination || "");
+  const [startDate, setStartDate] = useState(editingItinerary?.startDate || "");
+  const [endDate, setEndDate] = useState(editingItinerary?.endDate || "");
+  const [budget, setBudget] = useState(editingItinerary?.budget || "");
+  const [numPeople, setNumPeople] = useState(editingItinerary?.numPeople?.toString() || "2");
+  const [selectedPrefs, setSelectedPrefs] = useState<string[]>(editingItinerary?.preferences || []);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
@@ -82,6 +86,9 @@ export default function CreateTripScreen() {
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
+      if (isEditing && editingItinerary) {
+        await deleteItinerary(editingItinerary.id);
+      }
       const itin = await generateItinerary({
         destination: destination.trim(),
         startDate,
@@ -107,7 +114,7 @@ export default function CreateTripScreen() {
         <Pressable onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>{t().createTrip.title}</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{isEditing ? t().itinerary.editTrip : t().createTrip.title}</Text>
         <View style={{ width: 24 }} />
       </View>
 

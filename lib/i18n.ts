@@ -129,10 +129,11 @@ const vi = {
     startTrip: "Bắt đầu",
     complete: "Hoàn thành",
     reset: "Đặt lại",
+    editTrip: "Chỉnh sửa",
     changeStatus: "Thay đổi trạng thái",
     confirmStatus: (status: string) => `Đánh dấu chuyến đi là "${status}"?`,
     deleteTrip: "Xóa chuyến đi",
-    deleteConfirm: "Bạn có chắc chắn?",
+    deleteConfirm: "Bạn có chắc chắn muốn xóa chuyến đi này?",
   },
 
   profile: {

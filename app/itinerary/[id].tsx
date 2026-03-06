@@ -60,30 +60,52 @@ export default function ItineraryDetailScreen() {
 
   const handleStatusChange = () => {
     const nextStatus = itinerary.status === "draft" ? "active" : itinerary.status === "active" ? "completed" : "draft";
-    Alert.alert(t().itinerary.changeStatus, t().itinerary.confirmStatus(nextStatus), [
-      { text: t().common.cancel, style: "cancel" },
-      {
-        text: t().common.confirm,
-        onPress: () => {
-          updateItinerary(itinerary.id, { status: nextStatus });
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const msg = t().itinerary.confirmStatus(getStatusLabel(nextStatus));
+    if (Platform.OS === "web") {
+      if (window.confirm(msg)) {
+        updateItinerary(itinerary.id, { status: nextStatus });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } else {
+      Alert.alert(t().itinerary.changeStatus, msg, [
+        { text: t().common.cancel, style: "cancel" },
+        {
+          text: t().common.confirm,
+          onPress: () => {
+            updateItinerary(itinerary.id, { status: nextStatus });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
         },
-      },
-    ]);
+      ]);
+    }
   };
 
   const handleDelete = () => {
-    Alert.alert(t().itinerary.deleteTrip, t().itinerary.deleteConfirm, [
-      { text: t().common.cancel, style: "cancel" },
-      {
-        text: t().common.delete,
-        style: "destructive",
-        onPress: () => {
-          deleteItinerary(itinerary.id);
-          router.back();
+    if (Platform.OS === "web") {
+      if (window.confirm(t().itinerary.deleteConfirm)) {
+        deleteItinerary(itinerary.id);
+        router.back();
+      }
+    } else {
+      Alert.alert(t().itinerary.deleteTrip, t().itinerary.deleteConfirm, [
+        { text: t().common.cancel, style: "cancel" },
+        {
+          text: t().common.delete,
+          style: "destructive",
+          onPress: () => {
+            deleteItinerary(itinerary.id);
+            router.back();
+          },
         },
-      },
-    ]);
+      ]);
+    }
+  };
+
+  const handleEdit = () => {
+    router.push({
+      pathname: "/create-trip",
+      params: { editId: itinerary.id },
+    });
   };
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -138,10 +160,16 @@ export default function ItineraryDetailScreen() {
         </View>
 
         <View style={styles.statusRow}>
+          <View style={[styles.statusBadge, { backgroundColor: itinerary.status === "active" ? "#10B981" : itinerary.status === "completed" ? "#6B7280" : colors.accent }]}>
+            <Text style={styles.statusBadgeText}>{getStatusLabel(itinerary.status)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.actionRow}>
           <Pressable
             onPress={handleStatusChange}
             style={({ pressed }) => [
-              styles.statusButton,
+              styles.actionButton,
               { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
             ]}
           >
@@ -150,10 +178,36 @@ export default function ItineraryDetailScreen() {
               size={18}
               color="#fff"
             />
-            <Text style={styles.statusButtonText}>
+            <Text style={styles.actionButtonText}>
               {itinerary.status === "draft" ? t().itinerary.startTrip : itinerary.status === "active" ? t().itinerary.complete : t().itinerary.reset}
             </Text>
           </Pressable>
+
+          {itinerary.status === "draft" && (
+            <Pressable
+              onPress={handleEdit}
+              style={({ pressed }) => [
+                styles.actionButton,
+                { backgroundColor: colors.accent, opacity: pressed ? 0.9 : 1 },
+              ]}
+            >
+              <Ionicons name="create-outline" size={18} color="#fff" />
+              <Text style={styles.actionButtonText}>{t().itinerary.editTrip}</Text>
+            </Pressable>
+          )}
+
+          {itinerary.status === "draft" && (
+            <Pressable
+              onPress={handleDelete}
+              style={({ pressed }) => [
+                styles.actionButton,
+                { backgroundColor: colors.error, opacity: pressed ? 0.9 : 1 },
+              ]}
+            >
+              <Ionicons name="trash-outline" size={18} color="#fff" />
+              <Text style={styles.actionButtonText}>{t().common.delete}</Text>
+            </Pressable>
+          )}
         </View>
 
         {itinerary.preferences.length > 0 && (
@@ -235,15 +289,22 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: 12, fontFamily: "Inter_400Regular" },
   summaryValue: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   statusRow: { flexDirection: "row" },
-  statusButton: {
+  statusBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusBadgeText: { color: "#fff", fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  actionRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
+  actionButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
   },
-  statusButtonText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  actionButtonText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
   prefRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   prefChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
   prefChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
