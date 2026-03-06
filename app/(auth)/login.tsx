@@ -6,7 +6,6 @@ import {
   Pressable,
   StyleSheet,
   Alert,
-  useColorScheme,
   Platform,
   ActivityIndicator,
 } from "react-native";
@@ -15,13 +14,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { validateUsername, validatePassword } from "@/lib/validation";
+import { t } from "@/lib/i18n";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { login } = useAuth();
 
@@ -35,7 +35,7 @@ export default function LoginScreen() {
     const newErrors: typeof errors = {};
     const usernameErr = validateUsername(username);
     if (usernameErr) newErrors.username = usernameErr;
-    if (!password) newErrors.password = "Password is required";
+    if (!password) newErrors.password = t().validation.required(t().auth.password);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -50,7 +50,7 @@ export default function LoginScreen() {
     if (result.success) {
       router.replace("/(tabs)");
     } else {
-      setErrors({ general: result.error || "Login failed" });
+      setErrors({ general: result.error || t().auth.loginFailed });
     }
   };
 
@@ -60,9 +60,9 @@ export default function LoginScreen() {
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
         <Ionicons name="compass" size={48} color={colors.primary} />
-        <Text style={[styles.appName, { color: colors.primary }]}>PlanGo</Text>
+        <Text style={[styles.appName, { color: colors.primary }]}>{t().auth.appName}</Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Your personal travel planner
+          {t().auth.tagline}
         </Text>
       </View>
 
@@ -82,7 +82,7 @@ export default function LoginScreen() {
             <Ionicons name="person-outline" size={20} color={errors.username ? colors.error : colors.textTertiary} />
             <TextInput
               style={[styles.input, { color: colors.text }]}
-              placeholder="Username"
+              placeholder={t().auth.username}
               placeholderTextColor={colors.textTertiary}
               value={username}
               onChangeText={(t) => { setUsername(t); if (errors.username) setErrors((e) => ({ ...e, username: undefined })); }}
@@ -102,7 +102,7 @@ export default function LoginScreen() {
             <Ionicons name="lock-closed-outline" size={20} color={errors.password ? colors.error : colors.textTertiary} />
             <TextInput
               style={[styles.input, { color: colors.text }]}
-              placeholder="Password"
+              placeholder={t().auth.password}
               placeholderTextColor={colors.textTertiary}
               value={password}
               onChangeText={(t) => { setPassword(t); if (errors.password) setErrors((e) => ({ ...e, password: undefined })); }}
@@ -128,17 +128,17 @@ export default function LoginScreen() {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.loginButtonText}>Sign In</Text>
+            <Text style={styles.loginButtonText}>{t().auth.signIn}</Text>
           )}
         </Pressable>
       </View>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 16) }]}>
         <Text style={[styles.footerText, { color: colors.textSecondary }]}>
-          Don't have an account?
+          {t().auth.noAccount}
         </Text>
         <Pressable onPress={() => router.push("/(auth)/register")}>
-          <Text style={[styles.footerLink, { color: colors.primary }]}> Sign Up</Text>
+          <Text style={[styles.footerLink, { color: colors.primary }]}> {t().auth.signUp}</Text>
         </Pressable>
       </View>
     </View>

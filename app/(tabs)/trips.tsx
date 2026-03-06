@@ -5,7 +5,6 @@ import {
   FlatList,
   Pressable,
   StyleSheet,
-  useColorScheme,
   Platform,
   Alert,
 } from "react-native";
@@ -15,7 +14,9 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { t } from "@/lib/i18n";
 import type { Itinerary } from "@/lib/storage";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -50,7 +51,9 @@ function TripCard({ item, colors, onDelete }: { item: Itinerary; colors: ReturnT
           </View>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
-          <Text style={[styles.statusText, { color: statusColor.text }]}>{item.status}</Text>
+          <Text style={[styles.statusText, { color: statusColor.text }]}>
+            {item.status === "draft" ? t().trips.statusDraft : item.status === "active" ? t().trips.statusActive : t().trips.statusCompleted}
+          </Text>
         </View>
       </View>
 
@@ -63,7 +66,7 @@ function TripCard({ item, colors, onDelete }: { item: Itinerary; colors: ReturnT
         </View>
         <View style={styles.detailItem}>
           <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
-          <Text style={[styles.detailText, { color: colors.textSecondary }]}>{dayCount} days</Text>
+          <Text style={[styles.detailText, { color: colors.textSecondary }]}>{dayCount} {t().trips.days}</Text>
         </View>
         <View style={styles.detailItem}>
           <Ionicons name="people-outline" size={16} color={colors.textSecondary} />
@@ -93,8 +96,7 @@ function TripCard({ item, colors, onDelete }: { item: Itinerary; colors: ReturnT
 
 export default function TripsScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const { itineraries, deleteItinerary } = useData();
@@ -107,10 +109,10 @@ export default function TripsScreen() {
   }, [itineraries, user]);
 
   const handleDelete = (id: string) => {
-    Alert.alert("Delete Trip", "Are you sure you want to delete this trip?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t().trips.deleteTitle, t().trips.deleteMessage, [
+      { text: t().common.cancel, style: "cancel" },
       {
-        text: "Delete",
+        text: t().common.delete,
         style: "destructive",
         onPress: () => deleteItinerary(id),
       },
@@ -122,7 +124,7 @@ export default function TripsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>My Trips</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t().trips.title}</Text>
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -146,8 +148,8 @@ export default function TripsScreen() {
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Ionicons name="map-outline" size={48} color={colors.textTertiary} />
-            <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>No trips yet</Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>Create your first trip to get started</Text>
+            <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>{t().trips.emptyTitle}</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>{t().trips.emptySubtitle}</Text>
             <Pressable
               onPress={() => router.push("/create-trip")}
               style={({ pressed }) => [
@@ -156,7 +158,7 @@ export default function TripsScreen() {
               ]}
             >
               <Ionicons name="add" size={20} color="#fff" />
-              <Text style={styles.createButtonText}>Plan a Trip</Text>
+              <Text style={styles.createButtonText}>{t().trips.planTrip}</Text>
             </Pressable>
           </View>
         }

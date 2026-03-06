@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  useColorScheme,
   Platform,
   Pressable,
   ScrollView,
@@ -15,13 +14,14 @@ import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useData } from "@/contexts/DataContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { t } from "@/lib/i18n";
 import type { Destination } from "@/lib/storage";
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { destinations } = useData();
 
@@ -51,7 +51,7 @@ export default function MapScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Location</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t().map.title}</Text>
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -74,9 +74,9 @@ export default function MapScreen() {
         {!permission?.granted ? (
           <View style={[styles.permissionCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Ionicons name="location-outline" size={48} color={colors.primary} />
-            <Text style={[styles.permissionTitle, { color: colors.text }]}>Location Access</Text>
+            <Text style={[styles.permissionTitle, { color: colors.text }]}>{t().map.locationAccess}</Text>
             <Text style={[styles.permissionText, { color: colors.textSecondary }]}>
-              Allow location access to track your position and find nearby destinations
+              {t().map.locationDesc}
             </Text>
             <Pressable
               onPress={() => requestPermission()}
@@ -85,7 +85,7 @@ export default function MapScreen() {
                 { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
               ]}
             >
-              <Text style={styles.permissionButtonText}>Enable Location</Text>
+              <Text style={styles.permissionButtonText}>{t().map.enableLocation}</Text>
             </Pressable>
           </View>
         ) : (
@@ -93,20 +93,20 @@ export default function MapScreen() {
             <View style={[styles.locationCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <View style={styles.locationHeader}>
                 <Ionicons name="navigate" size={24} color={colors.primary} />
-                <Text style={[styles.locationTitle, { color: colors.text }]}>Your Location</Text>
+                <Text style={[styles.locationTitle, { color: colors.text }]}>{t().map.yourLocation}</Text>
               </View>
               {loadingLocation ? (
                 <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
               ) : location ? (
                 <View style={styles.coordsRow}>
                   <View style={[styles.coordBox, { backgroundColor: colors.inputBg }]}>
-                    <Text style={[styles.coordLabel, { color: colors.textSecondary }]}>Latitude</Text>
+                    <Text style={[styles.coordLabel, { color: colors.textSecondary }]}>{t().map.latitude}</Text>
                     <Text style={[styles.coordValue, { color: colors.text }]}>
                       {location.coords.latitude.toFixed(4)}
                     </Text>
                   </View>
                   <View style={[styles.coordBox, { backgroundColor: colors.inputBg }]}>
-                    <Text style={[styles.coordLabel, { color: colors.textSecondary }]}>Longitude</Text>
+                    <Text style={[styles.coordLabel, { color: colors.textSecondary }]}>{t().map.longitude}</Text>
                     <Text style={[styles.coordValue, { color: colors.text }]}>
                       {location.coords.longitude.toFixed(4)}
                     </Text>
@@ -114,12 +114,12 @@ export default function MapScreen() {
                 </View>
               ) : (
                 <Text style={[styles.noLocation, { color: colors.textSecondary }]}>
-                  Tap refresh to get your location
+                  {t().map.tapRefresh}
                 </Text>
               )}
             </View>
 
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Destinations</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().map.destinations}</Text>
             {destinations.filter((d) => d.isActive).map((dest) => (
               <Pressable
                 key={dest.id}

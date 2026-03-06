@@ -5,7 +5,6 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
-  useColorScheme,
   Platform,
   ActivityIndicator,
   ScrollView,
@@ -15,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import {
   validateEmail,
@@ -23,6 +23,7 @@ import {
   validateFullName,
   validateConfirmPassword,
 } from "@/lib/validation";
+import { t } from "@/lib/i18n";
 
 interface FormErrors {
   fullName?: string;
@@ -35,8 +36,7 @@ interface FormErrors {
 
 export default function RegisterScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { register } = useAuth();
 
@@ -78,7 +78,7 @@ export default function RegisterScreen() {
     if (result.success) {
       router.replace("/(tabs)");
     } else {
-      setErrors({ general: result.error || "Registration failed" });
+      setErrors({ general: result.error || t().auth.registerFailed });
     }
   };
 
@@ -103,7 +103,7 @@ export default function RegisterScreen() {
           placeholder={placeholder}
           placeholderTextColor={colors.textTertiary}
           value={value}
-          onChangeText={(t) => { onChange(t); clearError(errorKey); }}
+          onChangeText={(val) => { onChange(val); clearError(errorKey); }}
           keyboardType={options?.keyboardType}
           autoCapitalize={options?.autoCapitalize ?? "sentences"}
           secureTextEntry={options?.secureTextEntry}
@@ -125,9 +125,9 @@ export default function RegisterScreen() {
       </Pressable>
 
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.text }]}>Create Account</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t().auth.createAccount}</Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Start planning your dream trips
+          {t().auth.startPlanning}
         </Text>
       </View>
 
@@ -139,11 +139,11 @@ export default function RegisterScreen() {
       )}
 
       <View style={styles.form}>
-        {renderField("person-outline", "Full Name", fullName, setFullName, "fullName")}
-        {renderField("mail-outline", "Email", email, setEmail, "email", { keyboardType: "email-address", autoCapitalize: "none" })}
-        {renderField("at-outline", "Username", username, setUsername, "username", { autoCapitalize: "none", autoCorrect: false })}
-        {renderField("lock-closed-outline", "Password", password, setPassword, "password", { secureTextEntry: true })}
-        {renderField("shield-checkmark-outline", "Confirm Password", confirmPassword, setConfirmPassword, "confirmPassword", { secureTextEntry: true })}
+        {renderField("person-outline", t().auth.fullName, fullName, setFullName, "fullName")}
+        {renderField("mail-outline", t().auth.email, email, setEmail, "email", { keyboardType: "email-address", autoCapitalize: "none" })}
+        {renderField("at-outline", t().auth.username, username, setUsername, "username", { autoCapitalize: "none", autoCorrect: false })}
+        {renderField("lock-closed-outline", t().auth.password, password, setPassword, "password", { secureTextEntry: true })}
+        {renderField("shield-checkmark-outline", t().auth.confirmPassword, confirmPassword, setConfirmPassword, "confirmPassword", { secureTextEntry: true })}
 
         <Pressable
           style={({ pressed }) => [
@@ -157,17 +157,17 @@ export default function RegisterScreen() {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.registerButtonText}>Create Account</Text>
+            <Text style={styles.registerButtonText}>{t().auth.createAccount}</Text>
           )}
         </Pressable>
       </View>
 
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: colors.textSecondary }]}>
-          Already have an account?
+          {t().auth.hasAccount}
         </Text>
         <Pressable onPress={() => router.back()}>
-          <Text style={[styles.footerLink, { color: colors.primary }]}> Sign In</Text>
+          <Text style={[styles.footerLink, { color: colors.primary }]}> {t().auth.signIn}</Text>
         </Pressable>
       </View>
     </ScrollView>

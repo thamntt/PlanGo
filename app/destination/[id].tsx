@@ -5,7 +5,6 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
-  useColorScheme,
   Platform,
   TextInput,
   Alert,
@@ -18,7 +17,9 @@ import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { t } from "@/lib/i18n";
 
 function StarRating({
   rating,
@@ -49,8 +50,7 @@ function StarRating({
 export default function DestinationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const { destinations, reviews, addReview } = useData();
@@ -66,14 +66,14 @@ export default function DestinationDetailScreen() {
   if (!destination) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
-        <Text style={[styles.notFound, { color: colors.textSecondary }]}>Destination not found</Text>
+        <Text style={[styles.notFound, { color: colors.textSecondary }]}>{t().destination.notFound}</Text>
       </View>
     );
   }
 
   const handleSubmitReview = async () => {
     if (!newComment.trim()) {
-      Alert.alert("Error", "Please write a comment");
+      Alert.alert(t().common.error, t().destination.pleaseComment);
       return;
     }
     await addReview({
@@ -152,17 +152,17 @@ export default function DestinationDetailScreen() {
             ))}
           </View>
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>About</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().destination.about}</Text>
           <Text style={[styles.description, { color: colors.textSecondary }]}>{destination.description}</Text>
 
           <View style={[styles.coordCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.coordRow}>
               <View style={[styles.coordItem, { backgroundColor: colors.inputBg }]}>
-                <Text style={[styles.coordLabel, { color: colors.textTertiary }]}>Lat</Text>
+                <Text style={[styles.coordLabel, { color: colors.textTertiary }]}>{t().destination.lat}</Text>
                 <Text style={[styles.coordValue, { color: colors.text }]}>{destination.latitude.toFixed(4)}</Text>
               </View>
               <View style={[styles.coordItem, { backgroundColor: colors.inputBg }]}>
-                <Text style={[styles.coordLabel, { color: colors.textTertiary }]}>Lng</Text>
+                <Text style={[styles.coordLabel, { color: colors.textTertiary }]}>{t().destination.lng}</Text>
                 <Text style={[styles.coordValue, { color: colors.text }]}>{destination.longitude.toFixed(4)}</Text>
               </View>
             </View>
@@ -187,7 +187,7 @@ export default function DestinationDetailScreen() {
               <StarRating rating={newRating} onRate={setNewRating} colors={colors} />
               <TextInput
                 style={[styles.reviewInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                placeholder="Write your review..."
+                placeholder={t().destination.writeReview}
                 placeholderTextColor={colors.textTertiary}
                 value={newComment}
                 onChangeText={setNewComment}
@@ -201,7 +201,7 @@ export default function DestinationDetailScreen() {
                   { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
                 ]}
               >
-                <Text style={styles.submitButtonText}>Submit Review</Text>
+                <Text style={styles.submitButtonText}>{t().destination.submitReview}</Text>
               </Pressable>
             </View>
           )}
@@ -209,7 +209,7 @@ export default function DestinationDetailScreen() {
           {destReviews.length === 0 ? (
             <View style={styles.emptyReviews}>
               <Ionicons name="chatbubble-outline" size={32} color={colors.textTertiary} />
-              <Text style={[styles.emptyText, { color: colors.textTertiary }]}>No reviews yet. Be the first!</Text>
+              <Text style={[styles.emptyText, { color: colors.textTertiary }]}>{t().destination.noReviews}</Text>
             </View>
           ) : (
             destReviews.map((review) => (

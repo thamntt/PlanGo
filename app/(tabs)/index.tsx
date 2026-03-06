@@ -6,7 +6,6 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
-  useColorScheme,
   Platform,
   RefreshControl,
 } from "react-native";
@@ -17,8 +16,10 @@ import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { CATEGORIES } from "@/lib/seed-data";
+import { t } from "@/lib/i18n";
 import type { Destination } from "@/lib/storage";
 
 function DestinationCard({ item, colors }: { item: Destination; colors: ReturnType<typeof useThemeColors> }) {
@@ -65,8 +66,7 @@ function DestinationCard({ item, colors }: { item: Destination; colors: ReturnTy
 
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const { destinations, refreshData, isLoading } = useData();
@@ -100,9 +100,9 @@ export default function ExploreScreen() {
         <View style={styles.headerRow}>
           <View>
             <Text style={[styles.greeting, { color: colors.textSecondary }]}>
-              Hello, {user?.fullName?.split(" ")[0] || "Traveler"}
+              {t().explore.hello}, {user?.fullName?.split(" ")[0] || t().explore.traveler}
             </Text>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>Explore Vietnam</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>{t().explore.title}</Text>
           </View>
           <Pressable
             onPress={() => {
@@ -122,7 +122,7 @@ export default function ExploreScreen() {
           <Ionicons name="search-outline" size={20} color={colors.textTertiary} />
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
-            placeholder="Search destinations..."
+            placeholder={t().explore.searchPlaceholder}
             placeholderTextColor={colors.textTertiary}
             value={search}
             onChangeText={setSearch}
@@ -137,16 +137,16 @@ export default function ExploreScreen() {
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
-          data={["All", ...CATEGORIES]}
+          data={[t().common.all, ...CATEGORIES]}
           keyExtractor={(item) => item}
           contentContainerStyle={styles.categoryList}
           renderItem={({ item }) => {
-            const isSelected = item === "All" ? !selectedCategory : selectedCategory === item;
+            const isSelected = item === t().common.all ? !selectedCategory : selectedCategory === item;
             return (
               <Pressable
                 onPress={() => {
                   Haptics.selectionAsync();
-                  setSelectedCategory(item === "All" ? null : item);
+                  setSelectedCategory(item === t().common.all ? null : item);
                 }}
                 style={[
                   styles.categoryChip,
@@ -175,8 +175,8 @@ export default function ExploreScreen() {
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Ionicons name="compass-outline" size={48} color={colors.textTertiary} />
-            <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>No destinations found</Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>Try adjusting your search or filters</Text>
+            <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>{t().explore.noResults}</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>{t().explore.noResultsHint}</Text>
           </View>
         }
       />

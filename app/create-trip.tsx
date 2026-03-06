@@ -6,7 +6,6 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
-  useColorScheme,
   Platform,
   Alert,
   ActivityIndicator,
@@ -17,9 +16,11 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { PREFERENCE_OPTIONS, BUDGET_OPTIONS } from "@/lib/seed-data";
 import { validateRequired, validateDate, validateDateRange, validateNumPeople } from "@/lib/validation";
+import { t } from "@/lib/i18n";
 
 interface FormErrors {
   destination?: string;
@@ -32,8 +33,7 @@ interface FormErrors {
 
 export default function CreateTripScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const { generateItinerary } = useData();
@@ -59,17 +59,17 @@ export default function CreateTripScreen() {
 
   const validate = (): boolean => {
     const newErrors: FormErrors = {};
-    const destErr = validateRequired(destination, "Destination");
+    const destErr = validateRequired(destination, t().createTrip.destination);
     if (destErr) newErrors.destination = destErr;
-    const startErr = validateDate(startDate, "Start date");
+    const startErr = validateDate(startDate, t().createTrip.startDate);
     if (startErr) newErrors.startDate = startErr;
-    const endErr = validateDate(endDate, "End date");
+    const endErr = validateDate(endDate, t().createTrip.endDate);
     if (endErr) newErrors.endDate = endErr;
     if (!startErr && !endErr) {
       const rangeErr = validateDateRange(startDate, endDate);
       if (rangeErr) newErrors.dateRange = rangeErr;
     }
-    if (!budget) newErrors.budget = "Please select a budget";
+    if (!budget) newErrors.budget = t().createTrip.selectBudget;
     const numErr = validateNumPeople(numPeople);
     if (numErr) newErrors.numPeople = numErr;
     setErrors(newErrors);
@@ -94,7 +94,7 @@ export default function CreateTripScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({ pathname: "/itinerary/[id]", params: { id: itin.id } });
     } catch (e) {
-      Alert.alert("Error", "Failed to generate itinerary");
+      Alert.alert(t().common.error, t().createTrip.generateFailed);
     }
     setLoading(false);
   };
@@ -107,7 +107,7 @@ export default function CreateTripScreen() {
         <Pressable onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Plan a Trip</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t().createTrip.title}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -117,15 +117,15 @@ export default function CreateTripScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text }]}>Destination</Text>
+          <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.destination}</Text>
           <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.destination ? colors.error : colors.inputBorder }]}>
             <Ionicons name="location-outline" size={20} color={errors.destination ? colors.error : colors.textTertiary} />
             <TextInput
               style={[styles.input, { color: colors.text }]}
-              placeholder="e.g., Ha Long Bay, Hoi An..."
+              placeholder={t().createTrip.destPlaceholder}
               placeholderTextColor={colors.textTertiary}
               value={destination}
-              onChangeText={(t) => { setDestination(t); clearError("destination"); }}
+              onChangeText={(v) => { setDestination(v); clearError("destination"); }}
             />
           </View>
           {errors.destination && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.destination}</Text>}
@@ -133,29 +133,29 @@ export default function CreateTripScreen() {
 
         <View style={styles.rowSection}>
           <View style={[styles.halfSection, { flex: 1 }]}>
-            <Text style={[styles.label, { color: colors.text }]}>Start Date</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.startDate}</Text>
             <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.startDate ? colors.error : colors.inputBorder }]}>
               <Ionicons name="calendar-outline" size={18} color={errors.startDate ? colors.error : colors.textTertiary} />
               <TextInput
                 style={[styles.input, { color: colors.text }]}
-                placeholder="YYYY-MM-DD"
+                placeholder={t().createTrip.datePlaceholder}
                 placeholderTextColor={colors.textTertiary}
                 value={startDate}
-                onChangeText={(t) => { setStartDate(t); clearError("startDate"); clearError("dateRange"); }}
+                onChangeText={(v) => { setStartDate(v); clearError("startDate"); clearError("dateRange"); }}
               />
             </View>
             {errors.startDate && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.startDate}</Text>}
           </View>
           <View style={[styles.halfSection, { flex: 1 }]}>
-            <Text style={[styles.label, { color: colors.text }]}>End Date</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.endDate}</Text>
             <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.endDate ? colors.error : colors.inputBorder }]}>
               <Ionicons name="calendar-outline" size={18} color={errors.endDate ? colors.error : colors.textTertiary} />
               <TextInput
                 style={[styles.input, { color: colors.text }]}
-                placeholder="YYYY-MM-DD"
+                placeholder={t().createTrip.datePlaceholder}
                 placeholderTextColor={colors.textTertiary}
                 value={endDate}
-                onChangeText={(t) => { setEndDate(t); clearError("endDate"); clearError("dateRange"); }}
+                onChangeText={(v) => { setEndDate(v); clearError("endDate"); clearError("dateRange"); }}
               />
             </View>
             {errors.endDate && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.endDate}</Text>}
@@ -164,7 +164,7 @@ export default function CreateTripScreen() {
         {errors.dateRange && <Text style={[styles.fieldError, { color: colors.error, marginTop: -12 }]}>{errors.dateRange}</Text>}
 
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text }]}>Number of Travelers</Text>
+          <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.numTravelers}</Text>
           <View style={styles.counterRow}>
             <Pressable
               onPress={() => {
@@ -194,7 +194,7 @@ export default function CreateTripScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text }]}>Budget</Text>
+          <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.budget}</Text>
           <View style={styles.chipGrid}>
             {BUDGET_OPTIONS.map((b) => {
               const isSelected = budget === b;
@@ -225,7 +225,7 @@ export default function CreateTripScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text }]}>Preferences</Text>
+          <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.preferences}</Text>
           <View style={styles.chipGrid}>
             {PREFERENCE_OPTIONS.map((pref) => {
               const isSelected = selectedPrefs.includes(pref);
@@ -266,7 +266,7 @@ export default function CreateTripScreen() {
           ) : (
             <>
               <Ionicons name="sparkles" size={20} color="#fff" />
-              <Text style={styles.generateButtonText}>Generate Itinerary</Text>
+              <Text style={styles.generateButtonText}>{t().createTrip.generate}</Text>
             </>
           )}
         </Pressable>

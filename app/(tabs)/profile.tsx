@@ -4,11 +4,10 @@ import {
   Text,
   Pressable,
   StyleSheet,
-  useColorScheme,
   Platform,
-  Alert,
   TextInput,
   ScrollView,
+  Switch,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,8 +16,10 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { PREFERENCE_OPTIONS } from "@/lib/seed-data";
+import { t } from "@/lib/i18n";
 
 function StatItem({ icon, value, label, colors }: { icon: string; value: number; label: string; colors: ReturnType<typeof useThemeColors> }) {
   return (
@@ -32,11 +33,11 @@ function StatItem({ icon, value, label, colors }: { icon: string; value: number;
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark, themeMode, setThemeMode } = useSettings();
   const colors = useThemeColors(isDark);
   const { user, logout, updateProfile, isAdmin } = useAuth();
   const { itineraries, reviews } = useData();
+  const txt = t();
 
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState(user?.fullName || "");
@@ -64,19 +65,18 @@ export default function ProfileScreen() {
 
   const handleLogout = () => {
     if (Platform.OS === "web") {
-      const confirmed = window.confirm("Are you sure you want to logout?");
+      const confirmed = window.confirm(txt.profile.logoutConfirm);
       if (confirmed) {
         logout();
       }
     } else {
-      Alert.alert("Logout", "Are you sure you want to logout?", [
-        { text: "Cancel", style: "cancel" },
+      const Alert = require("react-native").Alert;
+      Alert.alert(txt.profile.logout, txt.profile.logoutConfirm, [
+        { text: txt.common.cancel, style: "cancel" },
         {
-          text: "Logout",
+          text: txt.profile.logout,
           style: "destructive",
-          onPress: () => {
-            logout();
-          },
+          onPress: () => { logout(); },
         },
       ]);
     }
@@ -91,6 +91,12 @@ export default function ProfileScreen() {
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
+  const themeModes: { key: "system" | "light" | "dark"; label: string; icon: string }[] = [
+    { key: "system", label: txt.settings.system, icon: "phone-portrait-outline" },
+    { key: "light", label: txt.settings.light, icon: "sunny-outline" },
+    { key: "dark", label: txt.settings.dark, icon: "moon-outline" },
+  ];
+
   return (
     <ScrollView
       style={[pStyles.container, { backgroundColor: colors.background }]}
@@ -102,7 +108,7 @@ export default function ProfileScreen() {
         style={[pStyles.heroGradient, { paddingTop: insets.top + webTopInset + 12 }]}
       >
         <View style={pStyles.heroHeader}>
-          <Text style={pStyles.heroTitle}>Profile</Text>
+          <Text style={pStyles.heroTitle}>{txt.profile.title}</Text>
           {editing ? (
             <View style={pStyles.editActions}>
               <Pressable
@@ -151,7 +157,7 @@ export default function ProfileScreen() {
             {memberSince ? (
               <View style={[pStyles.memberBadge, { backgroundColor: "rgba(255,255,255,0.25)" }]}>
                 <Ionicons name="calendar-outline" size={11} color="#fff" />
-                <Text style={pStyles.memberBadgeText}>Since {memberSince}</Text>
+                <Text style={pStyles.memberBadgeText}>{txt.profile.since} {memberSince}</Text>
               </View>
             ) : null}
           </View>
@@ -160,22 +166,22 @@ export default function ProfileScreen() {
 
       <View style={pStyles.body}>
         <View style={[pStyles.statsCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-          <StatItem icon="map" value={myTripsCount} label="Trips" colors={colors} />
+          <StatItem icon="map" value={myTripsCount} label={txt.profile.trips} colors={colors} />
           <View style={[pStyles.statDivider, { backgroundColor: colors.divider }]} />
-          <StatItem icon="chatbubble" value={myReviewsCount} label="Reviews" colors={colors} />
+          <StatItem icon="chatbubble" value={myReviewsCount} label={txt.profile.reviews} colors={colors} />
           <View style={[pStyles.statDivider, { backgroundColor: colors.divider }]} />
-          <StatItem icon="heart" value={selectedPrefs.length} label="Interests" colors={colors} />
+          <StatItem icon="heart" value={selectedPrefs.length} label={txt.profile.interests} colors={colors} />
         </View>
 
         <View style={pStyles.section}>
           <View style={pStyles.sectionHeader}>
             <Ionicons name="person" size={18} color={colors.primary} />
-            <Text style={[pStyles.sectionTitle, { color: colors.text }]}>Personal Information</Text>
+            <Text style={[pStyles.sectionTitle, { color: colors.text }]}>{txt.profile.personalInfo}</Text>
           </View>
           <View style={[pStyles.infoCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <InfoRow
               icon="person-outline"
-              label="Full Name"
+              label={txt.auth.fullName}
               value={user?.fullName || "-"}
               editing={editing}
               editValue={fullName}
@@ -185,7 +191,7 @@ export default function ProfileScreen() {
             <View style={[pStyles.infoDivider, { backgroundColor: colors.divider }]} />
             <InfoRow
               icon="mail-outline"
-              label="Email"
+              label={txt.auth.email}
               value={user?.email || "-"}
               editing={editing}
               editValue={email}
@@ -196,14 +202,14 @@ export default function ProfileScreen() {
             <View style={[pStyles.infoDivider, { backgroundColor: colors.divider }]} />
             <InfoRow
               icon="call-outline"
-              label="Phone"
-              value={user?.phone || "Not set"}
+              label={txt.profile.phone}
+              value={user?.phone || txt.profile.notSet}
               editing={editing}
               editValue={phone}
               onChangeText={setPhone}
               colors={colors}
               keyboardType="phone-pad"
-              placeholder="Add phone number"
+              placeholder={txt.profile.phonePlaceholder}
             />
           </View>
         </View>
@@ -211,9 +217,9 @@ export default function ProfileScreen() {
         <View style={pStyles.section}>
           <View style={pStyles.sectionHeader}>
             <Ionicons name="heart" size={18} color={colors.primary} />
-            <Text style={[pStyles.sectionTitle, { color: colors.text }]}>Travel Interests</Text>
+            <Text style={[pStyles.sectionTitle, { color: colors.text }]}>{txt.profile.travelInterests}</Text>
             {editing && (
-              <Text style={[pStyles.sectionHint, { color: colors.textTertiary }]}>Tap to select</Text>
+              <Text style={[pStyles.sectionHint, { color: colors.textTertiary }]}>{txt.profile.tapToSelect}</Text>
             )}
           </View>
           <View style={pStyles.prefsGrid}>
@@ -244,11 +250,59 @@ export default function ProfileScreen() {
                     color={isSelected ? "#fff" : colors.textSecondary}
                   />
                   <Text style={[pStyles.prefChipText, { color: isSelected ? "#fff" : colors.text }]}>
-                    {pref}
+                    {txt.preferences[pref] || pref}
                   </Text>
                 </Pressable>
               );
             })}
+          </View>
+        </View>
+
+        <View style={pStyles.section}>
+          <View style={pStyles.sectionHeader}>
+            <Ionicons name="settings-outline" size={18} color={colors.primary} />
+            <Text style={[pStyles.sectionTitle, { color: colors.text }]}>{txt.settings.title}</Text>
+          </View>
+          <View style={[pStyles.infoCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+            <View style={pStyles.settingRow}>
+              <View style={[pStyles.infoIconBox, { backgroundColor: colors.primary + "15" }]}>
+                <Ionicons name="contrast-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[pStyles.settingLabel, { color: colors.text }]}>{txt.settings.appearance}</Text>
+                <Text style={[pStyles.settingDesc, { color: colors.textTertiary }]}>{txt.settings.darkModeDesc}</Text>
+              </View>
+            </View>
+            <View style={pStyles.themeSelector}>
+              {themeModes.map((mode) => (
+                <Pressable
+                  key={mode.key}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setThemeMode(mode.key);
+                  }}
+                  style={[
+                    pStyles.themeModeBtn,
+                    {
+                      backgroundColor: themeMode === mode.key ? colors.primary : colors.inputBg,
+                      borderColor: themeMode === mode.key ? colors.primary : colors.inputBorder,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={mode.icon as any}
+                    size={16}
+                    color={themeMode === mode.key ? "#fff" : colors.textSecondary}
+                  />
+                  <Text style={[
+                    pStyles.themeModeText,
+                    { color: themeMode === mode.key ? "#fff" : colors.textSecondary },
+                  ]}>
+                    {mode.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         </View>
 
@@ -267,8 +321,8 @@ export default function ProfileScreen() {
               <Ionicons name="settings" size={20} color={colors.accent} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[pStyles.adminBtnTitle, { color: colors.text }]}>Admin Dashboard</Text>
-              <Text style={[pStyles.adminBtnSub, { color: colors.textSecondary }]}>Manage users, destinations & reviews</Text>
+              <Text style={[pStyles.adminBtnTitle, { color: colors.text }]}>{txt.profile.adminDashboard}</Text>
+              <Text style={[pStyles.adminBtnSub, { color: colors.textSecondary }]}>{txt.profile.adminDesc}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
           </Pressable>
@@ -282,7 +336,7 @@ export default function ProfileScreen() {
           ]}
         >
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={[pStyles.logoutButtonText, { color: colors.error }]}>Logout</Text>
+          <Text style={[pStyles.logoutButtonText, { color: colors.error }]}>{txt.profile.logout}</Text>
         </Pressable>
       </View>
     </ScrollView>
@@ -290,25 +344,11 @@ export default function ProfileScreen() {
 }
 
 function InfoRow({
-  icon,
-  label,
-  value,
-  editing,
-  editValue,
-  onChangeText,
-  colors,
-  keyboardType,
-  placeholder,
+  icon, label, value, editing, editValue, onChangeText, colors, keyboardType, placeholder,
 }: {
-  icon: string;
-  label: string;
-  value: string;
-  editing: boolean;
-  editValue: string;
-  onChangeText: (t: string) => void;
-  colors: ReturnType<typeof useThemeColors>;
-  keyboardType?: "email-address" | "phone-pad";
-  placeholder?: string;
+  icon: string; label: string; value: string; editing: boolean; editValue: string;
+  onChangeText: (t: string) => void; colors: ReturnType<typeof useThemeColors>;
+  keyboardType?: "email-address" | "phone-pad"; placeholder?: string;
 }) {
   return (
     <View style={pStyles.infoRow}>
@@ -328,7 +368,7 @@ function InfoRow({
             autoCapitalize={keyboardType === "email-address" ? "none" : "words"}
           />
         ) : (
-          <Text style={[pStyles.infoValue, { color: value === "Not set" ? colors.textTertiary : colors.text }]}>
+          <Text style={[pStyles.infoValue, { color: value === t().profile.notSet ? colors.textTertiary : colors.text }]}>
             {value}
           </Text>
         )}
@@ -344,62 +384,35 @@ const pStyles = StyleSheet.create({
   heroTitle: { fontSize: 22, fontFamily: "Inter_700Bold", color: "#fff" },
   editActions: { flexDirection: "row", gap: 8 },
   editActionBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center",
   },
   saveBtn: { backgroundColor: "rgba(255,255,255,0.35)" },
   avatarContainer: { alignItems: "center", gap: 6 },
   avatarRing: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
+    width: 88, height: 88, borderRadius: 44,
+    borderWidth: 3, borderColor: "rgba(255,255,255,0.5)",
+    alignItems: "center", justifyContent: "center", marginBottom: 4,
   },
-  avatar: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  avatar: { width: 78, height: 78, borderRadius: 39, alignItems: "center", justifyContent: "center" },
   avatarText: { fontSize: 32, fontFamily: "Inter_700Bold" },
   userName: { fontSize: 22, fontFamily: "Inter_700Bold", color: "#fff" },
   userHandle: { fontSize: 14, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.75)" },
   badgeRow: { flexDirection: "row", gap: 8, marginTop: 6 },
   adminBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.25)",
   },
   adminBadgeText: { color: "#fff", fontSize: 11, fontFamily: "Inter_600SemiBold" },
   memberBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
   memberBadgeText: { color: "#fff", fontSize: 11, fontFamily: "Inter_500Medium" },
   body: { paddingHorizontal: 20, marginTop: -12 },
   statsCard: {
-    flexDirection: "row",
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    alignItems: "center",
+    flexDirection: "row", borderRadius: 16, borderWidth: 1, padding: 16, alignItems: "center",
   },
   statItem: { flex: 1, alignItems: "center", gap: 4 },
   statValue: { fontSize: 20, fontFamily: "Inter_700Bold" },
@@ -418,37 +431,30 @@ const pStyles = StyleSheet.create({
   infoDivider: { height: 1, marginLeft: 66 },
   prefsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   prefChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 22,
-    borderWidth: 1,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 22, borderWidth: 1,
   },
   prefChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  settingRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 },
+  settingLabel: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  settingDesc: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  themeSelector: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 14 },
+  themeModeBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1,
+  },
+  themeModeText: { fontSize: 13, fontFamily: "Inter_500Medium" },
   adminButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginTop: 24,
+    flexDirection: "row", alignItems: "center", gap: 14,
+    padding: 16, borderRadius: 16, borderWidth: 1, marginTop: 24,
   },
   adminBtnIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   adminBtnTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   adminBtnSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    marginTop: 16,
-    backgroundColor: "transparent",
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5,
+    marginTop: 16, backgroundColor: "transparent",
   },
   logoutButtonText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
 });

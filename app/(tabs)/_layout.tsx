@@ -2,37 +2,39 @@ import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
 import { NativeTabs, Icon, Label } from "expo-router/unstable-native-tabs";
 import { BlurView } from "expo-blur";
-import { Platform, StyleSheet, useColorScheme, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { useThemeColors } from "@/constants/colors";
+import { useSettings } from "@/contexts/SettingsContext";
+import { t } from "@/lib/i18n";
 
 function NativeTabLayout() {
+  const txt = t();
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "safari", selected: "safari.fill" }} />
-        <Label>Explore</Label>
+        <Label>{txt.tabs.explore}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="trips">
         <Icon sf={{ default: "map", selected: "map.fill" }} />
-        <Label>My Trips</Label>
+        <Label>{txt.tabs.myTrips}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="map">
         <Icon sf={{ default: "location", selected: "location.fill" }} />
-        <Label>Map</Label>
+        <Label>{txt.tabs.map}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>Profile</Label>
+        <Label>{txt.tabs.profile}</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
 
 function ClassicTabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const isWeb = Platform.OS === "web";
   const isIOS = Platform.OS === "ios";
@@ -63,28 +65,28 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Explore",
+          title: t().tabs.explore,
           tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="trips"
         options={{
-          title: "My Trips",
+          title: t().tabs.myTrips,
           tabBarIcon: ({ color, size }) => <Ionicons name="map-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
-          title: "Map",
+          title: t().tabs.map,
           tabBarIcon: ({ color, size }) => <Ionicons name="location-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: t().tabs.profile,
           tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
         }}
       />

@@ -5,7 +5,6 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
-  useColorScheme,
   Platform,
   Alert,
   TextInput,
@@ -17,9 +16,11 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { getUsers, saveUsers, type UserData } from "@/lib/storage";
 import { validateDestinationName, validateAddress, validateRequired } from "@/lib/validation";
+import { t } from "@/lib/i18n";
 
 type Tab = "dashboard" | "users" | "destinations" | "reviews";
 
@@ -47,16 +48,15 @@ function confirmAction(title: string, message: string, onConfirm: () => void) {
     if (confirmed) onConfirm();
   } else {
     Alert.alert(title, message, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: onConfirm },
+      { text: t().common.cancel, style: "cancel" },
+      { text: t().common.delete, style: "destructive", onPress: onConfirm },
     ]);
   }
 }
 
 export default function AdminDashboard() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user: currentUser, isAdmin } = useAuth();
   const { destinations, itineraries, reviews, deleteDestination, deleteReview, updateDestination, addDestination } = useData();
@@ -156,14 +156,14 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteDest = (id: string, name: string) => {
-    confirmAction("Delete Destination", `Are you sure you want to delete "${name}"? This action cannot be undone.`, () => {
+    confirmAction(t().admin.deleteDestination, t().admin.deleteDestMsg(name), () => {
       deleteDestination(id);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
   };
 
   const handleDeleteReview = (id: string) => {
-    confirmAction("Delete Review", "Are you sure you want to delete this review? This action cannot be undone.", () => {
+    confirmAction(t().admin.deleteReview, t().admin.deleteReviewMsg, () => {
       deleteReview(id);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
@@ -173,17 +173,17 @@ export default function AdminDashboard() {
     return (
       <View style={[adminStyles.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
         <Ionicons name="lock-closed" size={48} color={colors.error} />
-        <Text style={[adminStyles.accessDenied, { color: colors.error }]}>Access Denied</Text>
+        <Text style={[adminStyles.accessDenied, { color: colors.error }]}>{t().admin.accessDenied}</Text>
       </View>
     );
   }
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const tabs: { key: Tab; icon: string; label: string }[] = [
-    { key: "dashboard", icon: "grid-outline", label: "Dashboard" },
-    { key: "users", icon: "people-outline", label: "Users" },
-    { key: "destinations", icon: "location-outline", label: "Places" },
-    { key: "reviews", icon: "chatbubbles-outline", label: "Reviews" },
+    { key: "dashboard", icon: "grid-outline", label: t().admin.dashboard },
+    { key: "users", icon: "people-outline", label: t().admin.users },
+    { key: "destinations", icon: "location-outline", label: t().admin.places },
+    { key: "reviews", icon: "chatbubbles-outline", label: t().admin.reviewsTab },
   ];
 
   return (
@@ -192,7 +192,7 @@ export default function AdminDashboard() {
         <Pressable onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
-        <Text style={[adminStyles.headerTitle, { color: colors.text }]}>Admin</Text>
+        <Text style={[adminStyles.headerTitle, { color: colors.text }]}>{t().admin.title}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -222,18 +222,18 @@ export default function AdminDashboard() {
         {activeTab === "dashboard" && (
           <>
             <View style={adminStyles.statsGrid}>
-              <StatCard icon="people" label="Users" value={users.length || 0} color="#3B82F6" colors={colors} />
-              <StatCard icon="location" label="Destinations" value={destinations.length} color="#10B981" colors={colors} />
-              <StatCard icon="map" label="Itineraries" value={itineraries.length} color="#F59E0B" colors={colors} />
-              <StatCard icon="chatbubble" label="Reviews" value={reviews.length} color="#EF4444" colors={colors} />
+              <StatCard icon="people" label={t().admin.users} value={users.length || 0} color="#3B82F6" colors={colors} />
+              <StatCard icon="location" label={t().admin.places} value={destinations.length} color="#10B981" colors={colors} />
+              <StatCard icon="map" label={t().itinerary.itinerary} value={itineraries.length} color="#F59E0B" colors={colors} />
+              <StatCard icon="chatbubble" label={t().admin.reviewsTab} value={reviews.length} color="#EF4444" colors={colors} />
             </View>
             <View style={[adminStyles.activityCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-              <Text style={[adminStyles.activityTitle, { color: colors.text }]}>Recent Activity</Text>
+              <Text style={[adminStyles.activityTitle, { color: colors.text }]}>{t().admin.recentActivity}</Text>
               {itineraries.slice(0, 5).map((itin) => (
                 <View key={itin.id} style={[adminStyles.activityRow, { borderColor: colors.divider }]}>
                   <Ionicons name="map-outline" size={16} color={colors.primary} />
                   <Text style={[adminStyles.activityText, { color: colors.textSecondary }]} numberOfLines={1}>
-                    New trip: {itin.title}
+                    {t().admin.newTrip}: {itin.title}
                   </Text>
                   <Text style={[adminStyles.activityDate, { color: colors.textTertiary }]}>
                     {new Date(itin.createdAt).toLocaleDateString("vi-VN")}
@@ -241,7 +241,7 @@ export default function AdminDashboard() {
                 </View>
               ))}
               {itineraries.length === 0 && (
-                <Text style={[adminStyles.noData, { color: colors.textTertiary }]}>No recent activity</Text>
+                <Text style={[adminStyles.noData, { color: colors.textTertiary }]}>{t().admin.noActivity}</Text>
               )}
             </View>
           </>
@@ -256,7 +256,7 @@ export default function AdminDashboard() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[adminStyles.itemTitle, { color: colors.text }]}>{u.fullName}</Text>
-                  <Text style={[adminStyles.itemSub, { color: colors.textSecondary }]}>@{u.username} - {u.role}{u.isLocked ? " (Locked)" : ""}</Text>
+                  <Text style={[adminStyles.itemSub, { color: colors.textSecondary }]}>@{u.username} - {u.role}{u.isLocked ? ` (${t().admin.locked})` : ""}</Text>
                 </View>
                 {u.id !== currentUser?.id && (
                   <Pressable
@@ -281,7 +281,7 @@ export default function AdminDashboard() {
               ]}
             >
               <Ionicons name="add" size={20} color="#fff" />
-              <Text style={adminStyles.addBtnText}>Add Destination</Text>
+              <Text style={adminStyles.addBtnText}>{t().admin.addDestination}</Text>
             </Pressable>
             {destinations.map((d) => (
               <View key={d.id} style={[adminStyles.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
@@ -307,7 +307,7 @@ export default function AdminDashboard() {
             {reviews.length === 0 ? (
               <View style={adminStyles.emptyState}>
                 <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} />
-                <Text style={[adminStyles.noData, { color: colors.textTertiary }]}>No reviews yet</Text>
+                <Text style={[adminStyles.noData, { color: colors.textTertiary }]}>{t().admin.noReviews}</Text>
               </View>
             ) : (
               reviews.map((r) => {
@@ -339,7 +339,7 @@ export default function AdminDashboard() {
           <View style={[adminStyles.modalContent, { backgroundColor: colors.card }]}>
             <View style={adminStyles.modalHeader}>
               <Text style={[adminStyles.modalTitle, { color: colors.text }]}>
-                {editingDestId ? "Edit Destination" : "Add Destination"}
+                {editingDestId ? t().admin.editDestination : t().admin.addDestination}
               </Text>
               <Pressable onPress={() => setDestModalVisible(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
@@ -349,32 +349,32 @@ export default function AdminDashboard() {
               <View>
                 <TextInput
                   style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.name ? colors.error : colors.inputBorder }]}
-                  placeholder="Destination name *"
+                  placeholder={t().admin.destName}
                   placeholderTextColor={colors.textTertiary}
                   value={destName}
-                  onChangeText={(t) => { setDestName(t); if (destErrors.name) setDestErrors((e) => ({ ...e, name: undefined })); }}
+                  onChangeText={(v) => { setDestName(v); if (destErrors.name) setDestErrors((e) => ({ ...e, name: undefined })); }}
                 />
                 {destErrors.name && <Text style={[adminStyles.fieldError, { color: colors.error }]}>{destErrors.name}</Text>}
               </View>
               <View>
                 <TextInput
                   style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.address ? colors.error : colors.inputBorder }]}
-                  placeholder="Address *"
+                  placeholder={t().admin.address}
                   placeholderTextColor={colors.textTertiary}
                   value={destAddr}
-                  onChangeText={(t) => { setDestAddr(t); if (destErrors.address) setDestErrors((e) => ({ ...e, address: undefined })); }}
+                  onChangeText={(v) => { setDestAddr(v); if (destErrors.address) setDestErrors((e) => ({ ...e, address: undefined })); }}
                 />
                 {destErrors.address && <Text style={[adminStyles.fieldError, { color: colors.error }]}>{destErrors.address}</Text>}
               </View>
               <TextInput
                 style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder, minHeight: 80 }]}
-                placeholder="Description (optional)"
+                placeholder={t().admin.description}
                 placeholderTextColor={colors.textTertiary}
                 value={destDesc}
                 onChangeText={setDestDesc}
                 multiline
               />
-              <Text style={[adminStyles.categoryLabel, { color: colors.text }]}>Category</Text>
+              <Text style={[adminStyles.categoryLabel, { color: colors.text }]}>{t().admin.category}</Text>
               <View style={adminStyles.categoryGrid}>
                 {categories.map((cat) => (
                   <Pressable
@@ -401,7 +401,7 @@ export default function AdminDashboard() {
                   { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
                 ]}
               >
-                <Text style={adminStyles.modalSaveBtnText}>{editingDestId ? "Update" : "Save"}</Text>
+                <Text style={adminStyles.modalSaveBtnText}>{editingDestId ? t().common.update : t().common.save}</Text>
               </Pressable>
             </ScrollView>
           </View>

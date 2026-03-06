@@ -5,7 +5,6 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
-  useColorScheme,
   Platform,
   Alert,
   Share,
@@ -16,19 +15,22 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { t } from "@/lib/i18n";
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  active: "Active",
-  completed: "Completed",
-};
+function getStatusLabel(status: string): string {
+  const labels = t().trips;
+  if (status === "draft") return labels.statusDraft;
+  if (status === "active") return labels.statusActive;
+  if (status === "completed") return labels.statusCompleted;
+  return status;
+}
 
 export default function ItineraryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const { itineraries, updateItinerary, deleteItinerary } = useData();
@@ -39,7 +41,7 @@ export default function ItineraryDetailScreen() {
   if (!itinerary) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
-        <Text style={{ color: colors.textSecondary, fontFamily: "Inter_500Medium" }}>Itinerary not found</Text>
+        <Text style={{ color: colors.textSecondary, fontFamily: "Inter_500Medium" }}>{t().itinerary.notFound}</Text>
       </View>
     );
   }
@@ -47,7 +49,7 @@ export default function ItineraryDetailScreen() {
   const handleShare = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const daysSummary = itinerary.days.map((d) => `Day ${d.day}: ${d.title}\n${d.activities.map((a) => `  ${a.time} - ${a.title}`).join("\n")}`).join("\n\n");
-    const message = `${itinerary.title}\n${itinerary.destination}\n${itinerary.startDate} to ${itinerary.endDate}\nBudget: ${itinerary.budget}\n\n${daysSummary}`;
+    const message = `${itinerary.title}\n${itinerary.destination}\n${itinerary.startDate} - ${itinerary.endDate}\n${t().itinerary.budget}: ${itinerary.budget}\n\n${daysSummary}`;
     try {
       await Share.share({ message, title: itinerary.title });
       await updateItinerary(itinerary.id, { isShared: true });
@@ -58,10 +60,10 @@ export default function ItineraryDetailScreen() {
 
   const handleStatusChange = () => {
     const nextStatus = itinerary.status === "draft" ? "active" : itinerary.status === "active" ? "completed" : "draft";
-    Alert.alert("Change Status", `Mark this trip as "${nextStatus}"?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t().itinerary.changeStatus, t().itinerary.confirmStatus(nextStatus), [
+      { text: t().common.cancel, style: "cancel" },
       {
-        text: "Confirm",
+        text: t().common.confirm,
         onPress: () => {
           updateItinerary(itinerary.id, { status: nextStatus });
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -71,10 +73,10 @@ export default function ItineraryDetailScreen() {
   };
 
   const handleDelete = () => {
-    Alert.alert("Delete Trip", "Are you sure?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t().itinerary.deleteTrip, t().itinerary.deleteConfirm, [
+      { text: t().common.cancel, style: "cancel" },
       {
-        text: "Delete",
+        text: t().common.delete,
         style: "destructive",
         onPress: () => {
           deleteItinerary(itinerary.id);
@@ -110,26 +112,26 @@ export default function ItineraryDetailScreen() {
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
               <Ionicons name="location-outline" size={18} color={colors.primary} />
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Destination</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t().itinerary.destination}</Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>{itinerary.destination}</Text>
             </View>
             <View style={styles.summaryItem}>
               <Ionicons name="cash-outline" size={18} color={colors.primary} />
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Budget</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t().itinerary.budget}</Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>{itinerary.budget}</Text>
             </View>
           </View>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
               <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Dates</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t().itinerary.dates}</Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>
                 {new Date(itinerary.startDate).toLocaleDateString("vi-VN", { day: "2-digit", month: "short" })} - {new Date(itinerary.endDate).toLocaleDateString("vi-VN", { day: "2-digit", month: "short" })}
               </Text>
             </View>
             <View style={styles.summaryItem}>
               <Ionicons name="people-outline" size={18} color={colors.primary} />
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Travelers</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t().itinerary.travelers}</Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>{itinerary.numPeople}</Text>
             </View>
           </View>
@@ -149,7 +151,7 @@ export default function ItineraryDetailScreen() {
               color="#fff"
             />
             <Text style={styles.statusButtonText}>
-              {itinerary.status === "draft" ? "Start Trip" : itinerary.status === "active" ? "Complete" : "Reset"}
+              {itinerary.status === "draft" ? t().itinerary.startTrip : itinerary.status === "active" ? t().itinerary.complete : t().itinerary.reset}
             </Text>
           </Pressable>
         </View>
@@ -164,7 +166,7 @@ export default function ItineraryDetailScreen() {
           </View>
         )}
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Itinerary</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().itinerary.itinerary}</Text>
 
         {itinerary.days.map((day) => (
           <Pressable
