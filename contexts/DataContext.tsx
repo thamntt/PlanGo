@@ -42,6 +42,14 @@ interface DataContextValue {
 
 const DataContext = createContext<DataContextValue | null>(null);
 
+function parseDateInput(dateStr: string): Date {
+  const match = dateStr.trim().match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (match) {
+    return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
+  }
+  return new Date(dateStr);
+}
+
 function generateDays(
   startDate: string,
   endDate: string,
@@ -49,8 +57,8 @@ function generateDays(
   preferences: string[],
   allDestinations: Destination[]
 ): ItineraryDay[] {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const start = parseDateInput(startDate);
+  const end = parseDateInput(endDate);
   const dayCount = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
   const relevantDests = allDestinations.filter((d) => {

@@ -61,7 +61,7 @@ function TripCard({ item, colors, onDelete }: { item: Itinerary; colors: ReturnT
         <View style={styles.detailItem}>
           <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
           <Text style={[styles.detailText, { color: colors.textSecondary }]}>
-            {new Date(item.startDate).toLocaleDateString("vi-VN", { day: "2-digit", month: "short" })} - {new Date(item.endDate).toLocaleDateString("vi-VN", { day: "2-digit", month: "short" })}
+            {item.startDate} - {item.endDate}
           </Text>
         </View>
         <View style={styles.detailItem}>

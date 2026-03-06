@@ -126,7 +126,7 @@ export default function ItineraryDetailScreen() {
               <Ionicons name="calendar-outline" size={18} color={colors.primary} />
               <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>{t().itinerary.dates}</Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {new Date(itinerary.startDate).toLocaleDateString("vi-VN", { day: "2-digit", month: "short" })} - {new Date(itinerary.endDate).toLocaleDateString("vi-VN", { day: "2-digit", month: "short" })}
+                {itinerary.startDate} - {itinerary.endDate}
               </Text>
             </View>
             <View style={styles.summaryItem}>

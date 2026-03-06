@@ -1,3 +1,17 @@
+import { t } from "@/lib/i18n";
+
+export function parseDDMMYYYY(dateStr: string): Date | null {
+  const regex = /^(\d{2})-(\d{2})-(\d{4})$/;
+  const match = dateStr.trim().match(regex);
+  if (!match) return null;
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10) - 1;
+  const year = parseInt(match[3], 10);
+  const date = new Date(year, month, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) return null;
+  return date;
+}
+
 export function validateEmail(email: string): string | null {
   if (!email.trim()) return "Email is required";
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -39,24 +53,24 @@ export function validateRequired(value: string, fieldName: string): string | nul
 }
 
 export function validateDate(dateStr: string, fieldName: string): string | null {
-  if (!dateStr.trim()) return `${fieldName} is required`;
-  const regex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!regex.test(dateStr.trim())) return `${fieldName} must be in YYYY-MM-DD format`;
-  const date = new Date(dateStr.trim());
-  if (isNaN(date.getTime())) return `${fieldName} is not a valid date`;
+  if (!dateStr.trim()) return t().validation.required(fieldName);
+  const regex = /^(\d{2})-(\d{2})-(\d{4})$/;
+  if (!regex.test(dateStr.trim())) return t().validation.invalidDateFormat(fieldName);
+  const parsed = parseDDMMYYYY(dateStr);
+  if (!parsed) return t().validation.invalidDate(fieldName);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (parsed < today) return t().validation.dateNotBeforeToday(fieldName);
   return null;
 }
 
 export function validateDateRange(start: string, end: string): string | null {
-  const startErr = validateDate(start, "Start date");
-  if (startErr) return null;
-  const endErr = validateDate(end, "End date");
-  if (endErr) return null;
-  const s = new Date(start.trim());
-  const e = new Date(end.trim());
-  if (e <= s) return "End date must be after start date";
+  const s = parseDDMMYYYY(start);
+  const e = parseDDMMYYYY(end);
+  if (!s || !e) return null;
+  if (e <= s) return t().validation.endDateAfterStart;
   const diffDays = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays > 30) return "Trip duration cannot exceed 30 days";
+  if (diffDays > 30) return t().validation.maxTripDuration;
   return null;
 }
 
