@@ -1,0 +1,299 @@
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  useColorScheme,
+  Platform,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
+import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { useAuth } from "@/contexts/AuthContext";
+import { useData } from "@/contexts/DataContext";
+import { useThemeColors } from "@/constants/colors";
+import { PREFERENCE_OPTIONS, BUDGET_OPTIONS } from "@/lib/seed-data";
+
+export default function CreateTripScreen() {
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const colors = useThemeColors(isDark);
+  const { user } = useAuth();
+  const { generateItinerary } = useData();
+
+  const [destination, setDestination] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [budget, setBudget] = useState("");
+  const [numPeople, setNumPeople] = useState("2");
+  const [selectedPrefs, setSelectedPrefs] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const togglePref = (pref: string) => {
+    setSelectedPrefs((prev) =>
+      prev.includes(pref) ? prev.filter((p) => p !== pref) : [...prev, pref]
+    );
+  };
+
+  const handleGenerate = async () => {
+    if (!destination.trim()) {
+      Alert.alert("Error", "Please enter a destination");
+      return;
+    }
+    if (!startDate.trim() || !endDate.trim()) {
+      Alert.alert("Error", "Please enter start and end dates (YYYY-MM-DD)");
+      return;
+    }
+    if (!budget) {
+      Alert.alert("Error", "Please select a budget");
+      return;
+    }
+
+    setLoading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const itin = await generateItinerary({
+        destination: destination.trim(),
+        startDate,
+        endDate,
+        budget,
+        numPeople: parseInt(numPeople) || 2,
+        preferences: selectedPrefs,
+        userId: user!.id,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace({ pathname: "/itinerary/[id]", params: { id: itin.id } });
+    } catch (e) {
+      Alert.alert("Error", "Failed to generate itinerary");
+    }
+    setLoading(false);
+  };
+
+  const webTopInset = Platform.OS === "web" ? 67 : 0;
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
+        <Pressable onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Plan a Trip</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.text }]}>Destination</Text>
+          <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+            <Ionicons name="location-outline" size={20} color={colors.textTertiary} />
+            <TextInput
+              style={[styles.input, { color: colors.text }]}
+              placeholder="e.g., Ha Long Bay, Hoi An..."
+              placeholderTextColor={colors.textTertiary}
+              value={destination}
+              onChangeText={setDestination}
+            />
+          </View>
+        </View>
+
+        <View style={styles.rowSection}>
+          <View style={[styles.halfSection, { flex: 1 }]}>
+            <Text style={[styles.label, { color: colors.text }]}>Start Date</Text>
+            <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+              <Ionicons name="calendar-outline" size={18} color={colors.textTertiary} />
+              <TextInput
+                style={[styles.input, { color: colors.text }]}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={colors.textTertiary}
+                value={startDate}
+                onChangeText={setStartDate}
+              />
+            </View>
+          </View>
+          <View style={[styles.halfSection, { flex: 1 }]}>
+            <Text style={[styles.label, { color: colors.text }]}>End Date</Text>
+            <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+              <Ionicons name="calendar-outline" size={18} color={colors.textTertiary} />
+              <TextInput
+                style={[styles.input, { color: colors.text }]}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={colors.textTertiary}
+                value={endDate}
+                onChangeText={setEndDate}
+              />
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.text }]}>Number of Travelers</Text>
+          <View style={styles.counterRow}>
+            <Pressable
+              onPress={() => {
+                const n = Math.max(1, (parseInt(numPeople) || 2) - 1);
+                setNumPeople(n.toString());
+                Haptics.selectionAsync();
+              }}
+              style={[styles.counterBtn, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+            >
+              <Ionicons name="remove" size={20} color={colors.text} />
+            </Pressable>
+            <Text style={[styles.counterValue, { color: colors.text }]}>{numPeople}</Text>
+            <Pressable
+              onPress={() => {
+                const n = (parseInt(numPeople) || 2) + 1;
+                setNumPeople(n.toString());
+                Haptics.selectionAsync();
+              }}
+              style={[styles.counterBtn, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+            >
+              <Ionicons name="add" size={20} color={colors.text} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.text }]}>Budget</Text>
+          <View style={styles.chipGrid}>
+            {BUDGET_OPTIONS.map((b) => {
+              const isSelected = budget === b;
+              return (
+                <Pressable
+                  key={b}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setBudget(b);
+                  }}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: isSelected ? colors.primary : colors.inputBg,
+                      borderColor: isSelected ? colors.primary : colors.inputBorder,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.chipText, { color: isSelected ? "#fff" : colors.textSecondary }]}>
+                    {b}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.text }]}>Preferences</Text>
+          <View style={styles.chipGrid}>
+            {PREFERENCE_OPTIONS.map((pref) => {
+              const isSelected = selectedPrefs.includes(pref);
+              return (
+                <Pressable
+                  key={pref}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    togglePref(pref);
+                  }}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: isSelected ? colors.primary : colors.inputBg,
+                      borderColor: isSelected ? colors.primary : colors.inputBorder,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.chipText, { color: isSelected ? "#fff" : colors.textSecondary }]}>
+                    {pref}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <Pressable
+          onPress={handleGenerate}
+          disabled={loading}
+          style={({ pressed }) => [
+            styles.generateButton,
+            { backgroundColor: colors.primary, opacity: pressed || loading ? 0.85 : 1 },
+          ]}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="sparkles" size={20} color="#fff" />
+              <Text style={styles.generateButtonText}>Generate Itinerary</Text>
+            </>
+          )}
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  headerTitle: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 100, gap: 20 },
+  section: { gap: 8 },
+  rowSection: { flexDirection: "row", gap: 12 },
+  halfSection: { gap: 8 },
+  label: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  inputBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    gap: 10,
+  },
+  input: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
+  counterRow: { flexDirection: "row", alignItems: "center", gap: 16 },
+  counterBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  counterValue: { fontSize: 20, fontFamily: "Inter_700Bold", minWidth: 30, textAlign: "center" },
+  chipGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  chipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  generateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 14,
+    marginTop: 8,
+  },
+  generateButtonText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
+});
