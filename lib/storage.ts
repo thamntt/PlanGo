@@ -51,6 +51,9 @@ export interface Destination {
   tags: string[];
   openHours: string;
   isActive: boolean;
+  highlights?: string[];
+  tips?: string[];
+  bestTimeToVisit?: string;
 }
 
 export interface ItineraryDay {

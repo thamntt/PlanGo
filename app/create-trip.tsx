@@ -37,12 +37,12 @@ export default function CreateTripScreen() {
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const { generateItinerary, itineraries, deleteItinerary } = useData();
-  const params = useLocalSearchParams<{ editId?: string }>();
+  const params = useLocalSearchParams<{ editId?: string; dest?: string }>();
 
   const editingItinerary = params.editId ? itineraries.find((i) => i.id === params.editId) : null;
   const isEditing = !!editingItinerary;
 
-  const [destination, setDestination] = useState(editingItinerary?.destination || "");
+  const [destination, setDestination] = useState(editingItinerary?.destination || params.dest || "");
   const [startDate, setStartDate] = useState(editingItinerary?.startDate || "");
   const [endDate, setEndDate] = useState(editingItinerary?.endDate || "");
   const [budget, setBudget] = useState(editingItinerary?.budget || "");

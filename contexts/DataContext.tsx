@@ -74,63 +74,94 @@ function generateDays(
   const destsToUse = relevantDests.length > 0 ? relevantDests : allDestinations.slice(0, 3);
 
   const morningActivities = [
-    "Explore local markets and enjoy breakfast",
-    "Visit historical landmarks",
-    "Morning yoga by the beach",
-    "Take a guided walking tour",
-    "Hike to scenic viewpoints",
+    "Khám phá chợ địa phương và ăn sáng",
+    "Tham quan các di tích lịch sử",
+    "Tập yoga buổi sáng bên bờ biển",
+    "Tham gia tour đi bộ khám phá",
+    "Leo núi ngắm cảnh từ trên cao",
+    "Thăm làng nghề truyền thống",
+    "Đạp xe quanh khu phố cổ",
   ];
 
   const afternoonActivities = [
-    "Lunch at a local restaurant",
-    "Visit museums and cultural sites",
-    "Water sports and beach activities",
-    "Photography at iconic spots",
-    "Shopping for local crafts",
+    "Ăn trưa tại nhà hàng địa phương",
+    "Tham quan bảo tàng và di tích văn hóa",
+    "Các hoạt động thể thao dưới nước",
+    "Chụp ảnh tại các địa điểm nổi tiếng",
+    "Mua sắm đồ thủ công mỹ nghệ",
+    "Thưởng thức đặc sản vùng miền",
+    "Khám phá hang động và khu sinh thái",
   ];
 
   const eveningActivities = [
-    "Sunset watching at the waterfront",
-    "Dinner with local cuisine specialties",
-    "Night market exploration",
-    "Traditional performance show",
-    "Relaxation at the hotel spa",
+    "Ngắm hoàng hôn tại bờ biển",
+    "Ăn tối với các món đặc sản địa phương",
+    "Khám phá chợ đêm",
+    "Xem biểu diễn nghệ thuật truyền thống",
+    "Nghỉ ngơi và thư giãn tại khách sạn",
+    "Dạo phố đêm và thưởng thức cà phê",
+    "Trải nghiệm ẩm thực đường phố",
+  ];
+
+  const morningDescriptions = [
+    (name: string) => `Bắt đầu ngày mới tại ${name} với bữa sáng truyền thống`,
+    (name: string) => `Khám phá vẻ đẹp văn hóa lịch sử tại ${name}`,
+    (name: string) => `Tận hưởng không khí trong lành buổi sáng tại ${name}`,
+    (name: string) => `Tìm hiểu cuộc sống người dân địa phương tại ${name}`,
+  ];
+
+  const afternoonDescriptions = [
+    (name: string) => `Tận hưởng buổi chiều khám phá ${name}`,
+    (name: string) => `Trải nghiệm những hoạt động thú vị tại ${name}`,
+    (name: string) => `Dành buổi chiều tham quan các điểm nổi bật tại ${name}`,
+  ];
+
+  const eveningDescriptions = [
+    (name: string) => `Kết thúc ngày với trải nghiệm tuyệt vời tại ${name}`,
+    (name: string) => `Thưởng thức buổi tối thư giãn tại ${name}`,
+    (name: string) => `Tận hưởng không gian đêm tại ${name}`,
   ];
 
   const days: ItineraryDay[] = [];
   for (let i = 0; i < dayCount; i++) {
     const destIdx = i % destsToUse.length;
     const dest = destsToUse[destIdx];
+    const destName = dest?.name || destination;
+
+    const destHighlights = dest?.highlights || [];
+    const morningHighlight = destHighlights.length > 0 ? destHighlights[(i * 2) % destHighlights.length] : null;
+    const afternoonHighlight = destHighlights.length > 1 ? destHighlights[(i * 2 + 1) % destHighlights.length] : null;
+
     const activities: ItineraryActivity[] = [
       {
         id: generateId(),
         time: "08:00",
-        title: morningActivities[i % morningActivities.length],
-        description: `Start your day at ${dest?.name || destination}`,
+        title: morningHighlight || morningActivities[i % morningActivities.length],
+        description: morningDescriptions[i % morningDescriptions.length](destName),
         destinationId: dest?.id,
-        duration: "2 hours",
+        duration: "2 giờ",
       },
       {
         id: generateId(),
         time: "12:00",
-        title: afternoonActivities[i % afternoonActivities.length],
-        description: `Enjoy the afternoon exploring ${dest?.name || destination}`,
+        title: afternoonHighlight || afternoonActivities[i % afternoonActivities.length],
+        description: afternoonDescriptions[i % afternoonDescriptions.length](destName),
         destinationId: dest?.id,
-        duration: "3 hours",
+        duration: "3 giờ",
       },
       {
         id: generateId(),
         time: "18:00",
         title: eveningActivities[i % eveningActivities.length],
-        description: `Wind down your evening in ${dest?.name || destination}`,
+        description: eveningDescriptions[i % eveningDescriptions.length](destName),
         destinationId: dest?.id,
-        duration: "2 hours",
+        duration: "2 giờ",
       },
     ];
 
     days.push({
       day: i + 1,
-      title: i === 0 ? "Arrival & Exploration" : i === dayCount - 1 ? "Final Day & Departure" : `Day ${i + 1} Adventure`,
+      title: i === 0 ? "Đến nơi & Khám phá" : i === dayCount - 1 ? "Ngày cuối & Khởi hành" : `Ngày ${i + 1} - Trải nghiệm`,
       activities,
     });
   }
@@ -145,7 +176,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const loadData = useCallback(async () => {
     let dests = await getDestinations();
-    if (dests.length === 0) {
+    const needsReseed = dests.length === 0 || (dests.length > 0 && dests[0]?.name === "Ha Long Bay");
+    if (needsReseed) {
       dests = SEED_DESTINATIONS;
       await saveDestinations(dests);
     }

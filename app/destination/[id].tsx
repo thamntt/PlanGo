@@ -155,6 +155,44 @@ export default function DestinationDetailScreen() {
           <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().destination.about}</Text>
           <Text style={[styles.description, { color: colors.textSecondary }]}>{destination.description}</Text>
 
+          {destination.bestTimeToVisit && (
+            <View style={[styles.bestTimeCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+              <View style={styles.bestTimeRow}>
+                <Ionicons name="sunny-outline" size={20} color={colors.accent} />
+                <Text style={[styles.bestTimeLabel, { color: colors.text }]}>{t().destination.bestTime}</Text>
+              </View>
+              <Text style={[styles.bestTimeValue, { color: colors.primary }]}>{destination.bestTimeToVisit}</Text>
+            </View>
+          )}
+
+          {destination.highlights && destination.highlights.length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().destination.highlights}</Text>
+              <View style={styles.listContainer}>
+                {destination.highlights.map((h, idx) => (
+                  <View key={idx} style={styles.listItem}>
+                    <Ionicons name="star" size={14} color={colors.accent} />
+                    <Text style={[styles.listText, { color: colors.textSecondary }]}>{h}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {destination.tips && destination.tips.length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().destination.tips}</Text>
+              <View style={styles.listContainer}>
+                {destination.tips.map((tip, idx) => (
+                  <View key={idx} style={styles.listItem}>
+                    <Ionicons name="bulb-outline" size={14} color={colors.primary} />
+                    <Text style={[styles.listText, { color: colors.textSecondary }]}>{tip}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
           <View style={[styles.coordCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.coordRow}>
               <View style={[styles.coordItem, { backgroundColor: colors.inputBg }]}>
@@ -168,9 +206,20 @@ export default function DestinationDetailScreen() {
             </View>
           </View>
 
+          <Pressable
+            onPress={() => router.push({ pathname: "/create-trip", params: { dest: destination.name } })}
+            style={({ pressed }) => [
+              styles.planButton,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            <Ionicons name="airplane-outline" size={20} color="#fff" />
+            <Text style={styles.planButtonText}>{t().destination.planTrip}</Text>
+          </Pressable>
+
           <View style={styles.reviewsHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Reviews ({destReviews.length})
+              {t().destination.reviews} ({destReviews.length})
             </Text>
             <Pressable
               onPress={() => {
@@ -266,6 +315,22 @@ const styles = StyleSheet.create({
   tagText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold", marginTop: 8 },
   description: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
+  bestTimeCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 6 },
+  bestTimeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  bestTimeLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  bestTimeValue: { fontSize: 15, fontFamily: "Inter_700Bold", marginLeft: 28 },
+  listContainer: { gap: 8 },
+  listItem: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  listText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20, flex: 1 },
+  planButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  planButtonText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
   coordCard: { borderRadius: 14, borderWidth: 1, padding: 12 },
   coordRow: { flexDirection: "row", gap: 12 },
   coordItem: { flex: 1, borderRadius: 10, padding: 12, alignItems: "center", gap: 2 },

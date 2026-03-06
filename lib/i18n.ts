@@ -94,6 +94,9 @@ const vi = {
   destination: {
     notFound: "Không tìm thấy điểm đến",
     about: "Giới thiệu",
+    highlights: "Điểm nổi bật",
+    tips: "Mẹo du lịch",
+    bestTime: "Thời điểm lý tưởng",
     reviews: "Đánh giá",
     writeReview: "Viết đánh giá của bạn...",
     submitReview: "Gửi đánh giá",
@@ -101,6 +104,7 @@ const vi = {
     pleaseComment: "Vui lòng viết nhận xét",
     lat: "Vĩ độ",
     lng: "Kinh độ",
+    planTrip: "Lên kế hoạch đi đây",
   },
 
   createTrip: {
