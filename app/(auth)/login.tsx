@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useThemeColors } from "@/constants/colors";
+import { validateUsername, validatePassword } from "@/lib/validation";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -28,12 +29,20 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<{ username?: string; password?: string; general?: string }>({});
+
+  const validate = () => {
+    const newErrors: typeof errors = {};
+    const usernameErr = validateUsername(username);
+    if (usernameErr) newErrors.username = usernameErr;
+    if (!password) newErrors.password = "Password is required";
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleLogin = async () => {
-    if (!username.trim() || !password.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
-      return;
-    }
+    if (!validate()) return;
+    setErrors({});
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const result = await login(username.trim(), password);
@@ -41,7 +50,7 @@ export default function LoginScreen() {
     if (result.success) {
       router.replace("/(tabs)");
     } else {
-      Alert.alert("Login Failed", result.error);
+      setErrors({ general: result.error || "Login failed" });
     }
   };
 
@@ -57,33 +66,54 @@ export default function LoginScreen() {
         </Text>
       </View>
 
+      {errors.general && (
+        <View style={[styles.errorBanner, { backgroundColor: colors.error + "15", borderColor: colors.error + "40" }]}>
+          <Ionicons name="alert-circle" size={18} color={colors.error} />
+          <Text style={[styles.errorBannerText, { color: colors.error }]}>{errors.general}</Text>
+        </View>
+      )}
+
       <View style={styles.form}>
-        <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <Ionicons name="person-outline" size={20} color={colors.textTertiary} />
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            placeholder="Username"
-            placeholderTextColor={colors.textTertiary}
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+        <View>
+          <View style={[
+            styles.inputContainer,
+            { backgroundColor: colors.inputBg, borderColor: errors.username ? colors.error : colors.inputBorder },
+          ]}>
+            <Ionicons name="person-outline" size={20} color={errors.username ? colors.error : colors.textTertiary} />
+            <TextInput
+              style={[styles.input, { color: colors.text }]}
+              placeholder="Username"
+              placeholderTextColor={colors.textTertiary}
+              value={username}
+              onChangeText={(t) => { setUsername(t); if (errors.username) setErrors((e) => ({ ...e, username: undefined })); }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="login-username"
+            />
+          </View>
+          {errors.username && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.username}</Text>}
         </View>
 
-        <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <Ionicons name="lock-closed-outline" size={20} color={colors.textTertiary} />
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            placeholder="Password"
-            placeholderTextColor={colors.textTertiary}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-          />
-          <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
-            <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textTertiary} />
-          </Pressable>
+        <View>
+          <View style={[
+            styles.inputContainer,
+            { backgroundColor: colors.inputBg, borderColor: errors.password ? colors.error : colors.inputBorder },
+          ]}>
+            <Ionicons name="lock-closed-outline" size={20} color={errors.password ? colors.error : colors.textTertiary} />
+            <TextInput
+              style={[styles.input, { color: colors.text }]}
+              placeholder="Password"
+              placeholderTextColor={colors.textTertiary}
+              value={password}
+              onChangeText={(t) => { setPassword(t); if (errors.password) setErrors((e) => ({ ...e, password: undefined })); }}
+              secureTextEntry={!showPassword}
+              testID="login-password"
+            />
+            <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
+              <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textTertiary} />
+            </Pressable>
+          </View>
+          {errors.password && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.password}</Text>}
         </View>
 
         <Pressable
@@ -93,6 +123,7 @@ export default function LoginScreen() {
           ]}
           onPress={handleLogin}
           disabled={loading}
+          testID="login-submit"
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
@@ -119,6 +150,16 @@ const styles = StyleSheet.create({
   header: { alignItems: "center", marginTop: 40, marginBottom: 48, gap: 8 },
   appName: { fontSize: 36, fontFamily: "Inter_700Bold" },
   subtitle: { fontSize: 16, fontFamily: "Inter_400Regular" },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorBannerText: { fontSize: 14, fontFamily: "Inter_500Medium", flex: 1 },
   form: { gap: 16 },
   inputContainer: {
     flexDirection: "row",
@@ -130,6 +171,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   input: { flex: 1, fontSize: 16, fontFamily: "Inter_400Regular" },
+  fieldError: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 4, marginLeft: 4 },
   loginButton: {
     borderRadius: 14,
     paddingVertical: 16,

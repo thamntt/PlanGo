@@ -44,13 +44,14 @@ server/
 ```
 
 ## Key Features
-- **Auth**: Register/login with AsyncStorage, admin role
+- **Auth**: Register/login with AsyncStorage, admin role, AuthGate in root layout for auto-redirect
+- **Validation**: Reusable validators in `lib/validation.ts` — inline field errors (red borders + error text) across all forms
 - **Explore**: Browse & search 10 Vietnamese destinations by category
-- **Trip Planning**: Create trip requests → auto-generate itineraries
+- **Trip Planning**: Create trip requests → auto-generate itineraries (validates destination, dates, budget, travelers)
 - **Itinerary**: Day-by-day timeline with activities, share, status management
 - **Reviews**: Rate & review destinations (star rating)
 - **GPS**: Location tracking with expo-location
-- **Admin**: Dashboard stats, user management (lock/unlock), destination CRUD, review moderation
+- **Admin**: Dashboard stats, user management (lock/unlock), destination add/edit/delete with validation, review moderation
 - **Theme**: Light/dark mode support
 
 ## Default Accounts

@@ -19,6 +19,16 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useThemeColors } from "@/constants/colors";
 import { PREFERENCE_OPTIONS, BUDGET_OPTIONS } from "@/lib/seed-data";
+import { validateRequired, validateDate, validateDateRange, validateNumPeople } from "@/lib/validation";
+
+interface FormErrors {
+  destination?: string;
+  startDate?: string;
+  endDate?: string;
+  dateRange?: string;
+  budget?: string;
+  numPeople?: string;
+}
 
 export default function CreateTripScreen() {
   const insets = useSafeAreaInsets();
@@ -35,6 +45,11 @@ export default function CreateTripScreen() {
   const [numPeople, setNumPeople] = useState("2");
   const [selectedPrefs, setSelectedPrefs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  const clearError = (field: keyof FormErrors) => {
+    if (errors[field]) setErrors((e) => ({ ...e, [field]: undefined }));
+  };
 
   const togglePref = (pref: string) => {
     setSelectedPrefs((prev) =>
@@ -42,19 +57,27 @@ export default function CreateTripScreen() {
     );
   };
 
+  const validate = (): boolean => {
+    const newErrors: FormErrors = {};
+    const destErr = validateRequired(destination, "Destination");
+    if (destErr) newErrors.destination = destErr;
+    const startErr = validateDate(startDate, "Start date");
+    if (startErr) newErrors.startDate = startErr;
+    const endErr = validateDate(endDate, "End date");
+    if (endErr) newErrors.endDate = endErr;
+    if (!startErr && !endErr) {
+      const rangeErr = validateDateRange(startDate, endDate);
+      if (rangeErr) newErrors.dateRange = rangeErr;
+    }
+    if (!budget) newErrors.budget = "Please select a budget";
+    const numErr = validateNumPeople(numPeople);
+    if (numErr) newErrors.numPeople = numErr;
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleGenerate = async () => {
-    if (!destination.trim()) {
-      Alert.alert("Error", "Please enter a destination");
-      return;
-    }
-    if (!startDate.trim() || !endDate.trim()) {
-      Alert.alert("Error", "Please enter start and end dates (YYYY-MM-DD)");
-      return;
-    }
-    if (!budget) {
-      Alert.alert("Error", "Please select a budget");
-      return;
-    }
+    if (!validate()) return;
 
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -95,46 +118,50 @@ export default function CreateTripScreen() {
       >
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.text }]}>Destination</Text>
-          <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-            <Ionicons name="location-outline" size={20} color={colors.textTertiary} />
+          <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.destination ? colors.error : colors.inputBorder }]}>
+            <Ionicons name="location-outline" size={20} color={errors.destination ? colors.error : colors.textTertiary} />
             <TextInput
               style={[styles.input, { color: colors.text }]}
               placeholder="e.g., Ha Long Bay, Hoi An..."
               placeholderTextColor={colors.textTertiary}
               value={destination}
-              onChangeText={setDestination}
+              onChangeText={(t) => { setDestination(t); clearError("destination"); }}
             />
           </View>
+          {errors.destination && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.destination}</Text>}
         </View>
 
         <View style={styles.rowSection}>
           <View style={[styles.halfSection, { flex: 1 }]}>
             <Text style={[styles.label, { color: colors.text }]}>Start Date</Text>
-            <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-              <Ionicons name="calendar-outline" size={18} color={colors.textTertiary} />
+            <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.startDate ? colors.error : colors.inputBorder }]}>
+              <Ionicons name="calendar-outline" size={18} color={errors.startDate ? colors.error : colors.textTertiary} />
               <TextInput
                 style={[styles.input, { color: colors.text }]}
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor={colors.textTertiary}
                 value={startDate}
-                onChangeText={setStartDate}
+                onChangeText={(t) => { setStartDate(t); clearError("startDate"); clearError("dateRange"); }}
               />
             </View>
+            {errors.startDate && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.startDate}</Text>}
           </View>
           <View style={[styles.halfSection, { flex: 1 }]}>
             <Text style={[styles.label, { color: colors.text }]}>End Date</Text>
-            <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-              <Ionicons name="calendar-outline" size={18} color={colors.textTertiary} />
+            <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.endDate ? colors.error : colors.inputBorder }]}>
+              <Ionicons name="calendar-outline" size={18} color={errors.endDate ? colors.error : colors.textTertiary} />
               <TextInput
                 style={[styles.input, { color: colors.text }]}
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor={colors.textTertiary}
                 value={endDate}
-                onChangeText={setEndDate}
+                onChangeText={(t) => { setEndDate(t); clearError("endDate"); clearError("dateRange"); }}
               />
             </View>
+            {errors.endDate && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.endDate}</Text>}
           </View>
         </View>
+        {errors.dateRange && <Text style={[styles.fieldError, { color: colors.error, marginTop: -12 }]}>{errors.dateRange}</Text>}
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.text }]}>Number of Travelers</Text>
@@ -143,6 +170,7 @@ export default function CreateTripScreen() {
               onPress={() => {
                 const n = Math.max(1, (parseInt(numPeople) || 2) - 1);
                 setNumPeople(n.toString());
+                clearError("numPeople");
                 Haptics.selectionAsync();
               }}
               style={[styles.counterBtn, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
@@ -152,8 +180,9 @@ export default function CreateTripScreen() {
             <Text style={[styles.counterValue, { color: colors.text }]}>{numPeople}</Text>
             <Pressable
               onPress={() => {
-                const n = (parseInt(numPeople) || 2) + 1;
+                const n = Math.min(50, (parseInt(numPeople) || 2) + 1);
                 setNumPeople(n.toString());
+                clearError("numPeople");
                 Haptics.selectionAsync();
               }}
               style={[styles.counterBtn, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
@@ -161,6 +190,7 @@ export default function CreateTripScreen() {
               <Ionicons name="add" size={20} color={colors.text} />
             </Pressable>
           </View>
+          {errors.numPeople && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.numPeople}</Text>}
         </View>
 
         <View style={styles.section}>
@@ -174,12 +204,13 @@ export default function CreateTripScreen() {
                   onPress={() => {
                     Haptics.selectionAsync();
                     setBudget(b);
+                    clearError("budget");
                   }}
                   style={[
                     styles.chip,
                     {
                       backgroundColor: isSelected ? colors.primary : colors.inputBg,
-                      borderColor: isSelected ? colors.primary : colors.inputBorder,
+                      borderColor: isSelected ? colors.primary : errors.budget ? colors.error : colors.inputBorder,
                     },
                   ]}
                 >
@@ -190,6 +221,7 @@ export default function CreateTripScreen() {
               );
             })}
           </View>
+          {errors.budget && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.budget}</Text>}
         </View>
 
         <View style={styles.section}>
@@ -268,6 +300,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   input: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
+  fieldError: { fontSize: 12, fontFamily: "Inter_400Regular", marginLeft: 4 },
   counterRow: { flexDirection: "row", alignItems: "center", gap: 16 },
   counterBtn: {
     width: 40,

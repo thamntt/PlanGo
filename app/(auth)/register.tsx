@@ -5,7 +5,6 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
-  Alert,
   useColorScheme,
   Platform,
   ActivityIndicator,
@@ -17,6 +16,22 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useThemeColors } from "@/constants/colors";
+import {
+  validateEmail,
+  validateUsername,
+  validatePassword,
+  validateFullName,
+  validateConfirmPassword,
+} from "@/lib/validation";
+
+interface FormErrors {
+  fullName?: string;
+  email?: string;
+  username?: string;
+  password?: string;
+  confirmPassword?: string;
+  general?: string;
+}
 
 export default function RegisterScreen() {
   const insets = useSafeAreaInsets();
@@ -31,20 +46,31 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  const clearError = (field: keyof FormErrors) => {
+    if (errors[field]) setErrors((e) => ({ ...e, [field]: undefined }));
+  };
+
+  const validate = (): boolean => {
+    const newErrors: FormErrors = {};
+    const nameErr = validateFullName(fullName);
+    if (nameErr) newErrors.fullName = nameErr;
+    const emailErr = validateEmail(email);
+    if (emailErr) newErrors.email = emailErr;
+    const usernameErr = validateUsername(username);
+    if (usernameErr) newErrors.username = usernameErr;
+    const passwordErr = validatePassword(password);
+    if (passwordErr) newErrors.password = passwordErr;
+    const confirmErr = validateConfirmPassword(password, confirmPassword);
+    if (confirmErr) newErrors.confirmPassword = confirmErr;
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleRegister = async () => {
-    if (!fullName.trim() || !email.trim() || !username.trim() || !password.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
-      return;
-    }
-    if (password !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match");
-      return;
-    }
-    if (password.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters");
-      return;
-    }
+    if (!validate()) return;
+    setErrors({});
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const result = await register({ username: username.trim(), password, email: email.trim(), fullName: fullName.trim() });
@@ -52,11 +78,41 @@ export default function RegisterScreen() {
     if (result.success) {
       router.replace("/(tabs)");
     } else {
-      Alert.alert("Registration Failed", result.error);
+      setErrors({ general: result.error || "Registration failed" });
     }
   };
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
+
+  const renderField = (
+    icon: string,
+    placeholder: string,
+    value: string,
+    onChange: (t: string) => void,
+    errorKey: keyof FormErrors,
+    options?: { keyboardType?: any; autoCapitalize?: any; secureTextEntry?: boolean; autoCorrect?: boolean }
+  ) => (
+    <View>
+      <View style={[
+        styles.inputContainer,
+        { backgroundColor: colors.inputBg, borderColor: errors[errorKey] ? colors.error : colors.inputBorder },
+      ]}>
+        <Ionicons name={icon as any} size={20} color={errors[errorKey] ? colors.error : colors.textTertiary} />
+        <TextInput
+          style={[styles.input, { color: colors.text }]}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textTertiary}
+          value={value}
+          onChangeText={(t) => { onChange(t); clearError(errorKey); }}
+          keyboardType={options?.keyboardType}
+          autoCapitalize={options?.autoCapitalize ?? "sentences"}
+          secureTextEntry={options?.secureTextEntry}
+          autoCorrect={options?.autoCorrect}
+        />
+      </View>
+      {errors[errorKey] && <Text style={[styles.fieldError, { color: colors.error }]}>{errors[errorKey]}</Text>}
+    </View>
+  );
 
   return (
     <ScrollView
@@ -75,67 +131,19 @@ export default function RegisterScreen() {
         </Text>
       </View>
 
+      {errors.general && (
+        <View style={[styles.errorBanner, { backgroundColor: colors.error + "15", borderColor: colors.error + "40" }]}>
+          <Ionicons name="alert-circle" size={18} color={colors.error} />
+          <Text style={[styles.errorBannerText, { color: colors.error }]}>{errors.general}</Text>
+        </View>
+      )}
+
       <View style={styles.form}>
-        <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <Ionicons name="person-outline" size={20} color={colors.textTertiary} />
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            placeholder="Full Name"
-            placeholderTextColor={colors.textTertiary}
-            value={fullName}
-            onChangeText={setFullName}
-          />
-        </View>
-
-        <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <Ionicons name="mail-outline" size={20} color={colors.textTertiary} />
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            placeholder="Email"
-            placeholderTextColor={colors.textTertiary}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-        </View>
-
-        <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <Ionicons name="at-outline" size={20} color={colors.textTertiary} />
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            placeholder="Username"
-            placeholderTextColor={colors.textTertiary}
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
-
-        <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <Ionicons name="lock-closed-outline" size={20} color={colors.textTertiary} />
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            placeholder="Password"
-            placeholderTextColor={colors.textTertiary}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <Ionicons name="shield-checkmark-outline" size={20} color={colors.textTertiary} />
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            placeholder="Confirm Password"
-            placeholderTextColor={colors.textTertiary}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-          />
-        </View>
+        {renderField("person-outline", "Full Name", fullName, setFullName, "fullName")}
+        {renderField("mail-outline", "Email", email, setEmail, "email", { keyboardType: "email-address", autoCapitalize: "none" })}
+        {renderField("at-outline", "Username", username, setUsername, "username", { autoCapitalize: "none", autoCorrect: false })}
+        {renderField("lock-closed-outline", "Password", password, setPassword, "password", { secureTextEntry: true })}
+        {renderField("shield-checkmark-outline", "Confirm Password", confirmPassword, setConfirmPassword, "confirmPassword", { secureTextEntry: true })}
 
         <Pressable
           style={({ pressed }) => [
@@ -144,6 +152,7 @@ export default function RegisterScreen() {
           ]}
           onPress={handleRegister}
           disabled={loading}
+          testID="register-submit"
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
@@ -171,6 +180,16 @@ const styles = StyleSheet.create({
   header: { marginBottom: 32, gap: 8 },
   title: { fontSize: 28, fontFamily: "Inter_700Bold" },
   subtitle: { fontSize: 16, fontFamily: "Inter_400Regular" },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorBannerText: { fontSize: 14, fontFamily: "Inter_500Medium", flex: 1 },
   form: { gap: 16 },
   inputContainer: {
     flexDirection: "row",
@@ -182,6 +201,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   input: { flex: 1, fontSize: 16, fontFamily: "Inter_400Regular" },
+  fieldError: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 4, marginLeft: 4 },
   registerButton: {
     borderRadius: 14,
     paddingVertical: 16,

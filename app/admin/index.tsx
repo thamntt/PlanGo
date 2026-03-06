@@ -9,7 +9,6 @@ import {
   Platform,
   Alert,
   TextInput,
-  FlatList,
   Modal,
 } from "react-native";
 import { router } from "expo-router";
@@ -20,8 +19,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useThemeColors } from "@/constants/colors";
 import { getUsers, saveUsers, type UserData } from "@/lib/storage";
+import { validateDestinationName, validateAddress, validateRequired } from "@/lib/validation";
 
 type Tab = "dashboard" | "users" | "destinations" | "reviews";
+
+interface DestFormErrors {
+  name?: string;
+  address?: string;
+  description?: string;
+}
 
 function StatCard({ icon, label, value, color, colors }: { icon: string; label: string; value: number; color: string; colors: ReturnType<typeof useThemeColors> }) {
   return (
@@ -35,24 +41,39 @@ function StatCard({ icon, label, value, color, colors }: { icon: string; label: 
   );
 }
 
+function confirmAction(title: string, message: string, onConfirm: () => void) {
+  if (Platform.OS === "web") {
+    const confirmed = window.confirm(`${title}\n${message}`);
+    if (confirmed) onConfirm();
+  } else {
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: onConfirm },
+    ]);
+  }
+}
+
 export default function AdminDashboard() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const colors = useThemeColors(isDark);
   const { user: currentUser, isAdmin } = useAuth();
-  const { destinations, itineraries, reviews, deleteDestination, deleteReview, updateDestination } = useData();
+  const { destinations, itineraries, reviews, deleteDestination, deleteReview, updateDestination, addDestination } = useData();
 
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [users, setUsers] = useState<UserData[]>([]);
   const [usersLoaded, setUsersLoaded] = useState(false);
-  const [addDestModal, setAddDestModal] = useState(false);
-  const [newDestName, setNewDestName] = useState("");
-  const [newDestDesc, setNewDestDesc] = useState("");
-  const [newDestAddr, setNewDestAddr] = useState("");
-  const [newDestCategory, setNewDestCategory] = useState("City");
 
-  const { addDestination } = useData();
+  const [destModalVisible, setDestModalVisible] = useState(false);
+  const [editingDestId, setEditingDestId] = useState<string | null>(null);
+  const [destName, setDestName] = useState("");
+  const [destDesc, setDestDesc] = useState("");
+  const [destAddr, setDestAddr] = useState("");
+  const [destCategory, setDestCategory] = useState("City");
+  const [destErrors, setDestErrors] = useState<DestFormErrors>({});
+
+  const categories = ["City", "Beach", "Mountain", "Heritage", "Nature", "Island"];
 
   const loadUsers = useCallback(async () => {
     const u = await getUsers();
@@ -74,42 +95,78 @@ export default function AdminDashboard() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
+  const openAddDest = () => {
+    setEditingDestId(null);
+    setDestName("");
+    setDestDesc("");
+    setDestAddr("");
+    setDestCategory("City");
+    setDestErrors({});
+    setDestModalVisible(true);
+  };
+
+  const openEditDest = (id: string) => {
+    const dest = destinations.find((d) => d.id === id);
+    if (!dest) return;
+    setEditingDestId(id);
+    setDestName(dest.name);
+    setDestDesc(dest.description);
+    setDestAddr(dest.address);
+    setDestCategory(dest.category);
+    setDestErrors({});
+    setDestModalVisible(true);
+  };
+
+  const validateDestForm = (): boolean => {
+    const newErrors: DestFormErrors = {};
+    const nameErr = validateDestinationName(destName);
+    if (nameErr) newErrors.name = nameErr;
+    const addrErr = validateAddress(destAddr);
+    if (addrErr) newErrors.address = addrErr;
+    setDestErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSaveDest = async () => {
+    if (!validateDestForm()) return;
+
+    if (editingDestId) {
+      await updateDestination(editingDestId, {
+        name: destName.trim(),
+        description: destDesc.trim() || "A beautiful destination",
+        address: destAddr.trim(),
+        category: destCategory,
+      });
+    } else {
+      await addDestination({
+        name: destName.trim(),
+        description: destDesc.trim() || "A beautiful destination",
+        images: ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
+        category: destCategory,
+        address: destAddr.trim(),
+        latitude: 16.0 + Math.random() * 6,
+        longitude: 105.0 + Math.random() * 5,
+        priceRange: "2-5M VND",
+        tags: [destCategory],
+        openHours: "Open 24 hours",
+      });
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setDestModalVisible(false);
+  };
+
   const handleDeleteDest = (id: string, name: string) => {
-    Alert.alert("Delete Destination", `Delete "${name}"?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => deleteDestination(id) },
-    ]);
+    confirmAction("Delete Destination", `Are you sure you want to delete "${name}"? This action cannot be undone.`, () => {
+      deleteDestination(id);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    });
   };
 
   const handleDeleteReview = (id: string) => {
-    Alert.alert("Delete Review", "Delete this review?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => deleteReview(id) },
-    ]);
-  };
-
-  const handleAddDest = async () => {
-    if (!newDestName.trim() || !newDestAddr.trim()) {
-      Alert.alert("Error", "Please fill in name and address");
-      return;
-    }
-    await addDestination({
-      name: newDestName.trim(),
-      description: newDestDesc.trim() || "A beautiful destination",
-      images: ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
-      category: newDestCategory,
-      address: newDestAddr.trim(),
-      latitude: 16.0 + Math.random() * 6,
-      longitude: 105.0 + Math.random() * 5,
-      priceRange: "2-5M VND",
-      tags: [newDestCategory],
-      openHours: "Open 24 hours",
+    confirmAction("Delete Review", "Are you sure you want to delete this review? This action cannot be undone.", () => {
+      deleteReview(id);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setAddDestModal(false);
-    setNewDestName("");
-    setNewDestDesc("");
-    setNewDestAddr("");
   };
 
   if (!isAdmin) {
@@ -199,7 +256,7 @@ export default function AdminDashboard() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[adminStyles.itemTitle, { color: colors.text }]}>{u.fullName}</Text>
-                  <Text style={[adminStyles.itemSub, { color: colors.textSecondary }]}>@{u.username} - {u.role}</Text>
+                  <Text style={[adminStyles.itemSub, { color: colors.textSecondary }]}>@{u.username} - {u.role}{u.isLocked ? " (Locked)" : ""}</Text>
                 </View>
                 {u.id !== currentUser?.id && (
                   <Pressable
@@ -217,7 +274,7 @@ export default function AdminDashboard() {
         {activeTab === "destinations" && (
           <>
             <Pressable
-              onPress={() => setAddDestModal(true)}
+              onPress={openAddDest}
               style={({ pressed }) => [
                 adminStyles.addBtn,
                 { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
@@ -232,9 +289,14 @@ export default function AdminDashboard() {
                   <Text style={[adminStyles.itemTitle, { color: colors.text }]}>{d.name}</Text>
                   <Text style={[adminStyles.itemSub, { color: colors.textSecondary }]}>{d.category} - {d.address}</Text>
                 </View>
-                <Pressable onPress={() => handleDeleteDest(d.id, d.name)} hitSlop={8}>
-                  <Ionicons name="trash-outline" size={20} color={colors.error} />
-                </Pressable>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable onPress={() => openEditDest(d.id)} hitSlop={8}>
+                    <Ionicons name="create-outline" size={20} color={colors.primary} />
+                  </Pressable>
+                  <Pressable onPress={() => handleDeleteDest(d.id, d.name)} hitSlop={8}>
+                    <Ionicons name="trash-outline" size={20} color={colors.error} />
+                  </Pressable>
+                </View>
               </View>
             ))}
           </>
@@ -272,46 +334,74 @@ export default function AdminDashboard() {
         )}
       </ScrollView>
 
-      <Modal visible={addDestModal} animationType="slide" transparent>
+      <Modal visible={destModalVisible} animationType="slide" transparent>
         <View style={adminStyles.modalOverlay}>
           <View style={[adminStyles.modalContent, { backgroundColor: colors.card }]}>
             <View style={adminStyles.modalHeader}>
-              <Text style={[adminStyles.modalTitle, { color: colors.text }]}>Add Destination</Text>
-              <Pressable onPress={() => setAddDestModal(false)}>
+              <Text style={[adminStyles.modalTitle, { color: colors.text }]}>
+                {editingDestId ? "Edit Destination" : "Add Destination"}
+              </Text>
+              <Pressable onPress={() => setDestModalVisible(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </Pressable>
             </View>
-            <ScrollView style={{ gap: 12 }} contentContainerStyle={{ gap: 12 }}>
-              <TextInput
-                style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                placeholder="Destination name"
-                placeholderTextColor={colors.textTertiary}
-                value={newDestName}
-                onChangeText={setNewDestName}
-              />
-              <TextInput
-                style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                placeholder="Address"
-                placeholderTextColor={colors.textTertiary}
-                value={newDestAddr}
-                onChangeText={setNewDestAddr}
-              />
+            <ScrollView contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
+              <View>
+                <TextInput
+                  style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.name ? colors.error : colors.inputBorder }]}
+                  placeholder="Destination name *"
+                  placeholderTextColor={colors.textTertiary}
+                  value={destName}
+                  onChangeText={(t) => { setDestName(t); if (destErrors.name) setDestErrors((e) => ({ ...e, name: undefined })); }}
+                />
+                {destErrors.name && <Text style={[adminStyles.fieldError, { color: colors.error }]}>{destErrors.name}</Text>}
+              </View>
+              <View>
+                <TextInput
+                  style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.address ? colors.error : colors.inputBorder }]}
+                  placeholder="Address *"
+                  placeholderTextColor={colors.textTertiary}
+                  value={destAddr}
+                  onChangeText={(t) => { setDestAddr(t); if (destErrors.address) setDestErrors((e) => ({ ...e, address: undefined })); }}
+                />
+                {destErrors.address && <Text style={[adminStyles.fieldError, { color: colors.error }]}>{destErrors.address}</Text>}
+              </View>
               <TextInput
                 style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder, minHeight: 80 }]}
-                placeholder="Description"
+                placeholder="Description (optional)"
                 placeholderTextColor={colors.textTertiary}
-                value={newDestDesc}
-                onChangeText={setNewDestDesc}
+                value={destDesc}
+                onChangeText={setDestDesc}
                 multiline
               />
+              <Text style={[adminStyles.categoryLabel, { color: colors.text }]}>Category</Text>
+              <View style={adminStyles.categoryGrid}>
+                {categories.map((cat) => (
+                  <Pressable
+                    key={cat}
+                    onPress={() => setDestCategory(cat)}
+                    style={[
+                      adminStyles.categoryChip,
+                      {
+                        backgroundColor: destCategory === cat ? colors.primary : colors.inputBg,
+                        borderColor: destCategory === cat ? colors.primary : colors.inputBorder,
+                      },
+                    ]}
+                  >
+                    <Text style={[adminStyles.categoryChipText, { color: destCategory === cat ? "#fff" : colors.textSecondary }]}>
+                      {cat}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
               <Pressable
-                onPress={handleAddDest}
+                onPress={handleSaveDest}
                 style={({ pressed }) => [
                   adminStyles.modalSaveBtn,
                   { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
                 ]}
               >
-                <Text style={adminStyles.modalSaveBtnText}>Save</Text>
+                <Text style={adminStyles.modalSaveBtnText}>{editingDestId ? "Update" : "Save"}</Text>
               </Pressable>
             </ScrollView>
           </View>
@@ -395,6 +485,11 @@ const adminStyles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_400Regular",
   },
+  fieldError: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 4, marginLeft: 4 },
+  categoryLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  categoryChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  categoryChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
   modalSaveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 4 },
   modalSaveBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
 });
