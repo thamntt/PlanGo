@@ -67,6 +67,17 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Đặt tour du thuyền trước ít nhất 1 tuần",
     ],
     bestTimeToVisit: "Tháng 10 - Tháng 4",
+    estimatedCostPerPerson: 2500000,
+    sampleReviews: [
+      { author: "Minh Tuấn", rating: 5, comment: "Cảnh đẹp tuyệt vời, du thuyền sang trọng. Đi 2 ngày 1 đêm rất đáng!", source: "Google" },
+      { author: "Thu Hà", rating: 4, comment: "Hang Sửng Sốt rất ấn tượng. Nên đi vào mùa thu để tránh đông đúc.", source: "TripAdvisor" },
+      { author: "David N.", rating: 5, comment: "One of the most beautiful places I've ever visited. Kayaking was amazing!", source: "Google" },
+      { author: "Lan Phương", rating: 4, comment: "Chèo kayak rất thú vị, nước biển trong xanh. Giá hơi cao nhưng đáng tiền.", source: "TripAdvisor" },
+    ],
+    nearbyFood: [
+      { name: "Nhà hàng Hải sản Hạ Long", address: "Bãi Cháy, Hạ Long", latitude: 20.9550, longitude: 107.0720, costPerPerson: 300000, cuisine: "Hải sản" },
+      { name: "Quán Chả mực Hạ Long", address: "Trần Hưng Đạo, Bãi Cháy", latitude: 20.9540, longitude: 107.0680, costPerPerson: 150000, cuisine: "Đặc sản" },
+    ],
   },
   {
     id: "dest_2",
@@ -101,6 +112,17 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Tránh mùa mưa tháng 10-11",
     ],
     bestTimeToVisit: "Tháng 2 - Tháng 5",
+    estimatedCostPerPerson: 800000,
+    sampleReviews: [
+      { author: "Hương Giang", rating: 5, comment: "Phố cổ về đêm đẹp lung linh! Ẩm thực tuyệt vời, đặc biệt là Cao Lầu.", source: "Google" },
+      { author: "John M.", rating: 5, comment: "Amazing ancient town! The lanterns at night are magical. Must try the local food.", source: "TripAdvisor" },
+      { author: "Thanh Tùng", rating: 4, comment: "Nên đi vào ngày thường, cuối tuần rất đông. Bánh mì Phượng ngon tuyệt!", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Bánh Mì Phượng", address: "2B Phan Châu Trinh, Hội An", latitude: 15.8775, longitude: 108.3280, costPerPerson: 30000, cuisine: "Bánh mì" },
+      { name: "Cao Lầu Thanh", address: "26 Thái Phiên, Hội An", latitude: 15.8790, longitude: 108.3350, costPerPerson: 50000, cuisine: "Đặc sản" },
+      { name: "Quán Cơm gà Bà Buội", address: "22 Phan Châu Trinh, Hội An", latitude: 15.8778, longitude: 108.3290, costPerPerson: 60000, cuisine: "Cơm gà" },
+    ],
   },
   {
     id: "dest_3",
@@ -135,6 +157,16 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Cẩn thận đường trơn khi mưa",
     ],
     bestTimeToVisit: "Tháng 9 - Tháng 11, Tháng 3 - Tháng 5",
+    estimatedCostPerPerson: 1200000,
+    sampleReviews: [
+      { author: "Việt Anh", rating: 5, comment: "Trekking Mường Hoa tuyệt đẹp! Người dân tộc rất thân thiện, phong cảnh hùng vĩ.", source: "Google" },
+      { author: "Sarah L.", rating: 4, comment: "Stunning rice terraces! The homestay experience was unforgettable. Bring warm clothes!", source: "TripAdvisor" },
+      { author: "Hoàng Nam", rating: 4, comment: "Fansipan đi cáp treo rất nhanh, view cực đẹp. Nên đi vào mùa lúa chín.", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Nhà hàng Thắng cố Sa Pa", address: "Trung tâm Sa Pa", latitude: 22.3370, longitude: 103.8440, costPerPerson: 80000, cuisine: "Đặc sản vùng cao" },
+      { name: "Quán Lợn cắp nách", address: "Fansipan, Sa Pa", latitude: 22.3350, longitude: 103.8420, costPerPerson: 120000, cuisine: "Đặc sản" },
+    ],
   },
   {
     id: "dest_4",
@@ -169,6 +201,16 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Bãi Sao là bãi biển đẹp nhất đảo",
     ],
     bestTimeToVisit: "Tháng 11 - Tháng 4",
+    estimatedCostPerPerson: 2000000,
+    sampleReviews: [
+      { author: "Quỳnh Anh", rating: 5, comment: "Bãi Sao đẹp không thua Maldives! Hải sản tươi ngon, giá phải chăng.", source: "Google" },
+      { author: "Mark T.", rating: 4, comment: "Beautiful beaches, great snorkeling. VinWonders is fun for families. Rent a scooter!", source: "TripAdvisor" },
+      { author: "Đức Minh", rating: 5, comment: "Hoàng hôn ở bãi Dài đẹp nhất Việt Nam! Lặn ngắm san hô An Thới rất đáng.", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Quán Crab House", address: "Đường Trần Hưng Đạo, Dương Đông", latitude: 10.2150, longitude: 103.9600, costPerPerson: 250000, cuisine: "Hải sản" },
+      { name: "Bún quậy Phú Quốc", address: "Chợ đêm Dinh Cậu", latitude: 10.2130, longitude: 103.9580, costPerPerson: 50000, cuisine: "Đặc sản" },
+    ],
   },
   {
     id: "dest_5",
@@ -203,6 +245,17 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Kết hợp đi Hội An chỉ 30 phút lái xe",
     ],
     bestTimeToVisit: "Tháng 3 - Tháng 8",
+    estimatedCostPerPerson: 1500000,
+    sampleReviews: [
+      { author: "Phương Linh", rating: 5, comment: "Cầu Vàng đẹp ảo diệu! Bà Nà Hills rất đáng để dành 1 ngày. Nên mua vé online rẻ hơn.", source: "Google" },
+      { author: "Tom B.", rating: 4, comment: "Great city with amazing beaches. Dragon Bridge fire show on weekends is a must-see!", source: "TripAdvisor" },
+      { author: "Hải Yến", rating: 5, comment: "Bãi biển Mỹ Khê sạch và đẹp. Bún chả cá đặc sản phải thử!", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Quán Bún chả cá 109", address: "109 Nguyễn Chí Thanh, Đà Nẵng", latitude: 16.0680, longitude: 108.2100, costPerPerson: 40000, cuisine: "Bún chả cá" },
+      { name: "Mì Quảng Bà Vị", address: "166 Lê Đình Dương, Đà Nẵng", latitude: 16.0640, longitude: 108.2150, costPerPerson: 35000, cuisine: "Mì Quảng" },
+      { name: "Bánh xèo Bà Dưỡng", address: "K280/23 Hoàng Diệu, Đà Nẵng", latitude: 16.0600, longitude: 108.2080, costPerPerson: 45000, cuisine: "Bánh xèo" },
+    ],
   },
   {
     id: "dest_6",
@@ -237,6 +290,16 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Có thể kết hợp đi trong ngày từ Hà Nội",
     ],
     bestTimeToVisit: "Tháng 5 - Tháng 6, Tháng 9 - Tháng 10",
+    estimatedCostPerPerson: 600000,
+    sampleReviews: [
+      { author: "Trung Kiên", rating: 5, comment: "Tràng An đẹp không kém Hạ Long! Đi thuyền qua hang rất thú vị, nước trong xanh.", source: "Google" },
+      { author: "Emma W.", rating: 5, comment: "Hang Mua viewpoint is absolutely stunning! Trang An boat ride was the highlight of our Vietnam trip.", source: "TripAdvisor" },
+      { author: "Bích Ngọc", rating: 4, comment: "Cảnh đẹp nhưng leo Hang Múa khá vất vả. Nên đi sáng sớm tránh nóng.", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Cơm cháy Ninh Bình", address: "Ninh Hải, Hoa Lư", latitude: 20.2600, longitude: 105.9700, costPerPerson: 70000, cuisine: "Đặc sản" },
+      { name: "Quán Dê núi Ninh Bình", address: "TP Ninh Bình", latitude: 20.2530, longitude: 105.9750, costPerPerson: 150000, cuisine: "Thịt dê" },
+    ],
   },
   {
     id: "dest_7",
@@ -271,6 +334,17 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Săn mây Langbiang vào sáng sớm",
     ],
     bestTimeToVisit: "Tháng 11 - Tháng 3",
+    estimatedCostPerPerson: 1000000,
+    sampleReviews: [
+      { author: "Ngọc Trâm", rating: 5, comment: "Đà Lạt lãng mạn quá! Cà phê ngon, thời tiết mát mẻ. Chợ đêm vui và rẻ.", source: "Google" },
+      { author: "Alex K.", rating: 4, comment: "Beautiful hill station! The Crazy House is unique. Great coffee everywhere. Bring warm clothes!", source: "TripAdvisor" },
+      { author: "Thành Đạt", rating: 5, comment: "Săn mây Langbiang lúc 5h sáng, cảnh tuyệt đẹp! Bánh tráng nướng chợ đêm ngon.", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Bánh tráng nướng chợ đêm", address: "Chợ đêm Đà Lạt", latitude: 11.9430, longitude: 108.4380, costPerPerson: 25000, cuisine: "Ăn vặt" },
+      { name: "Quán Lẩu gà lá é", address: "Phan Đình Phùng, Đà Lạt", latitude: 11.9450, longitude: 108.4400, costPerPerson: 100000, cuisine: "Lẩu" },
+      { name: "Tiệm cà phê Mê Linh", address: "20 Trần Hưng Đạo, Đà Lạt", latitude: 11.9380, longitude: 108.4350, costPerPerson: 40000, cuisine: "Cà phê" },
+    ],
   },
   {
     id: "dest_8",
@@ -305,6 +379,17 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Tránh giờ trưa nắng khi tham quan",
     ],
     bestTimeToVisit: "Tháng 1 - Tháng 4",
+    estimatedCostPerPerson: 500000,
+    sampleReviews: [
+      { author: "Khánh Linh", rating: 5, comment: "Kinh thành Huế rất hoành tráng! Nên thuê guide để hiểu lịch sử. Bún bò Huế ngon tuyệt.", source: "Google" },
+      { author: "Pierre D.", rating: 4, comment: "Rich history and beautiful architecture. The Forbidden Purple City is fascinating. Great local cuisine!", source: "TripAdvisor" },
+      { author: "Minh Châu", rating: 4, comment: "Lăng Khải Định kiến trúc rất đặc biệt. Du thuyền sông Hương buổi chiều rất thư giãn.", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Bún bò Huế Bà Tuyết", address: "47 Nguyễn Công Trứ, Huế", latitude: 16.4650, longitude: 107.5850, costPerPerson: 35000, cuisine: "Bún bò" },
+      { name: "Cơm Hến Huế", address: "Trần Hưng Đạo, Huế", latitude: 16.4680, longitude: 107.5800, costPerPerson: 25000, cuisine: "Đặc sản" },
+      { name: "Bánh bèo Huế", address: "Chợ Đông Ba, Huế", latitude: 16.4720, longitude: 107.5830, costPerPerson: 30000, cuisine: "Bánh Huế" },
+    ],
   },
   {
     id: "dest_9",
@@ -339,6 +424,16 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Chợ Đầm là nơi mua hải sản tươi",
     ],
     bestTimeToVisit: "Tháng 6 - Tháng 9",
+    estimatedCostPerPerson: 1500000,
+    sampleReviews: [
+      { author: "Thùy Dung", rating: 4, comment: "Biển Nha Trang đẹp, tắm bùn rất thư giãn. Tour 4 đảo vui nhưng hơi ồn.", source: "Google" },
+      { author: "James R.", rating: 5, comment: "Amazing diving at Hon Mun! The mud baths are a unique experience. Great nightlife too.", source: "TripAdvisor" },
+      { author: "Bảo Long", rating: 4, comment: "VinWonders rất rộng, nên dành cả ngày. Hải sản chợ Đầm tươi ngon giá rẻ.", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Nhà hàng Hải sản Nha Trang", address: "Trần Phú, Nha Trang", latitude: 12.2450, longitude: 109.1950, costPerPerson: 200000, cuisine: "Hải sản" },
+      { name: "Bún cá sứa Nha Trang", address: "Chợ Đầm, Nha Trang", latitude: 12.2400, longitude: 109.1930, costPerPerson: 40000, cuisine: "Đặc sản" },
+    ],
   },
   {
     id: "dest_10",
@@ -373,6 +468,16 @@ export const SEED_DESTINATIONS: Destination[] = [
       "Mùa khô tháng 4-8 là thời điểm tốt nhất",
     ],
     bestTimeToVisit: "Tháng 4 - Tháng 8",
+    estimatedCostPerPerson: 1800000,
+    sampleReviews: [
+      { author: "Đình Khoa", rating: 5, comment: "Động Thiên Đường đẹp ngoài sức tưởng tượng! Dark Cave cực kỳ vui cho nhóm bạn.", source: "Google" },
+      { author: "Lisa M.", rating: 5, comment: "Most incredible caves I've ever seen! The zipline at Dark Cave is thrilling. Book tours early!", source: "TripAdvisor" },
+      { author: "Công Danh", rating: 4, comment: "Phong Nha rất đẹp và hoang sơ. Nên thuê xe máy từ Đồng Hới ra. Tour thuyền rất hay.", source: "Google" },
+    ],
+    nearbyFood: [
+      { name: "Quán Cháo canh Phong Nha", address: "Sơn Trạch, Bố Trạch", latitude: 17.5900, longitude: 106.2800, costPerPerson: 50000, cuisine: "Đặc sản" },
+      { name: "Nhà hàng Pepper House", address: "Phong Nha, Quảng Bình", latitude: 17.5910, longitude: 106.2820, costPerPerson: 80000, cuisine: "Việt - Âu" },
+    ],
   },
 ];
 

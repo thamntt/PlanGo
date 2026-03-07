@@ -21,6 +21,7 @@ import { useThemeColors } from "@/constants/colors";
 import { CATEGORIES } from "@/lib/seed-data";
 import { t } from "@/lib/i18n";
 import type { Destination } from "@/lib/storage";
+import { formatVND } from "@/lib/storage";
 
 function DestinationCard({ item, colors }: { item: Destination; colors: ReturnType<typeof useThemeColors> }) {
   return (
@@ -69,7 +70,7 @@ export default function ExploreScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, refreshData, isLoading } = useData();
+  const { destinations, refreshData, isLoading, notifications } = useData();
 
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -104,18 +105,36 @@ export default function ExploreScreen() {
             </Text>
             <Text style={[styles.headerTitle, { color: colors.text }]}>{t().explore.title}</Text>
           </View>
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/create-trip");
-            }}
-            style={({ pressed }) => [
-              styles.createTripButton,
-              { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-            ]}
-          >
-            <Ionicons name="add" size={22} color="#fff" />
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/notifications");
+              }}
+              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, position: "relative" as const }]}
+            >
+              <Ionicons name="notifications-outline" size={24} color={colors.text} />
+              {notifications.filter((n) => n.userId === user?.id && !n.isRead).length > 0 && (
+                <View style={styles.notifBadge}>
+                  <Text style={styles.notifBadgeText}>
+                    {notifications.filter((n) => n.userId === user?.id && !n.isRead).length}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/create-trip");
+              }}
+              style={({ pressed }) => [
+                styles.createTripButton,
+                { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+              ]}
+            >
+              <Ionicons name="add" size={22} color="#fff" />
+            </Pressable>
+          </View>
         </View>
 
         <View style={[styles.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
@@ -230,4 +249,17 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: "center", paddingTop: 60, gap: 8 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   emptySubtitle: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  notifBadge: {
+    position: "absolute",
+    top: -4,
+    right: -6,
+    backgroundColor: "#EF4444",
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  notifBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
 });

@@ -18,8 +18,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
-import { PREFERENCE_OPTIONS, BUDGET_OPTIONS } from "@/lib/seed-data";
+import { PREFERENCE_OPTIONS } from "@/lib/seed-data";
 import { validateRequired, validateDate, validateDateRange, validateNumPeople } from "@/lib/validation";
+import { formatVND } from "@/lib/storage";
 import { t } from "@/lib/i18n";
 
 interface FormErrors {
@@ -29,6 +30,13 @@ interface FormErrors {
   dateRange?: string;
   budget?: string;
   numPeople?: string;
+  startingPoint?: string;
+}
+
+function formatBudgetInput(value: string): string {
+  const digits = value.replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
 export default function CreateTripScreen() {
@@ -43,9 +51,12 @@ export default function CreateTripScreen() {
   const isEditing = !!editingItinerary;
 
   const [destination, setDestination] = useState(editingItinerary?.destination || params.dest || "");
+  const [startingPoint, setStartingPoint] = useState(editingItinerary?.startingPoint || "");
   const [startDate, setStartDate] = useState(editingItinerary?.startDate || "");
   const [endDate, setEndDate] = useState(editingItinerary?.endDate || "");
-  const [budget, setBudget] = useState(editingItinerary?.budget || "");
+  const [budgetText, setBudgetText] = useState(
+    editingItinerary?.totalBudget ? formatBudgetInput(editingItinerary.totalBudget.toString()) : ""
+  );
   const [numPeople, setNumPeople] = useState(editingItinerary?.numPeople?.toString() || "2");
   const [selectedPrefs, setSelectedPrefs] = useState<string[]>(editingItinerary?.preferences || []);
   const [loading, setLoading] = useState(false);
@@ -61,6 +72,14 @@ export default function CreateTripScreen() {
     );
   };
 
+  const budgetNumber = parseInt(budgetText.replace(/\./g, ""), 10) || 0;
+
+  const handleBudgetChange = (text: string) => {
+    const formatted = formatBudgetInput(text);
+    setBudgetText(formatted);
+    clearError("budget");
+  };
+
   const validate = (): boolean => {
     const newErrors: FormErrors = {};
     const destErr = validateRequired(destination, t().createTrip.destination);
@@ -73,7 +92,11 @@ export default function CreateTripScreen() {
       const rangeErr = validateDateRange(startDate, endDate);
       if (rangeErr) newErrors.dateRange = rangeErr;
     }
-    if (!budget) newErrors.budget = t().createTrip.selectBudget;
+    if (!budgetText.trim()) {
+      newErrors.budget = t().validation.budgetRequired;
+    } else if (budgetNumber <= 0) {
+      newErrors.budget = t().validation.budgetInvalid;
+    }
     const numErr = validateNumPeople(numPeople);
     if (numErr) newErrors.numPeople = numErr;
     setErrors(newErrors);
@@ -93,7 +116,9 @@ export default function CreateTripScreen() {
         destination: destination.trim(),
         startDate,
         endDate,
-        budget,
+        budget: formatVND(budgetNumber),
+        totalBudget: budgetNumber,
+        startingPoint: startingPoint.trim(),
         numPeople: parseInt(numPeople) || 2,
         preferences: selectedPrefs,
         userId: user!.id,
@@ -123,6 +148,20 @@ export default function CreateTripScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.startingPoint}</Text>
+          <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+            <Ionicons name="navigate-outline" size={20} color={colors.textTertiary} />
+            <TextInput
+              style={[styles.input, { color: colors.text }]}
+              placeholder={t().createTrip.startingPointPlaceholder}
+              placeholderTextColor={colors.textTertiary}
+              value={startingPoint}
+              onChangeText={(v) => { setStartingPoint(v); clearError("startingPoint"); }}
+            />
+          </View>
+        </View>
+
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.destination}</Text>
           <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.destination ? colors.error : colors.inputBorder }]}>
@@ -202,32 +241,21 @@ export default function CreateTripScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.budget}</Text>
-          <View style={styles.chipGrid}>
-            {BUDGET_OPTIONS.map((b) => {
-              const isSelected = budget === b;
-              return (
-                <Pressable
-                  key={b}
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    setBudget(b);
-                    clearError("budget");
-                  }}
-                  style={[
-                    styles.chip,
-                    {
-                      backgroundColor: isSelected ? colors.primary : colors.inputBg,
-                      borderColor: isSelected ? colors.primary : errors.budget ? colors.error : colors.inputBorder,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.chipText, { color: isSelected ? "#fff" : colors.textSecondary }]}>
-                    {b}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.budget ? colors.error : colors.inputBorder }]}>
+            <Ionicons name="cash-outline" size={20} color={errors.budget ? colors.error : colors.textTertiary} />
+            <TextInput
+              style={[styles.input, { color: colors.text }]}
+              placeholder={t().createTrip.budgetPlaceholder}
+              placeholderTextColor={colors.textTertiary}
+              value={budgetText}
+              onChangeText={handleBudgetChange}
+              keyboardType="numeric"
+            />
+            <Text style={[styles.budgetUnit, { color: colors.textSecondary }]}>{t().createTrip.budgetUnit}</Text>
           </View>
+          {budgetNumber > 0 && (
+            <Text style={[styles.budgetPreview, { color: colors.primary }]}>{formatVND(budgetNumber)}</Text>
+          )}
           {errors.budget && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.budget}</Text>}
         </View>
 
@@ -326,6 +354,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   chipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  budgetUnit: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  budgetPreview: { fontSize: 13, fontFamily: "Inter_500Medium", marginLeft: 4 },
   generateButton: {
     flexDirection: "row",
     alignItems: "center",

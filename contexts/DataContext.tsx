@@ -6,12 +6,16 @@ import {
   saveItineraries,
   getReviews,
   saveReviews,
+  getNotifications,
+  saveNotifications,
   generateId,
+  formatVND,
   type Destination,
   type Itinerary,
   type ItineraryDay,
   type ItineraryActivity,
   type Review,
+  type Notification,
 } from "@/lib/storage";
 import { SEED_DESTINATIONS } from "@/lib/seed-data";
 
@@ -19,6 +23,7 @@ interface DataContextValue {
   destinations: Destination[];
   itineraries: Itinerary[];
   reviews: Review[];
+  notifications: Notification[];
   isLoading: boolean;
   addDestination: (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive">) => Promise<Destination>;
   updateDestination: (id: string, data: Partial<Destination>) => Promise<void>;
@@ -33,10 +38,16 @@ interface DataContextValue {
     startDate: string;
     endDate: string;
     budget: string;
+    totalBudget: number;
+    startingPoint: string;
     numPeople: number;
     preferences: string[];
     userId: string;
   }) => Promise<Itinerary>;
+  addNotification: (notif: Omit<Notification, "id" | "createdAt" | "isRead">) => Promise<void>;
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: (userId: string) => Promise<void>;
+  clearNotifications: (userId: string) => Promise<void>;
   refreshData: () => Promise<void>;
 }
 
@@ -50,18 +61,52 @@ function parseDateInput(dateStr: string): Date {
   return new Date(dateStr);
 }
 
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+const STARTING_POINT_COORDS: Record<string, { lat: number; lng: number }> = {
+  "hà nội": { lat: 21.0285, lng: 105.8542 },
+  "tp.hcm": { lat: 10.8231, lng: 106.6297 },
+  "tp hcm": { lat: 10.8231, lng: 106.6297 },
+  "hồ chí minh": { lat: 10.8231, lng: 106.6297 },
+  "đà nẵng": { lat: 16.0544, lng: 108.2022 },
+  "huế": { lat: 16.4698, lng: 107.5792 },
+  "hải phòng": { lat: 20.8449, lng: 106.6881 },
+  "cần thơ": { lat: 10.0452, lng: 105.7469 },
+  "nha trang": { lat: 12.2388, lng: 109.1967 },
+  "đà lạt": { lat: 11.9404, lng: 108.4583 },
+  "vinh": { lat: 18.6796, lng: 105.6813 },
+};
+
+function getStartingCoords(startingPoint: string): { lat: number; lng: number } | null {
+  const key = startingPoint.toLowerCase().trim();
+  for (const [name, coords] of Object.entries(STARTING_POINT_COORDS)) {
+    if (key.includes(name) || name.includes(key)) return coords;
+  }
+  return null;
+}
+
 function generateDays(
   startDate: string,
   endDate: string,
   destination: string,
   preferences: string[],
-  allDestinations: Destination[]
+  allDestinations: Destination[],
+  numPeople: number,
+  startingPoint: string
 ): ItineraryDay[] {
   const start = parseDateInput(startDate);
   const end = parseDateInput(endDate);
   const dayCount = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
-  const relevantDests = allDestinations.filter((d) => {
+  let relevantDests = allDestinations.filter((d) => {
     const matchesDest = d.name.toLowerCase().includes(destination.toLowerCase()) ||
       d.address.toLowerCase().includes(destination.toLowerCase());
     const matchesTags = preferences.some((p) =>
@@ -71,7 +116,16 @@ function generateDays(
     return matchesDest || matchesTags;
   });
 
-  const destsToUse = relevantDests.length > 0 ? relevantDests : allDestinations.slice(0, 3);
+  if (relevantDests.length === 0) relevantDests = allDestinations.slice(0, 3);
+
+  const startCoords = getStartingCoords(startingPoint);
+  if (startCoords) {
+    relevantDests = [...relevantDests].sort((a, b) => {
+      const distA = haversineDistance(startCoords.lat, startCoords.lng, a.latitude, a.longitude);
+      const distB = haversineDistance(startCoords.lat, startCoords.lng, b.latitude, b.longitude);
+      return distA - distB;
+    });
+  }
 
   const morningActivities = [
     "Khám phá chợ địa phương và ăn sáng",
@@ -84,7 +138,6 @@ function generateDays(
   ];
 
   const afternoonActivities = [
-    "Ăn trưa tại nhà hàng địa phương",
     "Tham quan bảo tàng và di tích văn hóa",
     "Các hoạt động thể thao dưới nước",
     "Chụp ảnh tại các địa điểm nổi tiếng",
@@ -95,10 +148,8 @@ function generateDays(
 
   const eveningActivities = [
     "Ngắm hoàng hôn tại bờ biển",
-    "Ăn tối với các món đặc sản địa phương",
     "Khám phá chợ đêm",
     "Xem biểu diễn nghệ thuật truyền thống",
-    "Nghỉ ngơi và thư giãn tại khách sạn",
     "Dạo phố đêm và thưởng thức cà phê",
     "Trải nghiệm ẩm thực đường phố",
   ];
@@ -124,38 +175,104 @@ function generateDays(
 
   const days: ItineraryDay[] = [];
   for (let i = 0; i < dayCount; i++) {
-    const destIdx = i % destsToUse.length;
-    const dest = destsToUse[destIdx];
+    const destIdx = i % relevantDests.length;
+    const dest = relevantDests[destIdx];
     const destName = dest?.name || destination;
+    const destCost = dest?.estimatedCostPerPerson || 200000;
+    const nearbyFoodList = dest?.nearbyFood || [];
 
     const destHighlights = dest?.highlights || [];
     const morningHighlight = destHighlights.length > 0 ? destHighlights[(i * 2) % destHighlights.length] : null;
     const afternoonHighlight = destHighlights.length > 1 ? destHighlights[(i * 2 + 1) % destHighlights.length] : null;
 
+    const breakfastSpot = nearbyFoodList.length > 0 ? nearbyFoodList[i % nearbyFoodList.length] : null;
+    const lunchSpot = nearbyFoodList.length > 1 ? nearbyFoodList[(i + 1) % nearbyFoodList.length] : null;
+    const dinnerSpot = nearbyFoodList.length > 0 ? nearbyFoodList[(i + 2) % nearbyFoodList.length] : null;
+
     const activities: ItineraryActivity[] = [
       {
         id: generateId(),
-        time: "08:00",
+        time: "07:00",
+        title: breakfastSpot ? `Ăn sáng tại ${breakfastSpot.name}` : "Ăn sáng tại địa phương",
+        description: breakfastSpot ? `Thưởng thức ${breakfastSpot.cuisine} tại ${breakfastSpot.address}` : `Bữa sáng tại ${destName}`,
+        destinationId: dest?.id,
+        duration: "1 giờ",
+        estimatedCost: (breakfastSpot?.costPerPerson || 50000) * numPeople,
+        isCompleted: false,
+        address: breakfastSpot?.address || dest?.address,
+        latitude: breakfastSpot?.latitude || dest?.latitude,
+        longitude: breakfastSpot?.longitude || dest?.longitude,
+        activityType: "food" as const,
+      },
+      {
+        id: generateId(),
+        time: "08:30",
         title: morningHighlight || morningActivities[i % morningActivities.length],
         description: morningDescriptions[i % morningDescriptions.length](destName),
         destinationId: dest?.id,
-        duration: "2 giờ",
+        duration: "2.5 giờ",
+        estimatedCost: Math.round(destCost * 0.4) * numPeople,
+        isCompleted: false,
+        address: dest?.address,
+        latitude: dest?.latitude,
+        longitude: dest?.longitude,
+        activityType: "sightseeing" as const,
       },
       {
         id: generateId(),
         time: "12:00",
+        title: lunchSpot ? `Ăn trưa tại ${lunchSpot.name}` : "Ăn trưa tại nhà hàng địa phương",
+        description: lunchSpot ? `Thưởng thức ${lunchSpot.cuisine} tại ${lunchSpot.address}` : `Bữa trưa ngon tại ${destName}`,
+        destinationId: dest?.id,
+        duration: "1.5 giờ",
+        estimatedCost: (lunchSpot?.costPerPerson || 80000) * numPeople,
+        isCompleted: false,
+        address: lunchSpot?.address || dest?.address,
+        latitude: lunchSpot?.latitude || dest?.latitude,
+        longitude: lunchSpot?.longitude || dest?.longitude,
+        activityType: "food" as const,
+      },
+      {
+        id: generateId(),
+        time: "14:00",
         title: afternoonHighlight || afternoonActivities[i % afternoonActivities.length],
         description: afternoonDescriptions[i % afternoonDescriptions.length](destName),
         destinationId: dest?.id,
         duration: "3 giờ",
+        estimatedCost: Math.round(destCost * 0.35) * numPeople,
+        isCompleted: false,
+        address: dest?.address,
+        latitude: dest?.latitude,
+        longitude: dest?.longitude,
+        activityType: "sightseeing" as const,
       },
       {
         id: generateId(),
         time: "18:00",
+        title: dinnerSpot ? `Ăn tối tại ${dinnerSpot.name}` : "Ăn tối với món đặc sản địa phương",
+        description: dinnerSpot ? `Thưởng thức ${dinnerSpot.cuisine} tại ${dinnerSpot.address}` : `Bữa tối đặc sản tại ${destName}`,
+        destinationId: dest?.id,
+        duration: "1.5 giờ",
+        estimatedCost: (dinnerSpot?.costPerPerson || 120000) * numPeople,
+        isCompleted: false,
+        address: dinnerSpot?.address || dest?.address,
+        latitude: dinnerSpot?.latitude || dest?.latitude,
+        longitude: dinnerSpot?.longitude || dest?.longitude,
+        activityType: "food" as const,
+      },
+      {
+        id: generateId(),
+        time: "20:00",
         title: eveningActivities[i % eveningActivities.length],
         description: eveningDescriptions[i % eveningDescriptions.length](destName),
         destinationId: dest?.id,
         duration: "2 giờ",
+        estimatedCost: Math.round(destCost * 0.15) * numPeople,
+        isCompleted: false,
+        address: dest?.address,
+        latitude: dest?.latitude,
+        longitude: dest?.longitude,
+        activityType: "sightseeing" as const,
       },
     ];
 
@@ -172,11 +289,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     let dests = await getDestinations();
-    const needsReseed = dests.length === 0 || (dests.length > 0 && dests[0]?.name === "Ha Long Bay");
+    const needsReseed = dests.length === 0 || (dests.length > 0 && !dests[0]?.estimatedCostPerPerson);
     if (needsReseed) {
       dests = SEED_DESTINATIONS;
       await saveDestinations(dests);
@@ -184,6 +302,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setDestinations(dests);
     setItineraries(await getItineraries());
     setReviews(await getReviews());
+    setNotifications(await getNotifications());
     setIsLoading(false);
   }, []);
 
@@ -263,32 +382,76 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setReviews(all);
   }, []);
 
+  const addNotification = useCallback(async (notif: Omit<Notification, "id" | "createdAt" | "isRead">) => {
+    const newNotif: Notification = { ...notif, id: generateId(), createdAt: new Date().toISOString(), isRead: false };
+    const all = [...(await getNotifications()), newNotif];
+    await saveNotifications(all);
+    setNotifications(all);
+  }, []);
+
+  const markNotificationRead = useCallback(async (id: string) => {
+    const all = await getNotifications();
+    const idx = all.findIndex((n) => n.id === id);
+    if (idx !== -1) {
+      all[idx].isRead = true;
+      await saveNotifications(all);
+      setNotifications([...all]);
+    }
+  }, []);
+
+  const markAllNotificationsRead = useCallback(async (userId: string) => {
+    const all = await getNotifications();
+    all.forEach((n) => { if (n.userId === userId) n.isRead = true; });
+    await saveNotifications(all);
+    setNotifications([...all]);
+  }, []);
+
+  const clearNotifications = useCallback(async (userId: string) => {
+    const all = (await getNotifications()).filter((n) => n.userId !== userId);
+    await saveNotifications(all);
+    setNotifications(all);
+  }, []);
+
   const generateItinerary = useCallback(async (params: {
     destination: string;
     startDate: string;
     endDate: string;
     budget: string;
+    totalBudget: number;
+    startingPoint: string;
     numPeople: number;
     preferences: string[];
     userId: string;
   }) => {
     const allDests = await getDestinations();
-    const days = generateDays(params.startDate, params.endDate, params.destination, params.preferences, allDests);
+    const days = generateDays(params.startDate, params.endDate, params.destination, params.preferences, allDests, params.numPeople, params.startingPoint);
     const itin: Omit<Itinerary, "id" | "createdAt"> = {
       userId: params.userId,
-      title: `Trip to ${params.destination}`,
+      title: `Chuyến đi ${params.destination}`,
       destination: params.destination,
       startDate: params.startDate,
       endDate: params.endDate,
       budget: params.budget,
+      totalBudget: params.totalBudget,
+      spentAmount: 0,
+      startingPoint: params.startingPoint,
       numPeople: params.numPeople,
       preferences: params.preferences,
       days,
       status: "draft",
       isShared: false,
     };
-    return addItinerary(itin);
-  }, [addItinerary]);
+    const created = await addItinerary(itin);
+
+    await addNotification({
+      userId: params.userId,
+      title: "Lịch trình mới đã được tạo",
+      message: `Chuyến đi ${params.destination} (${params.startDate} - ${params.endDate}) đã được tạo thành công!`,
+      type: "success",
+    });
+
+    return created;
+  }, [addItinerary, addNotification]);
 
   const refreshData = useCallback(async () => {
     await loadData();
@@ -299,6 +462,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       destinations,
       itineraries,
       reviews,
+      notifications,
       isLoading,
       addDestination,
       updateDestination,
@@ -309,9 +473,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
       addReview,
       deleteReview,
       generateItinerary,
+      addNotification,
+      markNotificationRead,
+      markAllNotificationsRead,
+      clearNotifications,
       refreshData,
     }),
-    [destinations, itineraries, reviews, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, updateItinerary, deleteItinerary, addReview, deleteReview, generateItinerary, refreshData]
+    [destinations, itineraries, reviews, notifications, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, updateItinerary, deleteItinerary, addReview, deleteReview, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

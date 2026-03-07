@@ -17,6 +17,7 @@ interface AuthContextValue {
   register: (data: { username: string; password: string; email: string; fullName: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateProfile: (data: Partial<UserData>) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   refreshUser: () => Promise<void>;
 }
 
@@ -119,6 +120,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await setCurrentUser(updated);
   };
 
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    if (!user) return { success: false, error: "Not logged in" };
+    const users = await getUsers();
+    const idx = users.findIndex((u) => u.id === user.id);
+    if (idx === -1) return { success: false, error: "User not found" };
+    if (users[idx].password !== currentPassword) {
+      return { success: false, error: "Wrong current password" };
+    }
+    users[idx].password = newPassword;
+    await saveUsers(users);
+    setUser(users[idx]);
+    await setCurrentUser(users[idx]);
+    return { success: true };
+  };
+
   const refreshUser = async () => {
     await loadUser();
   };
@@ -132,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       logout,
       updateProfile,
+      changePassword,
       refreshUser,
     }),
     [user, isLoading]

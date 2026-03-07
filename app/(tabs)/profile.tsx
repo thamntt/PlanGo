@@ -35,7 +35,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { isDark, themeMode, setThemeMode } = useSettings();
   const colors = useThemeColors(isDark);
-  const { user, logout, updateProfile, isAdmin } = useAuth();
+  const { user, logout, updateProfile, isAdmin, changePassword } = useAuth();
   const { itineraries, reviews } = useData();
   const txt = t();
 
@@ -44,6 +44,11 @@ export default function ProfileScreen() {
   const [email, setEmail] = useState(user?.email || "");
   const [phone, setPhone] = useState(user?.phone || "");
   const [selectedPrefs, setSelectedPrefs] = useState<string[]>(user?.preferences || []);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [pwdError, setPwdError] = useState("");
 
   const myTripsCount = useMemo(() => itineraries.filter((i) => i.userId === user?.id).length, [itineraries, user]);
   const myReviewsCount = useMemo(() => reviews.filter((r) => r.userId === user?.id).length, [reviews, user]);
@@ -61,6 +66,27 @@ export default function ProfileScreen() {
     setPhone(user?.phone || "");
     setSelectedPrefs(user?.preferences || []);
     setEditing(false);
+  };
+
+  const handleChangePassword = async () => {
+    setPwdError("");
+    if (!currentPwd) { setPwdError(txt.validation.required(txt.profile.currentPassword)); return; }
+    if (!newPwd || newPwd.length < 6) { setPwdError(txt.validation.passwordMinLength); return; }
+    if (newPwd !== confirmPwd) { setPwdError(txt.validation.passwordMismatch); return; }
+    const result = await changePassword(currentPwd, newPwd);
+    if (result.success) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS === "web") {
+        window.alert(txt.profile.passwordChanged);
+      } else {
+        const Alert = require("react-native").Alert;
+        Alert.alert(txt.common.done, txt.profile.passwordChanged);
+      }
+      setCurrentPwd(""); setNewPwd(""); setConfirmPwd("");
+      setShowPasswordForm(false);
+    } else {
+      setPwdError(txt.profile.wrongCurrentPassword);
+    }
   };
 
   const handleLogout = () => {
@@ -306,6 +332,56 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        <View style={pStyles.section}>
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowPasswordForm(!showPasswordForm);
+              setPwdError("");
+            }}
+            style={pStyles.sectionHeader}
+          >
+            <Ionicons name="lock-closed" size={18} color={colors.primary} />
+            <Text style={[pStyles.sectionTitle, { color: colors.text }]}>{txt.profile.changePassword}</Text>
+            <Ionicons name={showPasswordForm ? "chevron-up" : "chevron-down"} size={18} color={colors.textTertiary} />
+          </Pressable>
+          {showPasswordForm && (
+            <View style={[pStyles.infoCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, padding: 16, gap: 12 }]}>
+              <TextInput
+                style={[pStyles.pwdInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                placeholder={txt.profile.currentPassword}
+                placeholderTextColor={colors.textTertiary}
+                value={currentPwd}
+                onChangeText={(v) => { setCurrentPwd(v); setPwdError(""); }}
+                secureTextEntry
+              />
+              <TextInput
+                style={[pStyles.pwdInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                placeholder={txt.profile.newPassword}
+                placeholderTextColor={colors.textTertiary}
+                value={newPwd}
+                onChangeText={(v) => { setNewPwd(v); setPwdError(""); }}
+                secureTextEntry
+              />
+              <TextInput
+                style={[pStyles.pwdInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                placeholder={txt.profile.confirmNewPassword}
+                placeholderTextColor={colors.textTertiary}
+                value={confirmPwd}
+                onChangeText={(v) => { setConfirmPwd(v); setPwdError(""); }}
+                secureTextEntry
+              />
+              {pwdError ? <Text style={[pStyles.pwdError, { color: colors.error }]}>{pwdError}</Text> : null}
+              <Pressable
+                onPress={handleChangePassword}
+                style={({ pressed }) => [pStyles.pwdSaveBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Text style={pStyles.pwdSaveBtnText}>{txt.common.save}</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+
         {isAdmin && (
           <Pressable
             onPress={() => {
@@ -457,4 +533,14 @@ const pStyles = StyleSheet.create({
     marginTop: 16, backgroundColor: "transparent",
   },
   logoutButtonText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  pwdInput: {
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+  },
+  pwdError: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  pwdSaveBtn: { borderRadius: 12, paddingVertical: 12, alignItems: "center" as const },
+  pwdSaveBtnText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

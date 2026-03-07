@@ -50,6 +50,7 @@ function RootLayoutNav() {
         <Stack.Screen name="itinerary/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="itinerary/edit" options={{ title: "Edit Itinerary", headerShown: true }} />
         <Stack.Screen name="create-trip" options={{ headerShown: false }} />
+        <Stack.Screen name="notifications" options={{ headerShown: false }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>

@@ -6,6 +6,7 @@ const KEYS = {
   DESTINATIONS: "@plango_destinations",
   ITINERARIES: "@plango_itineraries",
   REVIEWS: "@plango_reviews",
+  NOTIFICATIONS: "@plango_notifications",
 };
 
 export function generateId(): string {
@@ -54,6 +55,9 @@ export interface Destination {
   highlights?: string[];
   tips?: string[];
   bestTimeToVisit?: string;
+  estimatedCostPerPerson?: number;
+  sampleReviews?: { author: string; rating: number; comment: string; source: string }[];
+  nearbyFood?: { name: string; address: string; latitude: number; longitude: number; costPerPerson: number; cuisine: string }[];
 }
 
 export interface ItineraryDay {
@@ -69,6 +73,15 @@ export interface ItineraryActivity {
   description: string;
   destinationId?: string;
   duration: string;
+  estimatedCost: number;
+  actualCost?: number;
+  paidBy?: string;
+  note?: string;
+  isCompleted: boolean;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  activityType: "sightseeing" | "food" | "transport" | "shopping" | "other";
 }
 
 export interface Itinerary {
@@ -79,6 +92,9 @@ export interface Itinerary {
   startDate: string;
   endDate: string;
   budget: string;
+  totalBudget: number;
+  spentAmount: number;
+  startingPoint: string;
   numPeople: number;
   preferences: string[];
   days: ItineraryDay[];
@@ -95,6 +111,16 @@ export interface Review {
   rating: number;
   comment: string;
   createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: "info" | "warning" | "success";
+  createdAt: string;
+  isRead: boolean;
 }
 
 export async function getUsers(): Promise<UserData[]> {
@@ -137,6 +163,23 @@ export async function saveReviews(reviews: Review[]): Promise<void> {
   await setJSON(KEYS.REVIEWS, reviews);
 }
 
+export async function getNotifications(): Promise<Notification[]> {
+  return getJSON<Notification[]>(KEYS.NOTIFICATIONS, []);
+}
+
+export async function saveNotifications(notifications: Notification[]): Promise<void> {
+  await setJSON(KEYS.NOTIFICATIONS, notifications);
+}
+
 export async function clearAllData(): Promise<void> {
   await AsyncStorage.multiRemove(Object.values(KEYS));
+}
+
+export function formatVND(amount: number): string {
+  return amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".") + " ₫";
+}
+
+export function parseVND(str: string): number {
+  const cleaned = str.replace(/[^0-9]/g, "");
+  return parseInt(cleaned, 10) || 0;
 }

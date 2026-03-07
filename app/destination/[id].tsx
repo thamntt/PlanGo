@@ -8,7 +8,7 @@ import {
   Platform,
   TextInput,
   Alert,
-  FlatList,
+  Linking,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { formatVND } from "@/lib/storage";
 import { t } from "@/lib/i18n";
 
 function StarRating({
@@ -89,7 +90,22 @@ export default function DestinationDetailScreen() {
     setShowReviewForm(false);
   };
 
+  const openGoogleMaps = () => {
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${destination.latitude},${destination.longitude}`);
+  };
+
+  const openGrab = () => {
+    const url = Platform.OS === "ios"
+      ? `grab://open?screenType=BOOKING&dropOffLatitude=${destination.latitude}&dropOffLongitude=${destination.longitude}`
+      : `https://grab.onelink.me/2695613898?af_dp=grab%3A%2F%2Fopen%3FscreenType%3DBOOKING%26dropOffLatitude%3D${destination.latitude}%26dropOffLongitude%3D${destination.longitude}`;
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}`);
+    });
+  };
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
+  const txt = t().destination;
+  const sampleReviews = destination.sampleReviews || [];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -144,6 +160,15 @@ export default function DestinationDetailScreen() {
             <Text style={[styles.addressText, { color: colors.textSecondary }]}>{destination.openHours}</Text>
           </View>
 
+          {destination.estimatedCostPerPerson && (
+            <View style={[styles.costBadge, { backgroundColor: colors.primary + "15" }]}>
+              <Ionicons name="wallet-outline" size={16} color={colors.primary} />
+              <Text style={[styles.costBadgeText, { color: colors.primary }]}>
+                {txt.estimatedCost}: {formatVND(destination.estimatedCostPerPerson)}{txt.perPerson}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.tagRow}>
             {destination.tags.map((tag) => (
               <View key={tag} style={[styles.tag, { backgroundColor: colors.tagBg }]}>
@@ -152,14 +177,31 @@ export default function DestinationDetailScreen() {
             ))}
           </View>
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().destination.about}</Text>
+          <View style={styles.deepLinkRow}>
+            <Pressable
+              onPress={openGoogleMaps}
+              style={({ pressed }) => [styles.deepLinkBtn, { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 }]}
+            >
+              <Ionicons name="map" size={18} color="#fff" />
+              <Text style={styles.deepLinkText}>{txt.openMaps}</Text>
+            </Pressable>
+            <Pressable
+              onPress={openGrab}
+              style={({ pressed }) => [styles.deepLinkBtn, { backgroundColor: "#00B14F", opacity: pressed ? 0.9 : 1 }]}
+            >
+              <Ionicons name="car" size={18} color="#fff" />
+              <Text style={styles.deepLinkText}>{txt.bookGrab}</Text>
+            </Pressable>
+          </View>
+
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{txt.about}</Text>
           <Text style={[styles.description, { color: colors.textSecondary }]}>{destination.description}</Text>
 
           {destination.bestTimeToVisit && (
             <View style={[styles.bestTimeCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <View style={styles.bestTimeRow}>
                 <Ionicons name="sunny-outline" size={20} color={colors.accent} />
-                <Text style={[styles.bestTimeLabel, { color: colors.text }]}>{t().destination.bestTime}</Text>
+                <Text style={[styles.bestTimeLabel, { color: colors.text }]}>{txt.bestTime}</Text>
               </View>
               <Text style={[styles.bestTimeValue, { color: colors.primary }]}>{destination.bestTimeToVisit}</Text>
             </View>
@@ -167,7 +209,7 @@ export default function DestinationDetailScreen() {
 
           {destination.highlights && destination.highlights.length > 0 && (
             <>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().destination.highlights}</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{txt.highlights}</Text>
               <View style={styles.listContainer}>
                 {destination.highlights.map((h, idx) => (
                   <View key={idx} style={styles.listItem}>
@@ -181,7 +223,7 @@ export default function DestinationDetailScreen() {
 
           {destination.tips && destination.tips.length > 0 && (
             <>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().destination.tips}</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{txt.tips}</Text>
               <View style={styles.listContainer}>
                 {destination.tips.map((tip, idx) => (
                   <View key={idx} style={styles.listItem}>
@@ -196,11 +238,11 @@ export default function DestinationDetailScreen() {
           <View style={[styles.coordCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.coordRow}>
               <View style={[styles.coordItem, { backgroundColor: colors.inputBg }]}>
-                <Text style={[styles.coordLabel, { color: colors.textTertiary }]}>{t().destination.lat}</Text>
+                <Text style={[styles.coordLabel, { color: colors.textTertiary }]}>{txt.lat}</Text>
                 <Text style={[styles.coordValue, { color: colors.text }]}>{destination.latitude.toFixed(4)}</Text>
               </View>
               <View style={[styles.coordItem, { backgroundColor: colors.inputBg }]}>
-                <Text style={[styles.coordLabel, { color: colors.textTertiary }]}>{t().destination.lng}</Text>
+                <Text style={[styles.coordLabel, { color: colors.textTertiary }]}>{txt.lng}</Text>
                 <Text style={[styles.coordValue, { color: colors.text }]}>{destination.longitude.toFixed(4)}</Text>
               </View>
             </View>
@@ -214,12 +256,35 @@ export default function DestinationDetailScreen() {
             ]}
           >
             <Ionicons name="airplane-outline" size={20} color="#fff" />
-            <Text style={styles.planButtonText}>{t().destination.planTrip}</Text>
+            <Text style={styles.planButtonText}>{txt.planTrip}</Text>
           </Pressable>
+
+          {sampleReviews.length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{txt.sampleReviews}</Text>
+              {sampleReviews.map((review, idx) => (
+                <View key={idx} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                  <View style={styles.reviewHeader}>
+                    <View style={[styles.reviewAvatar, { backgroundColor: review.source === "Google" ? "#4285F4" : "#34E0A1" }]}>
+                      <Text style={styles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.reviewName, { color: colors.text }]}>{review.author}</Text>
+                      <View style={[styles.sourceBadge, { backgroundColor: review.source === "Google" ? "#4285F4" + "20" : "#34E0A1" + "20" }]}>
+                        <Text style={[styles.sourceText, { color: review.source === "Google" ? "#4285F4" : "#00AA6C" }]}>{review.source}</Text>
+                      </View>
+                    </View>
+                    <StarRating rating={review.rating} size={14} colors={colors} />
+                  </View>
+                  <Text style={[styles.reviewComment, { color: colors.textSecondary }]}>{review.comment}</Text>
+                </View>
+              ))}
+            </>
+          )}
 
           <View style={styles.reviewsHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              {t().destination.reviews} ({destReviews.length})
+              {txt.userReviews} ({destReviews.length})
             </Text>
             <Pressable
               onPress={() => {
@@ -236,7 +301,7 @@ export default function DestinationDetailScreen() {
               <StarRating rating={newRating} onRate={setNewRating} colors={colors} />
               <TextInput
                 style={[styles.reviewInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                placeholder={t().destination.writeReview}
+                placeholder={txt.writeReview}
                 placeholderTextColor={colors.textTertiary}
                 value={newComment}
                 onChangeText={setNewComment}
@@ -250,7 +315,7 @@ export default function DestinationDetailScreen() {
                   { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
                 ]}
               >
-                <Text style={styles.submitButtonText}>{t().destination.submitReview}</Text>
+                <Text style={styles.submitButtonText}>{txt.submitReview}</Text>
               </Pressable>
             </View>
           )}
@@ -258,7 +323,7 @@ export default function DestinationDetailScreen() {
           {destReviews.length === 0 ? (
             <View style={styles.emptyReviews}>
               <Ionicons name="chatbubble-outline" size={32} color={colors.textTertiary} />
-              <Text style={[styles.emptyText, { color: colors.textTertiary }]}>{t().destination.noReviews}</Text>
+              <Text style={[styles.emptyText, { color: colors.textTertiary }]}>{txt.noReviews}</Text>
             </View>
           ) : (
             destReviews.map((review) => (
@@ -310,9 +375,22 @@ const styles = StyleSheet.create({
   infoItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   infoText: { fontSize: 14, fontFamily: "Inter_500Medium" },
   addressText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+  costBadge: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  costBadgeText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   tagRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   tag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
   tagText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  deepLinkRow: { flexDirection: "row", gap: 10 },
+  deepLinkBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  deepLinkText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold", marginTop: 8 },
   description: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
   bestTimeCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 6 },
@@ -358,5 +436,7 @@ const styles = StyleSheet.create({
   reviewName: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   reviewDate: { fontSize: 11, fontFamily: "Inter_400Regular" },
   reviewComment: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  sourceBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", marginTop: 2 },
+  sourceText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   notFound: { fontSize: 16, fontFamily: "Inter_500Medium" },
 });
