@@ -26,7 +26,7 @@ app/
   itinerary/[id].tsx   - Itinerary detail with two-tab layout (Lịch trình/Chi phí), editable time slots with auto-cascade, activity costs/notes/completion, separate expenses CRUD, deep links, reorder
   create-trip.tsx      - Trip planning form (starting point, numeric budget with VND formatting)
   notifications.tsx    - Notifications screen (mark read, clear all)
-  admin/               - Admin dashboard (users, destinations, reviews)
+  admin/               - Admin dashboard (stats, top destinations, timeline activity, user management with detail/edit/lock/delete, destination detail, review detail)
 contexts/
   AuthContext.tsx       - Authentication state (login/register/logout/changePassword)
   DataContext.tsx       - App data (destinations, itineraries, reviews, notifications) + itinerary generation

@@ -407,9 +407,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteReview = useCallback(async (id: string) => {
-    const all = (await getReviews()).filter((r) => r.id !== id);
+    const currentReviews = await getReviews();
+    const deleted = currentReviews.find((r) => r.id === id);
+    const all = currentReviews.filter((r) => r.id !== id);
     await saveReviews(all);
     setReviews(all);
+
+    if (deleted) {
+      const destReviews = all.filter((r) => r.destinationId === deleted.destinationId);
+      const newRating = destReviews.length > 0
+        ? destReviews.reduce((sum, r) => sum + r.rating, 0) / destReviews.length
+        : 0;
+      const currentDests = await getDestinations();
+      const destIdx = currentDests.findIndex((d) => d.id === deleted.destinationId);
+      if (destIdx !== -1) {
+        currentDests[destIdx].rating = Math.round(newRating * 10) / 10;
+        currentDests[destIdx].reviewCount = destReviews.length;
+        await saveDestinations(currentDests);
+        setDestinations([...currentDests]);
+      }
+    }
   }, []);
 
   const addNotification = useCallback(async (notif: Omit<Notification, "id" | "createdAt" | "isRead">) => {

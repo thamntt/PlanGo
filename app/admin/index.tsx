@@ -18,8 +18,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
-import { getUsers, saveUsers, type UserData } from "@/lib/storage";
-import { validateDestinationName, validateAddress, validateRequired } from "@/lib/validation";
+import { getUsers, saveUsers, formatVND, type UserData } from "@/lib/storage";
+import { validateDestinationName, validateAddress } from "@/lib/validation";
 import { t } from "@/lib/i18n";
 
 type Tab = "dashboard" | "users" | "destinations" | "reviews";
@@ -27,25 +27,11 @@ type Tab = "dashboard" | "users" | "destinations" | "reviews";
 interface DestFormErrors {
   name?: string;
   address?: string;
-  description?: string;
-}
-
-function StatCard({ icon, label, value, color, colors }: { icon: string; label: string; value: number; color: string; colors: ReturnType<typeof useThemeColors> }) {
-  return (
-    <View style={[adminStyles.statCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-      <View style={[adminStyles.statIcon, { backgroundColor: color + "20" }]}>
-        <Ionicons name={icon as any} size={22} color={color} />
-      </View>
-      <Text style={[adminStyles.statValue, { color: colors.text }]}>{value}</Text>
-      <Text style={[adminStyles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
-    </View>
-  );
 }
 
 function confirmAction(title: string, message: string, onConfirm: () => void) {
   if (Platform.OS === "web") {
-    const confirmed = window.confirm(`${title}\n${message}`);
-    if (confirmed) onConfirm();
+    if (window.confirm(`${title}\n${message}`)) onConfirm();
   } else {
     Alert.alert(title, message, [
       { text: t().common.cancel, style: "cancel" },
@@ -54,12 +40,24 @@ function confirmAction(title: string, message: string, onConfirm: () => void) {
   }
 }
 
+function StatCard({ icon, label, value, color, colors }: { icon: string; label: string; value: number; color: string; colors: any }) {
+  return (
+    <View style={[s.statCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+      <View style={[s.statIcon, { backgroundColor: color + "20" }]}>
+        <Ionicons name={icon as any} size={22} color={color} />
+      </View>
+      <Text style={[s.statValue, { color: colors.text }]}>{value}</Text>
+      <Text style={[s.statLabel, { color: colors.textSecondary }]}>{label}</Text>
+    </View>
+  );
+}
+
 export default function AdminDashboard() {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user: currentUser, isAdmin } = useAuth();
-  const { destinations, itineraries, reviews, deleteDestination, deleteReview, updateDestination, addDestination } = useData();
+  const { destinations, itineraries, reviews, deleteDestination, deleteReview, deleteItinerary, updateDestination, addDestination } = useData();
 
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [users, setUsers] = useState<UserData[]>([]);
@@ -73,6 +71,15 @@ export default function AdminDashboard() {
   const [destCategory, setDestCategory] = useState("City");
   const [destErrors, setDestErrors] = useState<DestFormErrors>({});
 
+  const [userDetailId, setUserDetailId] = useState<string | null>(null);
+  const [userDetailTab, setUserDetailTab] = useState<"info" | "trips" | "reviews">("info");
+  const [editUserModal, setEditUserModal] = useState(false);
+  const [editUserName, setEditUserName] = useState("");
+  const [editUserEmail, setEditUserEmail] = useState("");
+
+  const [destDetailId, setDestDetailId] = useState<string | null>(null);
+  const [reviewDetailId, setReviewDetailId] = useState<string | null>(null);
+
   const categories = ["City", "Beach", "Mountain", "Heritage", "Nature", "Island"];
 
   const loadUsers = useCallback(async () => {
@@ -81,9 +88,49 @@ export default function AdminDashboard() {
     setUsersLoaded(true);
   }, []);
 
-  if (activeTab === "users" && !usersLoaded) {
+  if (!usersLoaded) {
     loadUsers();
   }
+
+  const txt = t().admin;
+
+  const topDestinations = useMemo(() => {
+    const destCount: Record<string, number> = {};
+    itineraries.forEach((itin) => {
+      const name = itin.destination;
+      destCount[name] = (destCount[name] || 0) + 1;
+    });
+    return Object.entries(destCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [itineraries]);
+
+  const recentActivities = useMemo(() => {
+    const activities: { icon: string; text: string; date: string; timestamp: number }[] = [];
+
+    itineraries.forEach((itin) => {
+      const user = users.find((u) => u.id === itin.userId);
+      const userName = user?.fullName || "Người dùng";
+      activities.push({
+        icon: "map-outline",
+        text: `${userName} ${txt.createdTrip} ${itin.destination}`,
+        date: new Date(itin.createdAt).toLocaleDateString("vi-VN"),
+        timestamp: new Date(itin.createdAt).getTime(),
+      });
+    });
+
+    reviews.forEach((r) => {
+      const dest = destinations.find((d) => d.id === r.destinationId);
+      activities.push({
+        icon: "star-outline",
+        text: `${r.userName} ${txt.reviewedDest} ${dest?.name || ""}`,
+        date: new Date(r.createdAt).toLocaleDateString("vi-VN"),
+        timestamp: new Date(r.createdAt).getTime(),
+      });
+    });
+
+    return activities.sort((a, b) => b.timestamp - a.timestamp).slice(0, 10);
+  }, [itineraries, reviews, destinations, users]);
 
   const toggleLock = async (userId: string) => {
     const allUsers = await getUsers();
@@ -92,6 +139,30 @@ export default function AdminDashboard() {
     allUsers[idx].isLocked = !allUsers[idx].isLocked;
     await saveUsers(allUsers);
     setUsers([...allUsers]);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const deleteUser = async (userId: string, name: string) => {
+    confirmAction(txt.deleteUser, txt.deleteUserMsg(name), async () => {
+      const allUsers = await getUsers();
+      const filtered = allUsers.filter((u) => u.id !== userId);
+      await saveUsers(filtered);
+      setUsers(filtered);
+      if (userDetailId === userId) setUserDetailId(null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    });
+  };
+
+  const saveEditUser = async () => {
+    if (!userDetailId) return;
+    const allUsers = await getUsers();
+    const idx = allUsers.findIndex((u) => u.id === userDetailId);
+    if (idx === -1) return;
+    allUsers[idx].fullName = editUserName.trim() || allUsers[idx].fullName;
+    allUsers[idx].email = editUserEmail.trim() || allUsers[idx].email;
+    await saveUsers(allUsers);
+    setUsers([...allUsers]);
+    setEditUserModal(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -129,7 +200,6 @@ export default function AdminDashboard() {
 
   const handleSaveDest = async () => {
     if (!validateDestForm()) return;
-
     if (editingDestId) {
       await updateDestination(editingDestId, {
         name: destName.trim(),
@@ -156,177 +226,495 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteDest = (id: string, name: string) => {
-    confirmAction(t().admin.deleteDestination, t().admin.deleteDestMsg(name), () => {
+    confirmAction(txt.deleteDestination, txt.deleteDestMsg(name), () => {
       deleteDestination(id);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
   };
 
   const handleDeleteReview = (id: string) => {
-    confirmAction(t().admin.deleteReview, t().admin.deleteReviewMsg, () => {
+    confirmAction(txt.deleteReview, txt.deleteReviewMsg, () => {
       deleteReview(id);
+      if (reviewDetailId === id) setReviewDetailId(null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    });
+  };
+
+  const handleDeleteTrip = (id: string, name: string) => {
+    confirmAction(txt.deleteTrip, txt.deleteTripMsg(name), () => {
+      deleteItinerary(id);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
   };
 
   if (!isAdmin) {
     return (
-      <View style={[adminStyles.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
+      <View style={[s.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
         <Ionicons name="lock-closed" size={48} color={colors.error} />
-        <Text style={[adminStyles.accessDenied, { color: colors.error }]}>{t().admin.accessDenied}</Text>
+        <Text style={[s.accessDenied, { color: colors.error }]}>{txt.accessDenied}</Text>
       </View>
     );
   }
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const tabs: { key: Tab; icon: string; label: string }[] = [
-    { key: "dashboard", icon: "grid-outline", label: t().admin.dashboard },
-    { key: "users", icon: "people-outline", label: t().admin.users },
-    { key: "destinations", icon: "location-outline", label: t().admin.places },
-    { key: "reviews", icon: "chatbubbles-outline", label: t().admin.reviewsTab },
+    { key: "dashboard", icon: "grid-outline", label: txt.dashboard },
+    { key: "users", icon: "people-outline", label: txt.users },
+    { key: "destinations", icon: "location-outline", label: txt.places },
+    { key: "reviews", icon: "chatbubbles-outline", label: txt.reviewsTab },
   ];
 
+  const selectedUser = userDetailId ? users.find((u) => u.id === userDetailId) : null;
+  const userTrips = selectedUser ? itineraries.filter((i) => i.userId === selectedUser.id) : [];
+  const userReviews = selectedUser ? reviews.filter((r) => r.userId === selectedUser.id) : [];
+  const selectedDest = destDetailId ? destinations.find((d) => d.id === destDetailId) : null;
+  const selectedReview = reviewDetailId ? reviews.find((r) => r.id === reviewDetailId) : null;
+  const selectedReviewDest = selectedReview ? destinations.find((d) => d.id === selectedReview.destinationId) : null;
+
   return (
-    <View style={[adminStyles.container, { backgroundColor: colors.background }]}>
-      <View style={[adminStyles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
-        <Pressable onPress={() => router.back()}>
+    <View style={[s.container, { backgroundColor: colors.background }]}>
+      <View style={[s.header, { paddingTop: insets.top + webTopInset + 8 }]}>
+        <Pressable onPress={() => {
+          if (userDetailId) { setUserDetailId(null); return; }
+          if (destDetailId) { setDestDetailId(null); return; }
+          if (reviewDetailId) { setReviewDetailId(null); return; }
+          router.back();
+        }}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
-        <Text style={[adminStyles.headerTitle, { color: colors.text }]}>{t().admin.title}</Text>
+        <Text style={[s.headerTitle, { color: colors.text }]}>
+          {userDetailId ? txt.userDetail : destDetailId ? txt.destDetail : reviewDetailId ? txt.reviewDetail : txt.title}
+        </Text>
         <View style={{ width: 24 }} />
       </View>
 
-      <View style={adminStyles.tabBar}>
-        {tabs.map((tab) => (
-          <Pressable
-            key={tab.key}
-            onPress={() => {
-              Haptics.selectionAsync();
-              setActiveTab(tab.key);
-              if (tab.key === "users") loadUsers();
-            }}
-            style={[
-              adminStyles.tab,
-              { borderBottomColor: activeTab === tab.key ? colors.primary : "transparent" },
-            ]}
-          >
-            <Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? colors.primary : colors.textTertiary} />
-            <Text style={[adminStyles.tabText, { color: activeTab === tab.key ? colors.primary : colors.textTertiary }]}>
-              {tab.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      {!userDetailId && !destDetailId && !reviewDetailId && (
+        <View style={s.tabBar}>
+          {tabs.map((tab) => (
+            <Pressable
+              key={tab.key}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setActiveTab(tab.key);
+                if (tab.key === "users") loadUsers();
+              }}
+              style={[s.tab, { borderBottomColor: activeTab === tab.key ? colors.primary : "transparent" }]}
+            >
+              <Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? colors.primary : colors.textTertiary} />
+              <Text style={[s.tabText, { color: activeTab === tab.key ? colors.primary : colors.textTertiary }]}>{tab.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
-      <ScrollView contentContainerStyle={adminStyles.scrollContent} showsVerticalScrollIndicator={false}>
-        {activeTab === "dashboard" && (
+      <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+
+        {userDetailId && selectedUser && (
           <>
-            <View style={adminStyles.statsGrid}>
-              <StatCard icon="people" label={t().admin.users} value={users.length || 0} color="#3B82F6" colors={colors} />
-              <StatCard icon="location" label={t().admin.places} value={destinations.length} color="#10B981" colors={colors} />
-              <StatCard icon="map" label={t().itinerary.itinerary} value={itineraries.length} color="#F59E0B" colors={colors} />
-              <StatCard icon="chatbubble" label={t().admin.reviewsTab} value={reviews.length} color="#EF4444" colors={colors} />
-            </View>
-            <View style={[adminStyles.activityCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-              <Text style={[adminStyles.activityTitle, { color: colors.text }]}>{t().admin.recentActivity}</Text>
-              {itineraries.slice(0, 5).map((itin) => (
-                <View key={itin.id} style={[adminStyles.activityRow, { borderColor: colors.divider }]}>
-                  <Ionicons name="map-outline" size={16} color={colors.primary} />
-                  <Text style={[adminStyles.activityText, { color: colors.textSecondary }]} numberOfLines={1}>
-                    {t().admin.newTrip}: {itin.title}
-                  </Text>
-                  <Text style={[adminStyles.activityDate, { color: colors.textTertiary }]}>
-                    {new Date(itin.createdAt).toLocaleDateString("vi-VN")}
+            <View style={[s.detailCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+              <View style={s.detailHeader}>
+                <View style={[s.userAvatar, { backgroundColor: selectedUser.role === "admin" ? colors.accent : colors.primary }]}>
+                  <Text style={s.userAvatarText}>{selectedUser.fullName.charAt(0).toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.detailName, { color: colors.text }]}>{selectedUser.fullName}</Text>
+                  <Text style={[s.detailSub, { color: colors.textSecondary }]}>@{selectedUser.username}</Text>
+                </View>
+                <View style={[s.statusTag, { backgroundColor: selectedUser.isLocked ? colors.error + "20" : colors.success + "20" }]}>
+                  <Text style={[s.statusTagText, { color: selectedUser.isLocked ? colors.error : colors.success }]}>
+                    {selectedUser.isLocked ? txt.locked : txt.active}
                   </Text>
                 </View>
+              </View>
+              <View style={s.detailInfo}>
+                <View style={s.infoRow}>
+                  <Ionicons name="mail-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[s.infoText, { color: colors.text }]}>{selectedUser.email}</Text>
+                </View>
+                <View style={s.infoRow}>
+                  <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[s.infoText, { color: colors.text }]}>{txt.createdDate}: {new Date(selectedUser.createdAt).toLocaleDateString("vi-VN")}</Text>
+                </View>
+                <View style={s.infoRow}>
+                  <Ionicons name="map-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[s.infoText, { color: colors.text }]}>{txt.tripsCount}: {userTrips.length}</Text>
+                </View>
+              </View>
+              {selectedUser.id !== currentUser?.id && (
+                <View style={s.detailActions}>
+                  <Pressable
+                    onPress={() => {
+                      setEditUserName(selectedUser.fullName);
+                      setEditUserEmail(selectedUser.email);
+                      setEditUserModal(true);
+                    }}
+                    style={[s.detailBtn, { backgroundColor: colors.primary }]}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#fff" />
+                    <Text style={s.detailBtnText}>{txt.editUser}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => toggleLock(selectedUser.id)}
+                    style={[s.detailBtn, { backgroundColor: selectedUser.isLocked ? colors.success : colors.warning }]}
+                  >
+                    <Ionicons name={selectedUser.isLocked ? "lock-open" : "lock-closed"} size={16} color="#fff" />
+                    <Text style={s.detailBtnText}>{selectedUser.isLocked ? txt.unlockAccount : txt.lockAccount}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => deleteUser(selectedUser.id, selectedUser.fullName)}
+                    style={[s.detailBtn, { backgroundColor: colors.error }]}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#fff" />
+                    <Text style={s.detailBtnText}>{txt.deleteUser}</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+
+            <View style={s.subTabBar}>
+              {([
+                { key: "trips" as const, label: txt.userTrips, icon: "map-outline" },
+                { key: "reviews" as const, label: txt.userReviews, icon: "star-outline" },
+              ]).map((st) => (
+                <Pressable
+                  key={st.key}
+                  onPress={() => setUserDetailTab(st.key)}
+                  style={[s.subTab, { borderBottomColor: userDetailTab === st.key ? colors.primary : "transparent" }]}
+                >
+                  <Ionicons name={st.icon as any} size={16} color={userDetailTab === st.key ? colors.primary : colors.textTertiary} />
+                  <Text style={[s.subTabText, { color: userDetailTab === st.key ? colors.primary : colors.textTertiary }]}>{st.label}</Text>
+                </Pressable>
               ))}
-              {itineraries.length === 0 && (
-                <Text style={[adminStyles.noData, { color: colors.textTertiary }]}>{t().admin.noActivity}</Text>
+            </View>
+
+            {userDetailTab === "trips" && (
+              <>
+                {userTrips.length === 0 ? (
+                  <View style={s.emptyState}>
+                    <Ionicons name="map-outline" size={40} color={colors.textTertiary} />
+                    <Text style={[s.noData, { color: colors.textTertiary }]}>{txt.noTripsYet}</Text>
+                  </View>
+                ) : (
+                  userTrips.map((trip) => (
+                    <Pressable
+                      key={trip.id}
+                      onPress={() => router.push({ pathname: "/itinerary/[id]", params: { id: trip.id } })}
+                      style={[s.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[s.itemTitle, { color: colors.text }]}>{trip.title}</Text>
+                        <Text style={[s.itemSub, { color: colors.textSecondary }]}>
+                          {trip.destination} • {trip.startDate} - {trip.endDate}
+                        </Text>
+                        <Text style={[s.itemSub, { color: colors.textTertiary }]}>
+                          {formatVND(trip.totalBudget)} • {trip.days.length} ngày
+                        </Text>
+                      </View>
+                      <Pressable onPress={(e) => { e.stopPropagation(); handleDeleteTrip(trip.id, trip.title); }} hitSlop={8}>
+                        <Ionicons name="trash-outline" size={18} color={colors.error} />
+                      </Pressable>
+                    </Pressable>
+                  ))
+                )}
+              </>
+            )}
+
+            {userDetailTab === "reviews" && (
+              <>
+                {userReviews.length === 0 ? (
+                  <View style={s.emptyState}>
+                    <Ionicons name="star-outline" size={40} color={colors.textTertiary} />
+                    <Text style={[s.noData, { color: colors.textTertiary }]}>{txt.noReviewsYet}</Text>
+                  </View>
+                ) : (
+                  userReviews.map((r) => {
+                    const dest = destinations.find((d) => d.id === r.destinationId);
+                    return (
+                      <View key={r.id} style={[s.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[s.itemTitle, { color: colors.text }]}>{dest?.name || "—"}</Text>
+                          <View style={s.ratingRow}>
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Ionicons key={star} name={star <= r.rating ? "star" : "star-outline"} size={14} color="#F59E0B" />
+                            ))}
+                          </View>
+                          <Text style={[s.reviewText, { color: colors.textSecondary }]} numberOfLines={2}>{r.comment}</Text>
+                        </View>
+                        <Pressable onPress={(e) => { e.stopPropagation(); handleDeleteReview(r.id); }} hitSlop={8}>
+                          <Ionicons name="trash-outline" size={18} color={colors.error} />
+                        </Pressable>
+                      </View>
+                    );
+                  })
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {destDetailId && selectedDest && (
+          <View style={[s.detailCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+            <Text style={[s.detailName, { color: colors.text, fontSize: 20, marginBottom: 12 }]}>{selectedDest.name}</Text>
+            <View style={s.detailInfo}>
+              <View style={s.infoRow}>
+                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                <Text style={[s.infoText, { color: colors.text }]}>{selectedDest.address}</Text>
+              </View>
+              <View style={s.infoRow}>
+                <Ionicons name="pricetag-outline" size={16} color={colors.textSecondary} />
+                <Text style={[s.infoText, { color: colors.text }]}>{txt.category}: {t().categories[selectedDest.category] || selectedDest.category}</Text>
+              </View>
+              <View style={s.infoRow}>
+                <Ionicons name="star" size={16} color="#F59E0B" />
+                <Text style={[s.infoText, { color: colors.text }]}>{selectedDest.rating.toFixed(1)}/5 ({selectedDest.reviewCount} {txt.reviewsTab.toLowerCase()})</Text>
+              </View>
+              {selectedDest.priceRange && (
+                <View style={s.infoRow}>
+                  <Ionicons name="cash-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[s.infoText, { color: colors.text }]}>{selectedDest.priceRange}</Text>
+                </View>
+              )}
+              {selectedDest.openHours && (
+                <View style={s.infoRow}>
+                  <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[s.infoText, { color: colors.text }]}>{selectedDest.openHours}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={[s.descLabel, { color: colors.textSecondary }]}>{txt.description}</Text>
+            <Text style={[s.descText, { color: colors.text }]}>{selectedDest.description}</Text>
+
+            {selectedDest.tags && selectedDest.tags.length > 0 && (
+              <View style={s.tagsRow}>
+                {selectedDest.tags.map((tag) => (
+                  <View key={tag} style={[s.tagChip, { backgroundColor: colors.tagBg }]}>
+                    <Text style={[s.tagText, { color: colors.tagText }]}>{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <View style={[s.detailActions, { marginTop: 16 }]}>
+              <Pressable onPress={() => { setDestDetailId(null); openEditDest(selectedDest.id); }} style={[s.detailBtn, { backgroundColor: colors.primary }]}>
+                <Ionicons name="create-outline" size={16} color="#fff" />
+                <Text style={s.detailBtnText}>{txt.editDestination}</Text>
+              </Pressable>
+              <Pressable onPress={() => handleDeleteDest(selectedDest.id, selectedDest.name)} style={[s.detailBtn, { backgroundColor: colors.error }]}>
+                <Ionicons name="trash-outline" size={16} color="#fff" />
+                <Text style={s.detailBtnText}>{txt.deleteDestination}</Text>
+              </Pressable>
+            </View>
+
+            <Text style={[s.sectionLabel, { color: colors.text }]}>{txt.reviewsTab} ({reviews.filter((r) => r.destinationId === selectedDest.id).length})</Text>
+            {reviews.filter((r) => r.destinationId === selectedDest.id).length === 0 ? (
+              <Text style={[s.noData, { color: colors.textTertiary }]}>{txt.noReviews}</Text>
+            ) : (
+              reviews.filter((r) => r.destinationId === selectedDest.id).map((r) => (
+                <View key={r.id} style={[s.reviewCard, { backgroundColor: colors.inputBg }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.reviewerName, { color: colors.text }]}>{r.userName}</Text>
+                    <View style={s.ratingRow}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Ionicons key={star} name={star <= r.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
+                      ))}
+                    </View>
+                    <Text style={[s.reviewText, { color: colors.textSecondary }]}>{r.comment}</Text>
+                  </View>
+                  <Pressable onPress={() => handleDeleteReview(r.id)} hitSlop={8}>
+                    <Ionicons name="trash-outline" size={16} color={colors.error} />
+                  </Pressable>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {reviewDetailId && selectedReview && (
+          <View style={[s.detailCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+            <View style={s.detailHeader}>
+              <View style={[s.userAvatar, { backgroundColor: colors.primary }]}>
+                <Text style={s.userAvatarText}>{selectedReview.userName.charAt(0).toUpperCase()}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.detailName, { color: colors.text }]}>{selectedReview.userName}</Text>
+                <Text style={[s.detailSub, { color: colors.textSecondary }]}>
+                  {new Date(selectedReview.createdAt).toLocaleDateString("vi-VN")}
+                </Text>
+              </View>
+            </View>
+
+            <View style={s.detailInfo}>
+              <View style={s.infoRow}>
+                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                <Text style={[s.infoText, { color: colors.text }]}>{txt.destination}: {selectedReviewDest?.name || "—"}</Text>
+              </View>
+              <View style={s.infoRow}>
+                <Text style={[s.infoText, { color: colors.textSecondary }]}>{txt.rating}:</Text>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Ionicons key={star} name={star <= selectedReview.rating ? "star" : "star-outline"} size={18} color="#F59E0B" />
+                ))}
+                <Text style={[s.infoText, { color: colors.text }]}>{selectedReview.rating}/5</Text>
+              </View>
+            </View>
+
+            <Text style={[s.descLabel, { color: colors.textSecondary }]}>{txt.comment}</Text>
+            <Text style={[s.descText, { color: colors.text }]}>{selectedReview.comment}</Text>
+
+            <View style={[s.detailActions, { marginTop: 16 }]}>
+              <Pressable onPress={() => handleDeleteReview(selectedReview.id)} style={[s.detailBtn, { backgroundColor: colors.error }]}>
+                <Ionicons name="trash-outline" size={16} color="#fff" />
+                <Text style={s.detailBtnText}>{txt.deleteReview}</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {!userDetailId && !destDetailId && !reviewDetailId && activeTab === "dashboard" && (
+          <>
+            <View style={s.statsGrid}>
+              <StatCard icon="people" label={txt.users} value={users.length || 0} color="#3B82F6" colors={colors} />
+              <StatCard icon="location" label={txt.places} value={destinations.length} color="#10B981" colors={colors} />
+              <StatCard icon="airplane" label={txt.totalTrips} value={itineraries.length} color="#F59E0B" colors={colors} />
+              <StatCard icon="chatbubble" label={txt.reviewsTab} value={reviews.length} color="#EF4444" colors={colors} />
+            </View>
+
+            {topDestinations.length > 0 && (
+              <View style={[s.sectionCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                <Text style={[s.sectionTitle, { color: colors.text }]}>{txt.topDestinations}</Text>
+                {topDestinations.map(([name, count], idx) => (
+                  <View key={name} style={[s.topDestRow, { borderColor: colors.divider }]}>
+                    <View style={[s.rankBadge, { backgroundColor: idx === 0 ? "#F59E0B" : idx === 1 ? "#9CA3AF" : idx === 2 ? "#CD7F32" : colors.inputBg }]}>
+                      <Text style={[s.rankText, { color: idx < 3 ? "#fff" : colors.text }]}>{idx + 1}</Text>
+                    </View>
+                    <Text style={[s.topDestName, { color: colors.text }]}>{name}</Text>
+                    <Text style={[s.topDestCount, { color: colors.textSecondary }]}>{count} {txt.timesChosen}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <View style={[s.sectionCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+              <Text style={[s.sectionTitle, { color: colors.text }]}>{txt.recentActivity}</Text>
+              {recentActivities.length === 0 ? (
+                <Text style={[s.noData, { color: colors.textTertiary }]}>{txt.noActivity}</Text>
+              ) : (
+                recentActivities.map((act, idx) => (
+                  <View key={idx} style={[s.timelineRow, { borderColor: colors.divider }]}>
+                    <View style={[s.timelineDot, { backgroundColor: colors.primary }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.timelineText, { color: colors.text }]}>{act.text}</Text>
+                      <Text style={[s.timelineDate, { color: colors.textTertiary }]}>{act.date}</Text>
+                    </View>
+                  </View>
+                ))
               )}
             </View>
           </>
         )}
 
-        {activeTab === "users" && (
+        {!userDetailId && !destDetailId && !reviewDetailId && activeTab === "users" && (
           <>
             {users.map((u) => (
-              <View key={u.id} style={[adminStyles.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                <View style={[adminStyles.userAvatar, { backgroundColor: u.role === "admin" ? colors.accent : colors.primary }]}>
-                  <Text style={adminStyles.userAvatarText}>{u.fullName.charAt(0).toUpperCase()}</Text>
+              <Pressable
+                key={u.id}
+                onPress={() => { setUserDetailId(u.id); setUserDetailTab("info"); }}
+                style={[s.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              >
+                <View style={[s.userAvatar, { backgroundColor: u.role === "admin" ? colors.accent : colors.primary }]}>
+                  <Text style={s.userAvatarText}>{u.fullName.charAt(0).toUpperCase()}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[adminStyles.itemTitle, { color: colors.text }]}>{u.fullName}</Text>
-                  <Text style={[adminStyles.itemSub, { color: colors.textSecondary }]}>@{u.username} - {u.role}{u.isLocked ? ` (${t().admin.locked})` : ""}</Text>
+                  <Text style={[s.itemTitle, { color: colors.text }]}>{u.fullName}</Text>
+                  <Text style={[s.itemSub, { color: colors.textSecondary }]}>{u.email}</Text>
+                  <Text style={[s.itemSub, { color: colors.textTertiary }]}>
+                    {new Date(u.createdAt).toLocaleDateString("vi-VN")} • {itineraries.filter((i) => i.userId === u.id).length} {txt.userTrips.toLowerCase()}
+                  </Text>
                 </View>
-                {u.id !== currentUser?.id && (
-                  <Pressable
-                    onPress={() => toggleLock(u.id)}
-                    style={[adminStyles.lockBtn, { backgroundColor: u.isLocked ? colors.error + "20" : colors.success + "20" }]}
-                  >
-                    <Ionicons name={u.isLocked ? "lock-closed" : "lock-open"} size={16} color={u.isLocked ? colors.error : colors.success} />
-                  </Pressable>
-                )}
-              </View>
+                <View style={{ alignItems: "flex-end", gap: 4 }}>
+                  <View style={[s.statusTag, { backgroundColor: u.isLocked ? colors.error + "20" : colors.success + "20" }]}>
+                    <Text style={[s.statusTagText, { color: u.isLocked ? colors.error : colors.success }]}>
+                      {u.isLocked ? txt.locked : txt.active}
+                    </Text>
+                  </View>
+                  {u.id !== currentUser?.id && (
+                    <Pressable onPress={(e) => { e.stopPropagation(); toggleLock(u.id); }} hitSlop={8}>
+                      <Ionicons name={u.isLocked ? "lock-closed" : "lock-open"} size={16} color={u.isLocked ? colors.error : colors.success} />
+                    </Pressable>
+                  )}
+                </View>
+              </Pressable>
             ))}
           </>
         )}
 
-        {activeTab === "destinations" && (
+        {!userDetailId && !destDetailId && !reviewDetailId && activeTab === "destinations" && (
           <>
             <Pressable
               onPress={openAddDest}
-              style={({ pressed }) => [
-                adminStyles.addBtn,
-                { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-              ]}
+              style={({ pressed }) => [s.addBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 }]}
             >
               <Ionicons name="add" size={20} color="#fff" />
-              <Text style={adminStyles.addBtnText}>{t().admin.addDestination}</Text>
+              <Text style={s.addBtnText}>{txt.addDestination}</Text>
             </Pressable>
             {destinations.map((d) => (
-              <View key={d.id} style={[adminStyles.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+              <Pressable
+                key={d.id}
+                onPress={() => setDestDetailId(d.id)}
+                style={[s.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              >
                 <View style={{ flex: 1 }}>
-                  <Text style={[adminStyles.itemTitle, { color: colors.text }]}>{d.name}</Text>
-                  <Text style={[adminStyles.itemSub, { color: colors.textSecondary }]}>{d.category} - {d.address}</Text>
+                  <Text style={[s.itemTitle, { color: colors.text }]}>{d.name}</Text>
+                  <Text style={[s.itemSub, { color: colors.textSecondary }]}>{t().categories[d.category] || d.category} - {d.address}</Text>
+                  <View style={s.ratingRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Ionicons key={star} name={star <= Math.round(d.rating) ? "star" : "star-outline"} size={12} color="#F59E0B" />
+                    ))}
+                    <Text style={[s.ratingText, { color: colors.textTertiary }]}>{d.rating.toFixed(1)}</Text>
+                  </View>
                 </View>
                 <View style={{ flexDirection: "row", gap: 8 }}>
-                  <Pressable onPress={() => openEditDest(d.id)} hitSlop={8}>
+                  <Pressable onPress={(e) => { e.stopPropagation(); openEditDest(d.id); }} hitSlop={8}>
                     <Ionicons name="create-outline" size={20} color={colors.primary} />
                   </Pressable>
-                  <Pressable onPress={() => handleDeleteDest(d.id, d.name)} hitSlop={8}>
+                  <Pressable onPress={(e) => { e.stopPropagation(); handleDeleteDest(d.id, d.name); }} hitSlop={8}>
                     <Ionicons name="trash-outline" size={20} color={colors.error} />
                   </Pressable>
                 </View>
-              </View>
+              </Pressable>
             ))}
           </>
         )}
 
-        {activeTab === "reviews" && (
+        {!userDetailId && !destDetailId && !reviewDetailId && activeTab === "reviews" && (
           <>
             {reviews.length === 0 ? (
-              <View style={adminStyles.emptyState}>
+              <View style={s.emptyState}>
                 <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} />
-                <Text style={[adminStyles.noData, { color: colors.textTertiary }]}>{t().admin.noReviews}</Text>
+                <Text style={[s.noData, { color: colors.textTertiary }]}>{txt.noReviews}</Text>
               </View>
             ) : (
               reviews.map((r) => {
                 const dest = destinations.find((d) => d.id === r.destinationId);
                 return (
-                  <View key={r.id} style={[adminStyles.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                  <Pressable
+                    key={r.id}
+                    onPress={() => setReviewDetailId(r.id)}
+                    style={[s.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+                  >
                     <View style={{ flex: 1 }}>
-                      <Text style={[adminStyles.itemTitle, { color: colors.text }]}>{r.userName}</Text>
-                      <Text style={[adminStyles.itemSub, { color: colors.textSecondary }]}>
-                        {dest?.name} - {r.rating}/5
-                      </Text>
-                      <Text style={[adminStyles.reviewText, { color: colors.textSecondary }]} numberOfLines={2}>
-                        {r.comment}
-                      </Text>
+                      <Text style={[s.itemTitle, { color: colors.text }]}>{r.userName}</Text>
+                      <Text style={[s.itemSub, { color: colors.textSecondary }]}>{dest?.name} - {new Date(r.createdAt).toLocaleDateString("vi-VN")}</Text>
+                      <View style={s.ratingRow}>
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Ionicons key={star} name={star <= r.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
+                        ))}
+                      </View>
+                      <Text style={[s.reviewText, { color: colors.textSecondary }]} numberOfLines={2}>{r.comment}</Text>
                     </View>
-                    <Pressable onPress={() => handleDeleteReview(r.id)} hitSlop={8}>
+                    <Pressable onPress={(e) => { e.stopPropagation(); handleDeleteReview(r.id); }} hitSlop={8}>
                       <Ionicons name="trash-outline" size={20} color={colors.error} />
                     </Pressable>
-                  </View>
+                  </Pressable>
                 );
               })
             )}
@@ -335,11 +723,11 @@ export default function AdminDashboard() {
       </ScrollView>
 
       <Modal visible={destModalVisible} animationType="slide" transparent>
-        <View style={adminStyles.modalOverlay}>
-          <View style={[adminStyles.modalContent, { backgroundColor: colors.card }]}>
-            <View style={adminStyles.modalHeader}>
-              <Text style={[adminStyles.modalTitle, { color: colors.text }]}>
-                {editingDestId ? t().admin.editDestination : t().admin.addDestination}
+        <View style={s.modalOverlay}>
+          <View style={[s.modalContent, { backgroundColor: colors.card }]}>
+            <View style={s.modalHeader}>
+              <Text style={[s.modalTitle, { color: colors.text }]}>
+                {editingDestId ? txt.editDestination : txt.addDestination}
               </Text>
               <Pressable onPress={() => setDestModalVisible(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
@@ -348,62 +736,82 @@ export default function AdminDashboard() {
             <ScrollView contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
               <View>
                 <TextInput
-                  style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.name ? colors.error : colors.inputBorder }]}
-                  placeholder={t().admin.destName}
+                  style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.name ? colors.error : colors.inputBorder }]}
+                  placeholder={txt.destName}
                   placeholderTextColor={colors.textTertiary}
                   value={destName}
                   onChangeText={(v) => { setDestName(v); if (destErrors.name) setDestErrors((e) => ({ ...e, name: undefined })); }}
                 />
-                {destErrors.name && <Text style={[adminStyles.fieldError, { color: colors.error }]}>{destErrors.name}</Text>}
+                {destErrors.name && <Text style={[s.fieldError, { color: colors.error }]}>{destErrors.name}</Text>}
               </View>
               <View>
                 <TextInput
-                  style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.address ? colors.error : colors.inputBorder }]}
-                  placeholder={t().admin.address}
+                  style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.address ? colors.error : colors.inputBorder }]}
+                  placeholder={txt.address}
                   placeholderTextColor={colors.textTertiary}
                   value={destAddr}
                   onChangeText={(v) => { setDestAddr(v); if (destErrors.address) setDestErrors((e) => ({ ...e, address: undefined })); }}
                 />
-                {destErrors.address && <Text style={[adminStyles.fieldError, { color: colors.error }]}>{destErrors.address}</Text>}
+                {destErrors.address && <Text style={[s.fieldError, { color: colors.error }]}>{destErrors.address}</Text>}
               </View>
               <TextInput
-                style={[adminStyles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder, minHeight: 80 }]}
-                placeholder={t().admin.description}
+                style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder, minHeight: 80 }]}
+                placeholder={txt.description}
                 placeholderTextColor={colors.textTertiary}
                 value={destDesc}
                 onChangeText={setDestDesc}
                 multiline
               />
-              <Text style={[adminStyles.categoryLabel, { color: colors.text }]}>{t().admin.category}</Text>
-              <View style={adminStyles.categoryGrid}>
+              <Text style={[s.categoryLabel, { color: colors.text }]}>{txt.category}</Text>
+              <View style={s.categoryGrid}>
                 {categories.map((cat) => (
                   <Pressable
                     key={cat}
                     onPress={() => setDestCategory(cat)}
-                    style={[
-                      adminStyles.categoryChip,
-                      {
-                        backgroundColor: destCategory === cat ? colors.primary : colors.inputBg,
-                        borderColor: destCategory === cat ? colors.primary : colors.inputBorder,
-                      },
-                    ]}
+                    style={[s.categoryChip, { backgroundColor: destCategory === cat ? colors.primary : colors.inputBg, borderColor: destCategory === cat ? colors.primary : colors.inputBorder }]}
                   >
-                    <Text style={[adminStyles.categoryChipText, { color: destCategory === cat ? "#fff" : colors.textSecondary }]}>
-                      {cat}
+                    <Text style={[s.categoryChipText, { color: destCategory === cat ? "#fff" : colors.textSecondary }]}>
+                      {t().categories[cat] || cat}
                     </Text>
                   </Pressable>
                 ))}
               </View>
               <Pressable
                 onPress={handleSaveDest}
-                style={({ pressed }) => [
-                  adminStyles.modalSaveBtn,
-                  { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-                ]}
+                style={({ pressed }) => [s.modalSaveBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 }]}
               >
-                <Text style={adminStyles.modalSaveBtnText}>{editingDestId ? t().common.update : t().common.save}</Text>
+                <Text style={s.modalSaveBtnText}>{editingDestId ? t().common.update : t().common.save}</Text>
               </Pressable>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={editUserModal} transparent animationType="fade" onRequestClose={() => setEditUserModal(false)}>
+        <View style={s.editModalOverlay}>
+          <View style={[s.editModalContent, { backgroundColor: colors.card }]}>
+            <Text style={[s.modalTitle, { color: colors.text }]}>{txt.editUser}</Text>
+            <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>{txt.fullName}</Text>
+            <TextInput
+              style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              value={editUserName}
+              onChangeText={setEditUserName}
+            />
+            <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>{txt.email}</Text>
+            <TextInput
+              style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              value={editUserEmail}
+              onChangeText={setEditUserEmail}
+              keyboardType="email-address"
+            />
+            <View style={s.editModalActions}>
+              <Pressable onPress={() => setEditUserModal(false)} style={[s.editModalBtn, { backgroundColor: colors.inputBg }]}>
+                <Text style={[s.editModalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
+              </Pressable>
+              <Pressable onPress={saveEditUser} style={[s.editModalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[s.editModalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -411,7 +819,7 @@ export default function AdminDashboard() {
   );
 }
 
-const adminStyles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: "row",
@@ -444,11 +852,18 @@ const adminStyles = StyleSheet.create({
   statIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   statValue: { fontSize: 28, fontFamily: "Inter_700Bold" },
   statLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  activityCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
-  activityTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
-  activityRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6, borderBottomWidth: 0.5 },
-  activityText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular" },
-  activityDate: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  sectionCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
+  sectionTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
+  sectionLabel: { fontSize: 15, fontFamily: "Inter_600SemiBold", marginTop: 16 },
+  topDestRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 0.5 },
+  rankBadge: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  rankText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  topDestName: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium" },
+  topDestCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  timelineRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 8, borderBottomWidth: 0.5 },
+  timelineDot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
+  timelineText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  timelineDate: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
   noData: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", paddingVertical: 16 },
   itemCard: {
     flexDirection: "row",
@@ -462,8 +877,12 @@ const adminStyles = StyleSheet.create({
   userAvatarText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#fff" },
   itemTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   itemSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
-  reviewText: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4 },
-  lockBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  statusTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  statusTagText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: 4 },
+  ratingText: { fontSize: 11, fontFamily: "Inter_400Regular", marginLeft: 4 },
+  reviewText: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4, lineHeight: 18 },
+  emptyState: { alignItems: "center", paddingTop: 40, gap: 8 },
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -473,7 +892,44 @@ const adminStyles = StyleSheet.create({
     borderRadius: 12,
   },
   addBtnText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  emptyState: { alignItems: "center", paddingTop: 40, gap: 8 },
+  detailCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
+  detailHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  detailName: { fontSize: 18, fontFamily: "Inter_600SemiBold" },
+  detailSub: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
+  detailInfo: { gap: 8, marginTop: 4 },
+  infoRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  infoText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  detailActions: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  detailBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  detailBtnText: { color: "#fff", fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  subTabBar: { flexDirection: "row", gap: 0 },
+  subTab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  subTabText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  descLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginTop: 8 },
+  descText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
+  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+  tagChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  tagText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  reviewCard: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, borderRadius: 10, marginTop: 6 },
+  reviewerName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  lockBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  fieldLabel: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 4 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   modalContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, maxHeight: "70%" },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
@@ -492,4 +948,21 @@ const adminStyles = StyleSheet.create({
   categoryChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
   modalSaveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 4 },
   modalSaveBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  editModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  editModalContent: {
+    width: "100%",
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+    gap: 12,
+  },
+  editModalActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  editModalBtn: { flex: 1, borderRadius: 12, paddingVertical: 12, alignItems: "center" },
+  editModalBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });
