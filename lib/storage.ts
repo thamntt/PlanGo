@@ -85,6 +85,17 @@ export interface ItineraryActivity {
   activityType: "sightseeing" | "food" | "transport" | "shopping" | "other";
 }
 
+export interface Expense {
+  id: string;
+  title: string;
+  amount: number;
+  type: "transport" | "shopping" | "food" | "sightseeing" | "other";
+  paidBy?: string;
+  notes?: string[];
+  dayIndex?: number;
+  createdAt: string;
+}
+
 export interface Itinerary {
   id: string;
   userId: string;
@@ -99,6 +110,7 @@ export interface Itinerary {
   numPeople: number;
   preferences: string[];
   days: ItineraryDay[];
+  expenses?: Expense[];
   status: "draft" | "active" | "completed";
   isShared: boolean;
   createdAt: string;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -20,9 +20,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
-import { formatVND } from "@/lib/storage";
+import { formatVND, generateId } from "@/lib/storage";
 import { t } from "@/lib/i18n";
-import type { ItineraryActivity } from "@/lib/storage";
+import type { ItineraryActivity, Expense } from "@/lib/storage";
 
 function getStatusLabel(status: string): string {
   const labels = t().trips;
@@ -90,6 +90,30 @@ function getTravelInfo(from: ItineraryActivity, to: ItineraryActivity): TravelIn
   };
 }
 
+function parseTimeToMinutes(time: string): number {
+  const match = time.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return -1;
+  const h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
+  return h * 60 + m;
+}
+
+function minutesToTime(mins: number): string {
+  const h = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+}
+
+function parseDurationToMinutes(duration: string): number {
+  const hourMatch = duration.match(/([\d.]+)\s*giờ/);
+  const minMatch = duration.match(/(\d+)\s*phút/);
+  let total = 0;
+  if (hourMatch) total += parseFloat(hourMatch[1]) * 60;
+  if (minMatch) total += parseInt(minMatch[1], 10);
+  return total > 0 ? total : 60;
+}
+
 function TravelConnector({ from, to, colors: c }: { from: ItineraryActivity; to: ItineraryActivity; colors: any }) {
   const [expanded, setExpanded] = useState(false);
   const travel = getTravelInfo(from, to);
@@ -150,19 +174,28 @@ export default function ItineraryDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary, deleteItinerary, addNotification, addReview, destinations } = useData();
+  const { itineraries, updateItinerary, deleteItinerary, addNotification } = useData();
 
   const itinerary = itineraries.find((i) => i.id === id);
+  const [activeTab, setActiveTab] = useState<"itinerary" | "expenses">("itinerary");
   const [expandedDay, setExpandedDay] = useState<number | null>(0);
   const [noteModal, setNoteModal] = useState<{ activityId: string; dayIdx: number; note: string; editIndex?: number } | null>(null);
   const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; paidBy: string } | null>(null);
-  const [expenseModal, setExpenseModal] = useState<{ dayIdx: number } | null>(null);
+  const [timeModal, setTimeModal] = useState<{ activityId: string; dayIdx: number; time: string } | null>(null);
+  const [addPlaceModal, setAddPlaceModal] = useState<{ dayIdx: number } | null>(null);
   const [editInfoModal, setEditInfoModal] = useState(false);
 
+  const [placeTitle, setPlaceTitle] = useState("");
+  const [placeDuration, setPlaceDuration] = useState("1 giờ");
+  const [placeCost, setPlaceCost] = useState("");
+  const [placeType, setPlaceType] = useState<"sightseeing" | "food" | "transport" | "shopping" | "other">("sightseeing");
+
+  const [expenseModal, setExpenseModal] = useState<{ editId?: string } | null>(null);
   const [expenseTitle, setExpenseTitle] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
-  const [expenseType, setExpenseType] = useState<"transport" | "shopping" | "food" | "other">("transport");
+  const [expenseType, setExpenseType] = useState<"transport" | "shopping" | "food" | "sightseeing" | "other">("transport");
   const [expensePaidBy, setExpensePaidBy] = useState("");
+  const [expenseNoteModal, setExpenseNoteModal] = useState<{ expenseId: string; note: string; editIndex?: number } | null>(null);
 
   const [editBudget, setEditBudget] = useState("");
   const [editNumPeople, setEditNumPeople] = useState("");
@@ -174,8 +207,10 @@ export default function ItineraryDetailScreen() {
 
   const totalSpent = useMemo(() => {
     if (!itinerary) return 0;
-    return itinerary.days.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.actualCost || 0), 0), 0);
-  }, [itinerary?.days]);
+    const activitySpent = itinerary.days.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.actualCost || 0), 0), 0);
+    const expenseSpent = (itinerary.expenses || []).reduce((sum, e) => sum + e.amount, 0);
+    return activitySpent + expenseSpent;
+  }, [itinerary?.days, itinerary?.expenses]);
 
   if (!itinerary) {
     return (
@@ -187,6 +222,7 @@ export default function ItineraryDetailScreen() {
 
   const remaining = (itinerary.totalBudget || 0) - totalSpent;
   const budgetPercent = itinerary.totalBudget > 0 ? Math.min(100, (totalSpent / itinerary.totalBudget) * 100) : 0;
+  const expenses = itinerary.expenses || [];
 
   const openGoogleMaps = (lat?: number, lng?: number, address?: string) => {
     if (lat && lng) {
@@ -263,6 +299,12 @@ export default function ItineraryDetailScreen() {
     router.push({ pathname: "/create-trip", params: { editId: itinerary.id } });
   };
 
+  const recalcSpent = (days: typeof itinerary.days, exps: Expense[]) => {
+    const activitySpent = days.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.actualCost || 0), 0), 0);
+    const expenseSpent = exps.reduce((sum, e) => sum + e.amount, 0);
+    return activitySpent + expenseSpent;
+  };
+
   const toggleActivityComplete = async (dayIdx: number, activityId: string) => {
     const newDays = [...itinerary.days];
     const activity = newDays[dayIdx].activities.find((a) => a.id === activityId);
@@ -270,15 +312,15 @@ export default function ItineraryDetailScreen() {
       activity.isCompleted = !activity.isCompleted;
       if (activity.isCompleted && !activity.actualCost && activity.estimatedCost) {
         activity.actualCost = activity.estimatedCost;
+      } else if (!activity.isCompleted && activity.actualCost === activity.estimatedCost) {
+        activity.actualCost = 0;
       }
-      const newSpent = newDays.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.isCompleted ? (a.actualCost || a.estimatedCost || 0) : 0), 0), 0);
+      const newSpent = recalcSpent(newDays, expenses);
       await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
       if (activity.isCompleted) {
         await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${activity.title}" đã hoàn thành`, type: "info" });
       }
-
       if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
         await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
       }
@@ -343,9 +385,8 @@ export default function ItineraryDetailScreen() {
       const newCost = parseInt(costModal.cost.replace(/[^0-9]/g, ""), 10) || 0;
       activity.actualCost = newCost;
       activity.paidBy = costModal.paidBy.trim() || undefined;
-      const newSpent = newDays.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.actualCost || 0), 0), 0);
+      const newSpent = recalcSpent(newDays, expenses);
       await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
-
       if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
         if (Platform.OS === "web") {
           window.alert(t().itinerary.budgetWarning);
@@ -357,43 +398,75 @@ export default function ItineraryDetailScreen() {
     setCostModal(null);
   };
 
-  const addExpenseToDay = async () => {
-    if (!expenseModal || !expenseTitle.trim() || !expenseAmount.trim()) return;
-    const amount = parseInt(expenseAmount.replace(/[^0-9]/g, ""), 10) || 0;
-    if (amount <= 0) return;
-
+  const saveTime = async () => {
+    if (!timeModal) return;
+    const newTime = timeModal.time.trim();
+    const newMins = parseTimeToMinutes(newTime);
+    if (newMins < 0) {
+      if (Platform.OS === "web") {
+        window.alert("Giờ không hợp lệ. Vui lòng nhập theo dạng HH:MM (VD: 08:30)");
+      } else {
+        Alert.alert("Lỗi", "Giờ không hợp lệ. Vui lòng nhập theo dạng HH:MM (VD: 08:30)");
+      }
+      return;
+    }
     const newDays = [...itinerary.days];
-    const newActivity: ItineraryActivity = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      time: "—",
-      title: expenseTitle.trim(),
-      description: expensePaidBy ? `Trả bởi: ${expensePaidBy}` : "",
-      duration: "",
-      estimatedCost: amount,
-      actualCost: amount,
-      isCompleted: true,
-      activityType: expenseType,
-      paidBy: expensePaidBy.trim() || undefined,
-    };
-    newDays[expenseModal.dayIdx].activities.push(newActivity);
-    const newSpent = newDays.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.actualCost || 0), 0), 0);
-    await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
+    const activities = newDays[timeModal.dayIdx].activities;
+    const actIdx = activities.findIndex((a) => a.id === timeModal.activityId);
+    if (actIdx === -1) return;
 
-    if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
-      await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
+    activities[actIdx].time = minutesToTime(newMins);
+
+    let currentEnd = newMins + parseDurationToMinutes(activities[actIdx].duration || "1 giờ");
+    for (let i = actIdx + 1; i < activities.length; i++) {
+      const travelInfo = getTravelInfo(activities[i - 1], activities[i]);
+      const travelMins = travelInfo ? (travelInfo.defaultMode === "walking" ? travelInfo.walkingMinutes : travelInfo.drivingMinutes) : 0;
+      const nextStart = currentEnd + travelMins;
+      activities[i].time = minutesToTime(nextStart);
+      currentEnd = nextStart + parseDurationToMinutes(activities[i].duration || "1 giờ");
     }
 
-    setExpenseTitle("");
-    setExpenseAmount("");
-    setExpensePaidBy("");
-    setExpenseModal(null);
+    await updateItinerary(itinerary.id, { days: newDays });
+    setTimeModal(null);
+  };
+
+  const addPlaceToDay = async () => {
+    if (!addPlaceModal || !placeTitle.trim()) return;
+    const newDays = [...itinerary.days];
+    const activities = newDays[addPlaceModal.dayIdx].activities;
+    const lastActivity = activities.length > 0 ? activities[activities.length - 1] : null;
+    let nextTime = "09:00";
+    if (lastActivity) {
+      const lastMins = parseTimeToMinutes(lastActivity.time);
+      if (lastMins >= 0) {
+        nextTime = minutesToTime(lastMins + parseDurationToMinutes(lastActivity.duration || "1 giờ"));
+      }
+    }
+    const cost = parseInt(placeCost.replace(/[^0-9]/g, ""), 10) || 0;
+    const newActivity: ItineraryActivity = {
+      id: generateId(),
+      time: nextTime,
+      title: placeTitle.trim(),
+      description: "",
+      duration: placeDuration || "1 giờ",
+      estimatedCost: cost,
+      isCompleted: false,
+      activityType: placeType,
+    };
+    activities.push(newActivity);
+    await updateItinerary(itinerary.id, { days: newDays });
+    setPlaceTitle("");
+    setPlaceDuration("1 giờ");
+    setPlaceCost("");
+    setPlaceType("sightseeing");
+    setAddPlaceModal(null);
   };
 
   const deleteActivity = async (dayIdx: number, activityId: string) => {
     const doDelete = async () => {
       const newDays = [...itinerary.days];
       newDays[dayIdx].activities = newDays[dayIdx].activities.filter((a) => a.id !== activityId);
-      const newSpent = newDays.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.actualCost || 0), 0), 0);
+      const newSpent = recalcSpent(newDays, expenses);
       await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
     };
     if (Platform.OS === "web") {
@@ -426,6 +499,108 @@ export default function ItineraryDetailScreen() {
       numPeople: newPeople,
     });
     setEditInfoModal(false);
+  };
+
+  const addOrEditExpense = async () => {
+    if (!expenseModal || !expenseTitle.trim() || !expenseAmount.trim()) return;
+    const amount = parseInt(expenseAmount.replace(/[^0-9]/g, ""), 10) || 0;
+    if (amount <= 0) return;
+
+    let newExpenses = [...expenses];
+    if (expenseModal.editId) {
+      const idx = newExpenses.findIndex((e) => e.id === expenseModal.editId);
+      if (idx !== -1) {
+        newExpenses[idx] = {
+          ...newExpenses[idx],
+          title: expenseTitle.trim(),
+          amount,
+          type: expenseType,
+          paidBy: expensePaidBy.trim() || undefined,
+        };
+      }
+    } else {
+      newExpenses.push({
+        id: generateId(),
+        title: expenseTitle.trim(),
+        amount,
+        type: expenseType,
+        paidBy: expensePaidBy.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    const newSpent = recalcSpent(itinerary.days, newExpenses);
+    await updateItinerary(itinerary.id, { expenses: newExpenses, spentAmount: newSpent });
+
+    if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
+      await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
+    }
+
+    setExpenseTitle("");
+    setExpenseAmount("");
+    setExpensePaidBy("");
+    setExpenseType("transport");
+    setExpenseModal(null);
+  };
+
+  const deleteExpense = async (expenseId: string) => {
+    const doDelete = async () => {
+      const newExpenses = expenses.filter((e) => e.id !== expenseId);
+      const newSpent = recalcSpent(itinerary.days, newExpenses);
+      await updateItinerary(itinerary.id, { expenses: newExpenses, spentAmount: newSpent });
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(t().itinerary.deleteExpenseConfirm)) doDelete();
+    } else {
+      Alert.alert(t().itinerary.deleteExpense, t().itinerary.deleteExpenseConfirm, [
+        { text: t().common.cancel, style: "cancel" },
+        { text: t().common.delete, style: "destructive", onPress: doDelete },
+      ]);
+    }
+  };
+
+  const openEditExpense = (expense: Expense) => {
+    setExpenseTitle(expense.title);
+    setExpenseAmount(expense.amount.toString());
+    setExpenseType(expense.type);
+    setExpensePaidBy(expense.paidBy || "");
+    setExpenseModal({ editId: expense.id });
+  };
+
+  const saveExpenseNote = async () => {
+    if (!expenseNoteModal || !expenseNoteModal.note.trim()) return;
+    const newExpenses = [...expenses];
+    const expense = newExpenses.find((e) => e.id === expenseNoteModal.expenseId);
+    if (expense) {
+      const notes = expense.notes ? [...expense.notes] : [];
+      if (expenseNoteModal.editIndex !== undefined) {
+        notes[expenseNoteModal.editIndex] = expenseNoteModal.note.trim();
+      } else {
+        notes.push(expenseNoteModal.note.trim());
+      }
+      expense.notes = notes;
+      await updateItinerary(itinerary.id, { expenses: newExpenses });
+    }
+    setExpenseNoteModal(null);
+  };
+
+  const deleteExpenseNote = async (expenseId: string, noteIndex: number) => {
+    const doDelete = async () => {
+      const newExpenses = [...expenses];
+      const expense = newExpenses.find((e) => e.id === expenseId);
+      if (expense && expense.notes) {
+        expense.notes.splice(noteIndex, 1);
+        await updateItinerary(itinerary.id, { expenses: newExpenses });
+      }
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(t().itinerary.deleteNoteConfirm)) doDelete();
+    } else {
+      Alert.alert(t().itinerary.deleteNote, t().itinerary.deleteNoteConfirm, [
+        { text: t().common.cancel, style: "cancel" },
+        { text: t().common.delete, style: "destructive", onPress: doDelete },
+      ]);
+    }
   };
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -546,7 +721,6 @@ export default function ItineraryDetailScreen() {
               {itinerary.status === "draft" ? txt.startTrip : itinerary.status === "active" ? txt.complete : txt.reset}
             </Text>
           </Pressable>
-
           {itinerary.status === "draft" && (
             <Pressable
               onPress={handleEdit}
@@ -568,171 +742,251 @@ export default function ItineraryDetailScreen() {
           </View>
         )}
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>{txt.itinerary}</Text>
-
-        {itinerary.days.map((day, dayIdx) => (
-          <View key={day.day}>
-            <Pressable
-              onPress={() => {
-                Haptics.selectionAsync();
-                setExpandedDay(expandedDay === dayIdx ? null : dayIdx);
-              }}
-            >
-              <View style={[styles.dayCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                <View style={styles.dayHeader}>
-                  <View style={[styles.dayBadge, { backgroundColor: colors.primary }]}>
-                    <Text style={styles.dayBadgeText}>{day.day}</Text>
-                  </View>
-                  <Text style={[styles.dayTitle, { color: colors.text }]}>{day.title}</Text>
-                  <Ionicons
-                    name={expandedDay === dayIdx ? "chevron-up" : "chevron-down"}
-                    size={20}
-                    color={colors.textTertiary}
-                  />
-                </View>
-              </View>
-            </Pressable>
-
-            {expandedDay === dayIdx && (
-              <View style={styles.activitiesList}>
-                {day.activities.map((activity, actIdx) => (
-                  <React.Fragment key={activity.id}>
-                    {actIdx > 0 && (
-                      <TravelConnector
-                        from={day.activities[actIdx - 1]}
-                        to={activity}
-                        colors={colors}
-                      />
-                    )}
-                  <View style={[styles.activityCard, { backgroundColor: colors.card, borderColor: activity.isCompleted ? colors.success + "50" : colors.cardBorder }]}>
-                    <View style={styles.activityTop}>
-                      <Pressable
-                        onPress={() => toggleActivityComplete(dayIdx, activity.id)}
-                        style={[styles.checkbox, { borderColor: activity.isCompleted ? colors.success : colors.textTertiary, backgroundColor: activity.isCompleted ? colors.success : "transparent" }]}
-                      >
-                        {activity.isCompleted && <Ionicons name="checkmark" size={14} color="#fff" />}
-                      </Pressable>
-                      <View style={{ flex: 1 }}>
-                        <View style={styles.activityTitleRow}>
-                          <Text style={[styles.activityTime, { color: colors.primary }]}>{activity.time}</Text>
-                          <View style={[styles.typeBadge, { backgroundColor: colors.tagBg }]}>
-                            <Ionicons name={getActivityTypeIcon(activity.activityType) as any} size={12} color={colors.tagText} />
-                            <Text style={[styles.typeText, { color: colors.tagText }]}>{getActivityTypeLabel(activity.activityType)}</Text>
-                          </View>
-                        </View>
-                        <Text style={[styles.activityTitle, { color: colors.text, textDecorationLine: activity.isCompleted ? "line-through" : "none" }]}>
-                          {activity.title}
-                        </Text>
-                        <Text style={[styles.activityDesc, { color: colors.textSecondary }]}>{activity.description}</Text>
-                        {activity.duration ? <Text style={[styles.activityDuration, { color: colors.textTertiary }]}>{activity.duration}</Text> : null}
-                      </View>
-                    </View>
-
-                    <View style={styles.costRow}>
-                      {activity.estimatedCost > 0 && (
-                        <Text style={[styles.costText, { color: colors.textSecondary }]}>
-                          {txt.estimatedCost}: {formatVND(activity.estimatedCost)}
-                        </Text>
-                      )}
-                      {activity.actualCost !== undefined && activity.actualCost > 0 && (
-                        <Text style={[styles.costText, { color: colors.accent }]}>
-                          {txt.actualCost}: {formatVND(activity.actualCost)}
-                        </Text>
-                      )}
-                      {activity.paidBy && (
-                        <Text style={[styles.paidByText, { color: colors.textTertiary }]}>
-                          {txt.paidBy}: {activity.paidBy}
-                        </Text>
-                      )}
-                    </View>
-
-                    {getActivityNotes(activity).length > 0 && (
-                      <View style={styles.notesContainer}>
-                        {getActivityNotes(activity).map((noteItem, noteIdx) => (
-                          <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
-                            <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
-                            <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
-                            <Pressable
-                              onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: noteItem, editIndex: noteIdx })}
-                              hitSlop={6}
-                            >
-                              <Ionicons name="create-outline" size={14} color={colors.primary} />
-                            </Pressable>
-                            <Pressable
-                              onPress={() => deleteNote(dayIdx, activity.id, noteIdx)}
-                              hitSlop={6}
-                            >
-                              <Ionicons name="close-circle-outline" size={14} color={colors.error} />
-                            </Pressable>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-
-                    <View style={styles.activityActions}>
-                      <Pressable
-                        onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: "" })}
-                        style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                      >
-                        <Ionicons name="document-text-outline" size={14} color={colors.primary} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || "" })}
-                        style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                      >
-                        <Ionicons name="cash-outline" size={14} color={colors.accent} />
-                      </Pressable>
-                      {activity.latitude && activity.longitude && (
-                        <>
-                          <Pressable
-                            onPress={() => openGoogleMaps(activity.latitude, activity.longitude, activity.address)}
-                            style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                          >
-                            <Ionicons name="map-outline" size={14} color={colors.success} />
-                          </Pressable>
-                          <Pressable
-                            onPress={() => openGrab(activity.latitude, activity.longitude)}
-                            style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                          >
-                            <Ionicons name="car-outline" size={14} color="#00B14F" />
-                          </Pressable>
-                        </>
-                      )}
-                      {actIdx > 0 && (
-                        <Pressable onPress={() => moveActivity(dayIdx, actIdx, "up")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
-                          <Ionicons name="arrow-up" size={14} color={colors.textSecondary} />
-                        </Pressable>
-                      )}
-                      {actIdx < day.activities.length - 1 && (
-                        <Pressable onPress={() => moveActivity(dayIdx, actIdx, "down")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
-                          <Ionicons name="arrow-down" size={14} color={colors.textSecondary} />
-                        </Pressable>
-                      )}
-                      <Pressable
-                        onPress={() => deleteActivity(dayIdx, activity.id)}
-                        style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}
-                      >
-                        <Ionicons name="trash-outline" size={14} color={colors.error} />
-                      </Pressable>
-                    </View>
-                  </View>
-                  </React.Fragment>
-                ))}
-
-                <Pressable
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setExpenseModal({ dayIdx });
-                  }}
-                  style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
-                >
-                  <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
-                  <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addExpense}</Text>
-                </Pressable>
+        <View style={styles.tabBar}>
+          <Pressable
+            onPress={() => setActiveTab("itinerary")}
+            style={[styles.tabBtn, activeTab === "itinerary" && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
+          >
+            <Ionicons name="map-outline" size={16} color={activeTab === "itinerary" ? colors.primary : colors.textTertiary} />
+            <Text style={[styles.tabBtnText, { color: activeTab === "itinerary" ? colors.primary : colors.textTertiary }]}>{txt.tabItinerary}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setActiveTab("expenses")}
+            style={[styles.tabBtn, activeTab === "expenses" && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
+          >
+            <Ionicons name="wallet-outline" size={16} color={activeTab === "expenses" ? colors.primary : colors.textTertiary} />
+            <Text style={[styles.tabBtnText, { color: activeTab === "expenses" ? colors.primary : colors.textTertiary }]}>{txt.tabExpenses}</Text>
+            {expenses.length > 0 && (
+              <View style={[styles.tabBadge, { backgroundColor: colors.accent }]}>
+                <Text style={styles.tabBadgeText}>{expenses.length}</Text>
               </View>
             )}
+          </Pressable>
+        </View>
+
+        {activeTab === "itinerary" && (
+          <>
+            {itinerary.days.map((day, dayIdx) => (
+              <View key={day.day}>
+                <Pressable
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setExpandedDay(expandedDay === dayIdx ? null : dayIdx);
+                  }}
+                >
+                  <View style={[styles.dayCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                    <View style={styles.dayHeader}>
+                      <View style={[styles.dayBadge, { backgroundColor: colors.primary }]}>
+                        <Text style={styles.dayBadgeText}>{day.day}</Text>
+                      </View>
+                      <Text style={[styles.dayTitle, { color: colors.text }]}>{day.title}</Text>
+                      <Ionicons
+                        name={expandedDay === dayIdx ? "chevron-up" : "chevron-down"}
+                        size={20}
+                        color={colors.textTertiary}
+                      />
+                    </View>
+                  </View>
+                </Pressable>
+
+                {expandedDay === dayIdx && (
+                  <View style={styles.activitiesList}>
+                    {day.activities.map((activity, actIdx) => (
+                      <React.Fragment key={activity.id}>
+                        {actIdx > 0 && (
+                          <TravelConnector from={day.activities[actIdx - 1]} to={activity} colors={colors} />
+                        )}
+                        <View style={[styles.activityCard, { backgroundColor: colors.card, borderColor: activity.isCompleted ? colors.success + "50" : colors.cardBorder }]}>
+                          <View style={styles.activityTop}>
+                            <Pressable
+                              onPress={() => toggleActivityComplete(dayIdx, activity.id)}
+                              style={[styles.checkbox, { borderColor: activity.isCompleted ? colors.success : colors.textTertiary, backgroundColor: activity.isCompleted ? colors.success : "transparent" }]}
+                            >
+                              {activity.isCompleted && <Ionicons name="checkmark" size={14} color="#fff" />}
+                            </Pressable>
+                            <View style={{ flex: 1 }}>
+                              <View style={styles.activityTitleRow}>
+                                <Pressable onPress={() => setTimeModal({ activityId: activity.id, dayIdx, time: activity.time })}>
+                                  <Text style={[styles.activityTime, { color: colors.primary }]}>{activity.time}</Text>
+                                </Pressable>
+                                <View style={[styles.typeBadge, { backgroundColor: colors.tagBg }]}>
+                                  <Ionicons name={getActivityTypeIcon(activity.activityType) as any} size={12} color={colors.tagText} />
+                                  <Text style={[styles.typeText, { color: colors.tagText }]}>{getActivityTypeLabel(activity.activityType)}</Text>
+                                </View>
+                              </View>
+                              <Text style={[styles.activityTitle, { color: colors.text, textDecorationLine: activity.isCompleted ? "line-through" : "none" }]}>
+                                {activity.title}
+                              </Text>
+                              <Text style={[styles.activityDesc, { color: colors.textSecondary }]}>{activity.description}</Text>
+                              {activity.duration ? <Text style={[styles.activityDuration, { color: colors.textTertiary }]}>{activity.duration}</Text> : null}
+                            </View>
+                          </View>
+
+                          <View style={styles.costRow}>
+                            {activity.estimatedCost > 0 && (
+                              <Text style={[styles.costText, { color: colors.textSecondary }]}>
+                                {txt.estimatedCost}: {formatVND(activity.estimatedCost)}
+                              </Text>
+                            )}
+                            {activity.actualCost !== undefined && activity.actualCost > 0 && (
+                              <Text style={[styles.costText, { color: colors.accent }]}>
+                                {txt.actualCost}: {formatVND(activity.actualCost)}
+                              </Text>
+                            )}
+                            {activity.paidBy && (
+                              <Text style={[styles.paidByText, { color: colors.textTertiary }]}>
+                                {txt.paidBy}: {activity.paidBy}
+                              </Text>
+                            )}
+                          </View>
+
+                          {getActivityNotes(activity).length > 0 && (
+                            <View style={styles.notesContainer}>
+                              {getActivityNotes(activity).map((noteItem, noteIdx) => (
+                                <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
+                                  <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
+                                  <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
+                                  <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
+                                    <Ionicons name="create-outline" size={14} color={colors.primary} />
+                                  </Pressable>
+                                  <Pressable onPress={() => deleteNote(dayIdx, activity.id, noteIdx)} hitSlop={6}>
+                                    <Ionicons name="close-circle-outline" size={14} color={colors.error} />
+                                  </Pressable>
+                                </View>
+                              ))}
+                            </View>
+                          )}
+
+                          <View style={styles.activityActions}>
+                            <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                              <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+                            </Pressable>
+                            <Pressable onPress={() => setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                              <Ionicons name="cash-outline" size={14} color={colors.accent} />
+                            </Pressable>
+                            <Pressable onPress={() => setTimeModal({ activityId: activity.id, dayIdx, time: activity.time })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                              <Ionicons name="time-outline" size={14} color={colors.primary} />
+                            </Pressable>
+                            {activity.latitude != null && activity.longitude != null && (
+                              <>
+                                <Pressable onPress={() => openGoogleMaps(activity.latitude, activity.longitude, activity.address)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                  <Ionicons name="map-outline" size={14} color={colors.success} />
+                                </Pressable>
+                                <Pressable onPress={() => openGrab(activity.latitude, activity.longitude)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                  <Ionicons name="car-outline" size={14} color="#00B14F" />
+                                </Pressable>
+                              </>
+                            )}
+                            {actIdx > 0 && (
+                              <Pressable onPress={() => moveActivity(dayIdx, actIdx, "up")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Ionicons name="arrow-up" size={14} color={colors.textSecondary} />
+                              </Pressable>
+                            )}
+                            {actIdx < day.activities.length - 1 && (
+                              <Pressable onPress={() => moveActivity(dayIdx, actIdx, "down")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Ionicons name="arrow-down" size={14} color={colors.textSecondary} />
+                              </Pressable>
+                            )}
+                            <Pressable onPress={() => deleteActivity(dayIdx, activity.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
+                              <Ionicons name="trash-outline" size={14} color={colors.error} />
+                            </Pressable>
+                          </View>
+                        </View>
+                      </React.Fragment>
+                    ))}
+
+                    <Pressable
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setAddPlaceModal({ dayIdx });
+                      }}
+                      style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
+                    >
+                      <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+                      <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addPlace}</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+            ))}
+          </>
+        )}
+
+        {activeTab === "expenses" && (
+          <View style={styles.expensesTab}>
+            {expenses.length === 0 ? (
+              <View style={styles.emptyExpenses}>
+                <Ionicons name="wallet-outline" size={48} color={colors.textTertiary} />
+                <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>{txt.noExpenses}</Text>
+                <Text style={[styles.emptyHint, { color: colors.textTertiary }]}>{txt.noExpensesHint}</Text>
+              </View>
+            ) : (
+              expenses.map((expense) => (
+                <View key={expense.id} style={[styles.expenseCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                  <View style={styles.expenseTop}>
+                    <Ionicons name={getActivityTypeIcon(expense.type) as any} size={20} color={colors.textSecondary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.expenseTitle, { color: colors.text }]}>{expense.title}</Text>
+                      <View style={styles.expenseMeta}>
+                        <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}>
+                          {new Date(expense.createdAt).toLocaleDateString("vi-VN")} • {getActivityTypeLabel(expense.type)}
+                        </Text>
+                        {expense.paidBy && (
+                          <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}> • {txt.paidBy}: {expense.paidBy}</Text>
+                        )}
+                      </View>
+                    </View>
+                    <Text style={[styles.expenseAmount, { color: colors.text }]}>{formatVND(expense.amount)}</Text>
+                  </View>
+
+                  {expense.notes && expense.notes.length > 0 && (
+                    <View style={styles.notesContainer}>
+                      {expense.notes.map((noteItem, noteIdx) => (
+                        <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
+                          <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
+                          <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
+                          <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
+                            <Ionicons name="create-outline" size={14} color={colors.primary} />
+                          </Pressable>
+                          <Pressable onPress={() => deleteExpenseNote(expense.id, noteIdx)} hitSlop={6}>
+                            <Ionicons name="close-circle-outline" size={14} color={colors.error} />
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  <View style={styles.expenseActions}>
+                    <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                      <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+                    </Pressable>
+                    <Pressable onPress={() => openEditExpense(expense)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                      <Ionicons name="create-outline" size={14} color={colors.accent} />
+                    </Pressable>
+                    <Pressable onPress={() => deleteExpense(expense.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
+                      <Ionicons name="trash-outline" size={14} color={colors.error} />
+                    </Pressable>
+                  </View>
+                </View>
+              ))
+            )}
+
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setExpenseTitle("");
+                setExpenseAmount("");
+                setExpensePaidBy("");
+                setExpenseType("transport");
+                setExpenseModal({});
+              }}
+              style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
+            >
+              <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+              <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addExpense}</Text>
+            </Pressable>
           </View>
-        ))}
+        )}
       </ScrollView>
 
       <Modal visible={!!noteModal} transparent animationType="fade" onRequestClose={() => setNoteModal(null)}>
@@ -792,10 +1046,77 @@ export default function ItineraryDetailScreen() {
         </View>
       </Modal>
 
+      <Modal visible={!!timeModal} transparent animationType="fade" onRequestClose={() => setTimeModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.editTime}</Text>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              value={timeModal?.time || ""}
+              onChangeText={(v) => timeModal && setTimeModal({ ...timeModal, time: v })}
+              placeholder={txt.timePlaceholder}
+              placeholderTextColor={colors.textTertiary}
+              keyboardType="numbers-and-punctuation"
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setTimeModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
+              </Pressable>
+              <Pressable onPress={saveTime} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!addPlaceModal} transparent animationType="fade" onRequestClose={() => setAddPlaceModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.addPlace}</Text>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              value={placeTitle}
+              onChangeText={setPlaceTitle}
+              placeholder={txt.addPlacePlaceholder}
+              placeholderTextColor={colors.textTertiary}
+            />
+            <View style={styles.typeRow}>
+              {(["sightseeing", "food", "transport", "shopping", "other"] as const).map((tp) => (
+                <Pressable
+                  key={tp}
+                  onPress={() => setPlaceType(tp)}
+                  style={[styles.typeChip, { backgroundColor: placeType === tp ? colors.primary : colors.inputBg, borderColor: placeType === tp ? colors.primary : colors.inputBorder }]}
+                >
+                  <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={placeType === tp ? "#fff" : colors.textSecondary} />
+                  <Text style={[styles.typeChipText, { color: placeType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              value={placeCost}
+              onChangeText={setPlaceCost}
+              placeholder={txt.expenseAmount + " (VNĐ)"}
+              placeholderTextColor={colors.textTertiary}
+              keyboardType="numeric"
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setAddPlaceModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
+              </Pressable>
+              <Pressable onPress={addPlaceToDay} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.add}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={!!expenseModal} transparent animationType="fade" onRequestClose={() => setExpenseModal(null)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.addExpense}</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{expenseModal?.editId ? txt.editExpense : txt.addExpense}</Text>
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={expenseTitle}
@@ -804,7 +1125,7 @@ export default function ItineraryDetailScreen() {
               placeholderTextColor={colors.textTertiary}
             />
             <View style={styles.typeRow}>
-              {(["transport", "shopping", "food", "other"] as const).map((tp) => (
+              {(["transport", "shopping", "food", "sightseeing", "other"] as const).map((tp) => (
                 <Pressable
                   key={tp}
                   onPress={() => setExpenseType(tp)}
@@ -819,7 +1140,7 @@ export default function ItineraryDetailScreen() {
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={expenseAmount}
               onChangeText={setExpenseAmount}
-              placeholder={txt.expenseAmount}
+              placeholder={txt.expenseAmount + " (VNĐ)"}
               placeholderTextColor={colors.textTertiary}
               keyboardType="numeric"
             />
@@ -834,8 +1155,33 @@ export default function ItineraryDetailScreen() {
               <Pressable onPress={() => setExpenseModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
                 <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
               </Pressable>
-              <Pressable onPress={addExpenseToDay} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.add}</Text>
+              <Pressable onPress={addOrEditExpense} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{expenseModal?.editId ? t().common.save : t().common.add}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!expenseNoteModal} transparent animationType="fade" onRequestClose={() => setExpenseNoteModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{expenseNoteModal?.editIndex !== undefined ? txt.editNote : txt.addNote}</Text>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              value={expenseNoteModal?.note || ""}
+              onChangeText={(v) => expenseNoteModal && setExpenseNoteModal({ ...expenseNoteModal, note: v })}
+              placeholder={txt.notePlaceholder}
+              placeholderTextColor={colors.textTertiary}
+              multiline
+              numberOfLines={4}
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setExpenseNoteModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
+              </Pressable>
+              <Pressable onPress={saveExpenseNote} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
               </Pressable>
             </View>
           </View>
@@ -918,7 +1264,31 @@ const styles = StyleSheet.create({
   prefRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   prefChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
   prefChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  sectionTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold", marginTop: 4 },
+  tabBar: {
+    flexDirection: "row",
+    gap: 0,
+    marginTop: 4,
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  tabBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  tabBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
   dayCard: { borderRadius: 16, borderWidth: 1, padding: 16 },
   dayHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   dayBadge: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
@@ -937,7 +1307,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   activityTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
-  activityTime: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  activityTime: { fontSize: 13, fontFamily: "Inter_600SemiBold", textDecorationLine: "underline" as const },
   typeBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   typeText: { fontSize: 10, fontFamily: "Inter_500Medium" },
   activityTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
@@ -962,6 +1332,17 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
   },
   addExpenseText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  expensesTab: { gap: 10 },
+  emptyExpenses: { alignItems: "center", paddingVertical: 40, gap: 8 },
+  emptyTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  emptyHint: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  expenseCard: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 8 },
+  expenseTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+  expenseTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  expenseMeta: { flexDirection: "row", flexWrap: "wrap" },
+  expenseMetaText: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  expenseAmount: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  expenseActions: { flexDirection: "row", gap: 6, paddingLeft: 30 },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

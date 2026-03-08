@@ -23,7 +23,7 @@ app/
     map.tsx            - Location/GPS tracking
     profile.tsx        - User profile, preferences, settings (dark mode), change password
   destination/[id].tsx - Destination detail + sample reviews (Google/TripAdvisor) + user reviews + Maps/Grab deep links
-  itinerary/[id].tsx   - Itinerary detail with budget tracking, activity costs/notes/completion, deep links, reorder
+  itinerary/[id].tsx   - Itinerary detail with two-tab layout (Lịch trình/Chi phí), editable time slots with auto-cascade, activity costs/notes/completion, separate expenses CRUD, deep links, reorder
   create-trip.tsx      - Trip planning form (starting point, numeric budget with VND formatting)
   notifications.tsx    - Notifications screen (mark read, clear all)
   admin/               - Admin dashboard (users, destinations, reviews)
@@ -36,7 +36,7 @@ constants/
 lib/
   i18n.ts              - All UI text strings (Vietnamese), change this file to switch language
   validation.ts        - Reusable form validators
-  storage.ts           - AsyncStorage helpers & data types (ItineraryActivity with costs/notes/completion, Notification)
+  storage.ts           - AsyncStorage helpers & data types (ItineraryActivity with costs/notes/completion, Expense with CRUD/notes/paidBy, Notification)
   seed-data.ts         - 10 Vietnamese destinations with estimatedCostPerPerson, sampleReviews, nearbyFood
   query-client.ts      - React Query client
 components/
