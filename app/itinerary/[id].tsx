@@ -55,6 +55,95 @@ function getActivityTypeIcon(type: string): string {
   return map[type] || "ellipse-outline";
 }
 
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+interface TravelInfo {
+  distanceKm: number;
+  drivingMinutes: number;
+  motorbikeMinutes: number;
+  walkingMinutes: number;
+  defaultMode: "driving" | "walking";
+}
+
+function getTravelInfo(from: ItineraryActivity, to: ItineraryActivity): TravelInfo | null {
+  if (from.latitude == null || from.longitude == null || to.latitude == null || to.longitude == null) return null;
+  const dist = haversineDistance(from.latitude, from.longitude, to.latitude, to.longitude);
+  if (dist < 0.01) return null;
+  const roadDist = dist * 1.3;
+  const drivingMin = Math.max(1, Math.round((roadDist / 40) * 60));
+  const motorbikeMin = Math.max(1, Math.round((roadDist / 30) * 60));
+  const walkingMin = Math.max(1, Math.round((roadDist / 5) * 60));
+  return {
+    distanceKm: Math.round(roadDist * 10) / 10,
+    drivingMinutes: drivingMin,
+    motorbikeMinutes: motorbikeMin,
+    walkingMinutes: walkingMin,
+    defaultMode: roadDist <= 1 ? "walking" : "driving",
+  };
+}
+
+function TravelConnector({ from, to, colors: c }: { from: ItineraryActivity; to: ItineraryActivity; colors: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const travel = getTravelInfo(from, to);
+  const txt = t().itinerary;
+  if (!travel) return null;
+
+  const defaultTime = travel.defaultMode === "walking" ? travel.walkingMinutes : travel.drivingMinutes;
+  const defaultIcon = travel.defaultMode === "walking" ? "walk-outline" : "car-outline";
+
+  return (
+    <View style={travelStyles.container}>
+      <View style={travelStyles.lineWrapper}>
+        <View style={[travelStyles.line, { backgroundColor: c.textTertiary + "40" }]} />
+      </View>
+      <Pressable
+        onPress={() => setExpanded(!expanded)}
+        style={[travelStyles.badge, { backgroundColor: c.inputBg, borderColor: c.cardBorder }]}
+      >
+        <Ionicons name={defaultIcon as any} size={14} color={c.textSecondary} />
+        <Text style={[travelStyles.badgeText, { color: c.textSecondary }]}>
+          {defaultTime} {txt.travelMinutes} {txt.toDestination} {to.title.length > 20 ? to.title.substring(0, 20) + "..." : to.title} • {travel.distanceKm} {txt.travelKm}
+        </Text>
+        <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={12} color={c.textTertiary} />
+      </Pressable>
+      {expanded && (
+        <View style={[travelStyles.modeList, { backgroundColor: c.card, borderColor: c.cardBorder }]}>
+          <Text style={[travelStyles.modeTitle, { color: c.text }]}>{txt.travelMode}</Text>
+          <View style={travelStyles.modeRow}>
+            <Ionicons name="car-outline" size={16} color={c.textSecondary} />
+            <Text style={[travelStyles.modeLabel, { color: c.text }]}>{txt.driving}</Text>
+            <Text style={[travelStyles.modeValue, { color: c.textSecondary }]}>
+              {travel.drivingMinutes} {txt.travelMinutes} • {travel.distanceKm} {txt.travelKm}
+            </Text>
+          </View>
+          <View style={travelStyles.modeRow}>
+            <Ionicons name="bicycle-outline" size={16} color={c.textSecondary} />
+            <Text style={[travelStyles.modeLabel, { color: c.text }]}>{txt.motorbike}</Text>
+            <Text style={[travelStyles.modeValue, { color: c.textSecondary }]}>
+              {travel.motorbikeMinutes} {txt.travelMinutes} • {travel.distanceKm} {txt.travelKm}
+            </Text>
+          </View>
+          <View style={travelStyles.modeRow}>
+            <Ionicons name="walk-outline" size={16} color={c.textSecondary} />
+            <Text style={[travelStyles.modeLabel, { color: c.text }]}>{txt.walking}</Text>
+            <Text style={[travelStyles.modeValue, { color: c.textSecondary }]}>
+              {travel.walkingMinutes} {txt.travelMinutes} • {travel.distanceKm} {txt.travelKm}
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function ItineraryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -468,7 +557,15 @@ export default function ItineraryDetailScreen() {
             {expandedDay === dayIdx && (
               <View style={styles.activitiesList}>
                 {day.activities.map((activity, actIdx) => (
-                  <View key={activity.id} style={[styles.activityCard, { backgroundColor: colors.card, borderColor: activity.isCompleted ? colors.success + "50" : colors.cardBorder }]}>
+                  <React.Fragment key={activity.id}>
+                    {actIdx > 0 && (
+                      <TravelConnector
+                        from={day.activities[actIdx - 1]}
+                        to={activity}
+                        colors={colors}
+                      />
+                    )}
+                  <View style={[styles.activityCard, { backgroundColor: colors.card, borderColor: activity.isCompleted ? colors.success + "50" : colors.cardBorder }]}>
                     <View style={styles.activityTop}>
                       <Pressable
                         onPress={() => toggleActivityComplete(dayIdx, activity.id)}
@@ -564,6 +661,7 @@ export default function ItineraryDetailScreen() {
                       </Pressable>
                     </View>
                   </View>
+                  </React.Fragment>
                 ))}
 
                 <Pressable
@@ -846,4 +944,68 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   typeChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+});
+
+const travelStyles = StyleSheet.create({
+  container: {
+    alignItems: "center",
+    paddingVertical: 2,
+  },
+  lineWrapper: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 20,
+    width: 2,
+    alignItems: "center",
+  },
+  line: {
+    width: 2,
+    height: "100%",
+    borderRadius: 1,
+  },
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignSelf: "flex-start",
+    marginLeft: 12,
+  },
+  badgeText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    flexShrink: 1,
+  },
+  modeList: {
+    marginTop: 6,
+    marginLeft: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+    alignSelf: "stretch",
+  },
+  modeTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    marginBottom: 4,
+  },
+  modeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  modeLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    flex: 1,
+  },
+  modeValue: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+  },
 });

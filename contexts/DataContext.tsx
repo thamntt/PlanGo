@@ -173,6 +173,34 @@ function generateDays(
     (name: string) => `Tận hưởng không gian đêm tại ${name}`,
   ];
 
+  const timeSlots = ["07:00", "08:30", "12:00", "14:00", "18:00", "20:00"];
+
+  function sortActivitiesByProximity(acts: ItineraryActivity[]): ItineraryActivity[] {
+    if (acts.length <= 1) return acts;
+    const remaining = [...acts];
+    const sorted: ItineraryActivity[] = [remaining.shift()!];
+    while (remaining.length > 0) {
+      const last = sorted[sorted.length - 1];
+      if (last.latitude == null || last.longitude == null) {
+        sorted.push(remaining.shift()!);
+        continue;
+      }
+      let nearestIdx = 0;
+      let nearestDist = Infinity;
+      for (let j = 0; j < remaining.length; j++) {
+        if (remaining[j].latitude != null && remaining[j].longitude != null) {
+          const d = haversineDistance(last.latitude, last.longitude, remaining[j].latitude!, remaining[j].longitude!);
+          if (d < nearestDist) {
+            nearestDist = d;
+            nearestIdx = j;
+          }
+        }
+      }
+      sorted.push(remaining.splice(nearestIdx, 1)[0]);
+    }
+    return sorted.map((act, idx) => ({ ...act, time: timeSlots[idx] || act.time }));
+  }
+
   const days: ItineraryDay[] = [];
   for (let i = 0; i < dayCount; i++) {
     const destIdx = i % relevantDests.length;
@@ -189,7 +217,7 @@ function generateDays(
     const lunchSpot = nearbyFoodList.length > 1 ? nearbyFoodList[(i + 1) % nearbyFoodList.length] : null;
     const dinnerSpot = nearbyFoodList.length > 0 ? nearbyFoodList[(i + 2) % nearbyFoodList.length] : null;
 
-    const activities: ItineraryActivity[] = [
+    const rawActivities: ItineraryActivity[] = [
       {
         id: generateId(),
         time: "07:00",
@@ -275,6 +303,8 @@ function generateDays(
         activityType: "sightseeing" as const,
       },
     ];
+
+    const activities = sortActivitiesByProximity(rawActivities);
 
     days.push({
       day: i + 1,

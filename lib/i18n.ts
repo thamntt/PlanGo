@@ -185,6 +185,13 @@ const vi = {
     deleteActivity: "Xóa hoạt động",
     deleteActivityConfirm: "Bạn có muốn xóa hoạt động này?",
     budgetProgress: "Tiến độ ngân sách",
+    travelMode: "Chế độ vận chuyển",
+    driving: "Lái xe",
+    walking: "Đi bộ",
+    motorbike: "Xe máy",
+    toDestination: "đến",
+    travelMinutes: "phút",
+    travelKm: "km",
   },
 
   profile: {

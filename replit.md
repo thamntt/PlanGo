@@ -55,7 +55,8 @@ server/
 - **Dark Mode**: System/Light/Dark toggle in Profile > Settings, persisted in AsyncStorage via SettingsContext
 - **Explore**: Browse & search 10 Vietnamese destinations by category, notification bell with unread count badge
 - **Trip Planning**: Create trip with starting point, numeric VND budget (thousand-separator formatting), destination, dates, traveler count, preferences → auto-generate itineraries
-- **Itinerary Generation**: Geo-sorted by proximity from starting point (haversine), granular time slots (07:00-20:00), food activities with restaurant suggestions, estimated costs per activity × numPeople
+- **Itinerary Generation**: Geo-sorted by proximity from starting point (haversine), activities within each day sorted by nearest-neighbor proximity, granular time slots (07:00-20:00), food activities with restaurant suggestions, estimated costs per activity × numPeople
+- **Travel Connectors**: Between activities in itinerary detail, shows estimated travel time/distance with transport mode (car, motorbike, walking). Default: car for >1km, walking for ≤1km. Tappable to expand and see all transport mode options
 - **Itinerary Detail**: Budget tracking card (total/spent/remaining with progress bar), activity completion checkboxes, edit actual cost + paidBy, add notes, reorder activities, add custom expenses, Google Maps & Grab deep links, share as formatted text, edit trip info modal
 - **Budget Tracking**: Real-time budget progress, warnings when exceeding budget, cost per activity
 - **Reviews**: Rate & review destinations (star rating), sample reviews from Google/TripAdvisor displayed with badges
