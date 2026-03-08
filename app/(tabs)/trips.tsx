@@ -25,7 +25,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   completed: { bg: "#DBEAFE", text: "#1E40AF" },
 };
 
-function TripCard({ item, colors, onDelete }: { item: Itinerary; colors: ReturnType<typeof useThemeColors>; onDelete: () => void }) {
+function TripCard({ item, colors, onDelete, isJoined }: { item: Itinerary; colors: ReturnType<typeof useThemeColors>; onDelete: () => void; isJoined: boolean }) {
   const statusColor = STATUS_COLORS[item.status] || STATUS_COLORS.draft;
   const dayCount = item.days.length;
 
@@ -78,6 +78,11 @@ function TripCard({ item, colors, onDelete }: { item: Itinerary; colors: ReturnT
         <Text style={[styles.budgetText, { color: colors.primary }]}>{item.budget}</Text>
         <View style={styles.cardActions}>
           {item.isShared && <Ionicons name="share-social-outline" size={18} color={colors.primary} />}
+          {isJoined && (
+            <View style={[styles.joinedBadge, { backgroundColor: colors.primary + "20" }]}>
+              <Ionicons name="people" size={12} color={colors.primary} />
+            </View>
+          )}
           <Pressable
             onPress={(e) => {
               e.stopPropagation();
@@ -86,7 +91,7 @@ function TripCard({ item, colors, onDelete }: { item: Itinerary; colors: ReturnT
             }}
             hitSlop={8}
           >
-            <Ionicons name="trash-outline" size={18} color={colors.error} />
+            <Ionicons name={isJoined ? "log-out-outline" : "trash-outline"} size={18} color={colors.error} />
           </Pressable>
         </View>
       </View>
@@ -99,24 +104,41 @@ export default function TripsScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, deleteItinerary } = useData();
+  const { itineraries, deleteItinerary, updateItinerary } = useData();
 
   const myTrips = useMemo(() => {
     if (!user) return [];
     return itineraries
-      .filter((i) => i.userId === user.id)
+      .filter((i) => i.userId === user.id || (i.companions || []).some((c) => c.userId === user.id))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [itineraries, user]);
 
   const handleDelete = (id: string) => {
-    Alert.alert(t().trips.deleteTitle, t().trips.deleteMessage, [
-      { text: t().common.cancel, style: "cancel" },
-      {
-        text: t().common.delete,
-        style: "destructive",
-        onPress: () => deleteItinerary(id),
-      },
-    ]);
+    const trip = itineraries.find((i) => i.id === id);
+    const isJoined = trip && user && trip.userId !== user.id;
+    if (isJoined) {
+      const doLeave = () => {
+        const updated = (trip.companions || []).filter((c) => c.userId !== user.id);
+        updateItinerary(id, { companions: updated });
+      };
+      if (Platform.OS === "web") {
+        if (window.confirm(t().itinerary.leaveTripMsg)) doLeave();
+      } else {
+        Alert.alert(t().itinerary.leaveTrip, t().itinerary.leaveTripMsg, [
+          { text: t().common.cancel, style: "cancel" },
+          { text: t().itinerary.leaveTrip, style: "destructive", onPress: doLeave },
+        ]);
+      }
+    } else {
+      if (Platform.OS === "web") {
+        if (window.confirm(t().trips.deleteMessage)) deleteItinerary(id);
+      } else {
+        Alert.alert(t().trips.deleteTitle, t().trips.deleteMessage, [
+          { text: t().common.cancel, style: "cancel" },
+          { text: t().common.delete, style: "destructive", onPress: () => deleteItinerary(id) },
+        ]);
+      }
+    }
   };
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -142,7 +164,7 @@ export default function TripsScreen() {
       <FlatList
         data={myTrips}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <TripCard item={item} colors={colors} onDelete={() => handleDelete(item.id)} />}
+        renderItem={({ item }) => <TripCard item={item} colors={colors} onDelete={() => handleDelete(item.id)} isJoined={!!user && item.userId !== user.id} />}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
@@ -192,6 +214,7 @@ const styles = StyleSheet.create({
   cardBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   budgetText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   cardActions: { flexDirection: "row", gap: 12, alignItems: "center" },
+  joinedBadge: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   emptyState: { alignItems: "center", paddingTop: 80, gap: 8 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   emptySubtitle: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center" },

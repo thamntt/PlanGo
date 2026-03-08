@@ -96,6 +96,13 @@ export interface Expense {
   createdAt: string;
 }
 
+export interface TripCompanion {
+  userId: string;
+  userName: string;
+  role: "editor" | "viewer";
+  joinedAt: string;
+}
+
 export interface Itinerary {
   id: string;
   userId: string;
@@ -111,6 +118,9 @@ export interface Itinerary {
   preferences: string[];
   days: ItineraryDay[];
   expenses?: Expense[];
+  companions?: TripCompanion[];
+  shareCode?: string;
+  sharePermission?: "editor" | "viewer";
   status: "draft" | "active" | "completed";
   isShared: boolean;
   createdAt: string;

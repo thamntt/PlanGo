@@ -20,9 +20,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import * as Clipboard from "expo-clipboard";
 import { formatVND, generateId } from "@/lib/storage";
 import { t } from "@/lib/i18n";
-import type { ItineraryActivity, Expense } from "@/lib/storage";
+import type { ItineraryActivity, Expense, TripCompanion } from "@/lib/storage";
 
 function getStatusLabel(status: string): string {
   const labels = t().trips;
@@ -200,6 +201,10 @@ export default function ItineraryDetailScreen() {
   const [editBudget, setEditBudget] = useState("");
   const [editNumPeople, setEditNumPeople] = useState("");
 
+  const [shareModal, setShareModal] = useState(false);
+  const [companionModal, setCompanionModal] = useState(false);
+  const [sharePermission, setSharePermission] = useState<"editor" | "viewer">("viewer");
+
   const totalEstimated = useMemo(() => {
     if (!itinerary) return 0;
     return itinerary.days.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.estimatedCost || 0), 0), 0);
@@ -220,9 +225,71 @@ export default function ItineraryDetailScreen() {
     );
   }
 
+  const isOwner = user?.id === itinerary.userId;
+  const companions = itinerary.companions || [];
+  const myCompanion = companions.find((c) => c.userId === user?.id);
+  const isCompanion = !!myCompanion;
+  const canEdit = isOwner || (myCompanion?.role === "editor");
+
   const remaining = (itinerary.totalBudget || 0) - totalSpent;
   const budgetPercent = itinerary.totalBudget > 0 ? Math.min(100, (totalSpent / itinerary.totalBudget) * 100) : 0;
   const expenses = itinerary.expenses || [];
+
+  const generateShareCode = () => {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
+  };
+
+  const handleGenerateLink = async () => {
+    const code = itinerary.shareCode || generateShareCode();
+    await updateItinerary(itinerary.id, {
+      shareCode: code,
+      sharePermission: sharePermission,
+      isShared: true,
+    });
+    const domain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:8081";
+    const protocol = domain.includes("localhost") ? "http" : "https";
+    const link = `${protocol}://${domain}/join/${code}`;
+    await Clipboard.setStringAsync(link);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS === "web") {
+      alert(txt.linkCopied);
+    } else {
+      Alert.alert(txt.linkCopied);
+    }
+  };
+
+  const handleRemoveCompanion = (companion: TripCompanion) => {
+    const doRemove = async () => {
+      const updated = companions.filter((c) => c.userId !== companion.userId);
+      await updateItinerary(itinerary.id, { companions: updated });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(txt.removeCompanionMsg(companion.userName))) doRemove();
+    } else {
+      Alert.alert(txt.removeCompanion, txt.removeCompanionMsg(companion.userName), [
+        { text: t().common.cancel, style: "cancel" },
+        { text: t().common.delete, style: "destructive", onPress: doRemove },
+      ]);
+    }
+  };
+
+  const handleLeaveTrip = () => {
+    const doLeave = async () => {
+      const updated = companions.filter((c) => c.userId !== user?.id);
+      await updateItinerary(itinerary.id, { companions: updated });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(txt.leaveTripMsg)) doLeave();
+    } else {
+      Alert.alert(txt.leaveTrip, txt.leaveTripMsg, [
+        { text: t().common.cancel, style: "cancel" },
+        { text: txt.leaveTrip, style: "destructive", onPress: doLeave },
+      ]);
+    }
+  };
 
   const openGoogleMaps = (lat?: number, lng?: number, address?: string) => {
     if (lat && lng) {
@@ -616,12 +683,23 @@ export default function ItineraryDetailScreen() {
           {itinerary.title}
         </Text>
         <View style={styles.headerActions}>
+          {isOwner && (
+            <Pressable onPress={() => { setSharePermission(itinerary.sharePermission || "viewer"); setShareModal(true); }} hitSlop={8}>
+              <Ionicons name="person-add-outline" size={22} color={colors.primary} />
+            </Pressable>
+          )}
           <Pressable onPress={handleShare} hitSlop={8}>
             <Ionicons name="share-outline" size={22} color={colors.primary} />
           </Pressable>
-          <Pressable onPress={handleDelete} hitSlop={8}>
-            <Ionicons name="trash-outline" size={22} color={colors.error} />
-          </Pressable>
+          {isOwner ? (
+            <Pressable onPress={handleDelete} hitSlop={8}>
+              <Ionicons name="trash-outline" size={22} color={colors.error} />
+            </Pressable>
+          ) : isCompanion ? (
+            <Pressable onPress={handleLeaveTrip} hitSlop={8}>
+              <Ionicons name="log-out-outline" size={22} color={colors.error} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -657,20 +735,47 @@ export default function ItineraryDetailScreen() {
           </View>
         </View>
 
+        {companions.length > 0 && (
+          <Pressable
+            style={[styles.companionBar, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+            onPress={() => setCompanionModal(true)}
+          >
+            <Ionicons name="people-outline" size={18} color={colors.primary} />
+            <Text style={[styles.companionBarText, { color: colors.text }]}>
+              {txt.companions}: {companions.length}
+            </Text>
+            <View style={styles.companionAvatars}>
+              {companions.slice(0, 4).map((c, i) => (
+                <View key={c.userId} style={[styles.companionAvatar, { backgroundColor: colors.primary, marginLeft: i > 0 ? -8 : 0 }]}>
+                  <Text style={styles.companionAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
+                </View>
+              ))}
+              {companions.length > 4 && (
+                <View style={[styles.companionAvatar, { backgroundColor: colors.textSecondary, marginLeft: -8 }]}>
+                  <Text style={styles.companionAvatarText}>+{companions.length - 4}</Text>
+                </View>
+              )}
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+          </Pressable>
+        )}
+
         {itinerary.totalBudget > 0 && (
           <View style={[styles.budgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.budgetHeader}>
               <Text style={[styles.budgetTitle, { color: colors.text }]}>{txt.budgetProgress}</Text>
-              <Pressable
-                onPress={() => {
-                  setEditBudget(itinerary.totalBudget.toString());
-                  setEditNumPeople(itinerary.numPeople.toString());
-                  setEditInfoModal(true);
-                }}
-                hitSlop={8}
-              >
-                <Ionicons name="create-outline" size={18} color={colors.primary} />
-              </Pressable>
+              {canEdit && (
+                <Pressable
+                  onPress={() => {
+                    setEditBudget(itinerary.totalBudget.toString());
+                    setEditNumPeople(itinerary.numPeople.toString());
+                    setEditInfoModal(true);
+                  }}
+                  hitSlop={8}
+                >
+                  <Ionicons name="create-outline" size={18} color={colors.primary} />
+                </Pressable>
+              )}
             </View>
             <View style={styles.budgetRow}>
               <View style={styles.budgetItem}>
@@ -707,30 +812,32 @@ export default function ItineraryDetailScreen() {
           </View>
         </View>
 
-        <View style={styles.actionRow}>
-          <Pressable
-            onPress={handleStatusChange}
-            style={({ pressed }) => [styles.actionButton, { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 }]}
-          >
-            <Ionicons
-              name={itinerary.status === "draft" ? "play" : itinerary.status === "active" ? "checkmark-circle" : "refresh"}
-              size={18}
-              color="#fff"
-            />
-            <Text style={styles.actionButtonText}>
-              {itinerary.status === "draft" ? txt.startTrip : itinerary.status === "active" ? txt.complete : txt.reset}
-            </Text>
-          </Pressable>
-          {itinerary.status === "draft" && (
+        {canEdit && (
+          <View style={styles.actionRow}>
             <Pressable
-              onPress={handleEdit}
-              style={({ pressed }) => [styles.actionButton, { backgroundColor: colors.accent, opacity: pressed ? 0.9 : 1 }]}
+              onPress={handleStatusChange}
+              style={({ pressed }) => [styles.actionButton, { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 }]}
             >
-              <Ionicons name="create-outline" size={18} color="#fff" />
-              <Text style={styles.actionButtonText}>{txt.editTrip}</Text>
+              <Ionicons
+                name={itinerary.status === "draft" ? "play" : itinerary.status === "active" ? "checkmark-circle" : "refresh"}
+                size={18}
+                color="#fff"
+              />
+              <Text style={styles.actionButtonText}>
+                {itinerary.status === "draft" ? txt.startTrip : itinerary.status === "active" ? txt.complete : txt.reset}
+              </Text>
             </Pressable>
-          )}
-        </View>
+            {itinerary.status === "draft" && (
+              <Pressable
+                onPress={handleEdit}
+                style={({ pressed }) => [styles.actionButton, { backgroundColor: colors.accent, opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Ionicons name="create-outline" size={18} color="#fff" />
+                <Text style={styles.actionButtonText}>{txt.editTrip}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
 
         {itinerary.preferences.length > 0 && (
           <View style={styles.prefRow}>
@@ -799,15 +906,15 @@ export default function ItineraryDetailScreen() {
                         <View style={[styles.activityCard, { backgroundColor: colors.card, borderColor: activity.isCompleted ? colors.success + "50" : colors.cardBorder }]}>
                           <View style={styles.activityTop}>
                             <Pressable
-                              onPress={() => toggleActivityComplete(dayIdx, activity.id)}
+                              onPress={() => { if (canEdit) toggleActivityComplete(dayIdx, activity.id); }}
                               style={[styles.checkbox, { borderColor: activity.isCompleted ? colors.success : colors.textTertiary, backgroundColor: activity.isCompleted ? colors.success : "transparent" }]}
                             >
                               {activity.isCompleted && <Ionicons name="checkmark" size={14} color="#fff" />}
                             </Pressable>
                             <View style={{ flex: 1 }}>
                               <View style={styles.activityTitleRow}>
-                                <Pressable onPress={() => setTimeModal({ activityId: activity.id, dayIdx, time: activity.time })}>
-                                  <Text style={[styles.activityTime, { color: colors.primary }]}>{activity.time}</Text>
+                                <Pressable onPress={() => { if (canEdit) setTimeModal({ activityId: activity.id, dayIdx, time: activity.time }); }}>
+                                  <Text style={[styles.activityTime, { color: colors.primary, textDecorationLine: canEdit ? "underline" : "none" }]}>{activity.time}</Text>
                                 </Pressable>
                                 <View style={[styles.typeBadge, { backgroundColor: colors.tagBg }]}>
                                   <Ionicons name={getActivityTypeIcon(activity.activityType) as any} size={12} color={colors.tagText} />
@@ -846,27 +953,37 @@ export default function ItineraryDetailScreen() {
                                 <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
                                   <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
                                   <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
-                                  <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
-                                    <Ionicons name="create-outline" size={14} color={colors.primary} />
-                                  </Pressable>
-                                  <Pressable onPress={() => deleteNote(dayIdx, activity.id, noteIdx)} hitSlop={6}>
-                                    <Ionicons name="close-circle-outline" size={14} color={colors.error} />
-                                  </Pressable>
+                                  {canEdit && (
+                                    <>
+                                      <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
+                                        <Ionicons name="create-outline" size={14} color={colors.primary} />
+                                      </Pressable>
+                                      <Pressable onPress={() => deleteNote(dayIdx, activity.id, noteIdx)} hitSlop={6}>
+                                        <Ionicons name="close-circle-outline" size={14} color={colors.error} />
+                                      </Pressable>
+                                    </>
+                                  )}
                                 </View>
                               ))}
                             </View>
                           )}
 
                           <View style={styles.activityActions}>
-                            <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
-                              <Ionicons name="document-text-outline" size={14} color={colors.primary} />
-                            </Pressable>
-                            <Pressable onPress={() => setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
-                              <Ionicons name="cash-outline" size={14} color={colors.accent} />
-                            </Pressable>
-                            <Pressable onPress={() => setTimeModal({ activityId: activity.id, dayIdx, time: activity.time })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
-                              <Ionicons name="time-outline" size={14} color={colors.primary} />
-                            </Pressable>
+                            {canEdit && (
+                              <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+                              </Pressable>
+                            )}
+                            {canEdit && (
+                              <Pressable onPress={() => setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Ionicons name="cash-outline" size={14} color={colors.accent} />
+                              </Pressable>
+                            )}
+                            {canEdit && (
+                              <Pressable onPress={() => setTimeModal({ activityId: activity.id, dayIdx, time: activity.time })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Ionicons name="time-outline" size={14} color={colors.primary} />
+                              </Pressable>
+                            )}
                             {activity.latitude != null && activity.longitude != null && (
                               <>
                                 <Pressable onPress={() => openGoogleMaps(activity.latitude, activity.longitude, activity.address)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
@@ -877,34 +994,38 @@ export default function ItineraryDetailScreen() {
                                 </Pressable>
                               </>
                             )}
-                            {actIdx > 0 && (
+                            {canEdit && actIdx > 0 && (
                               <Pressable onPress={() => moveActivity(dayIdx, actIdx, "up")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="arrow-up" size={14} color={colors.textSecondary} />
                               </Pressable>
                             )}
-                            {actIdx < day.activities.length - 1 && (
+                            {canEdit && actIdx < day.activities.length - 1 && (
                               <Pressable onPress={() => moveActivity(dayIdx, actIdx, "down")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="arrow-down" size={14} color={colors.textSecondary} />
                               </Pressable>
                             )}
-                            <Pressable onPress={() => deleteActivity(dayIdx, activity.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
-                              <Ionicons name="trash-outline" size={14} color={colors.error} />
-                            </Pressable>
+                            {canEdit && (
+                              <Pressable onPress={() => deleteActivity(dayIdx, activity.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
+                                <Ionicons name="trash-outline" size={14} color={colors.error} />
+                              </Pressable>
+                            )}
                           </View>
                         </View>
                       </React.Fragment>
                     ))}
 
-                    <Pressable
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setAddPlaceModal({ dayIdx });
-                      }}
-                      style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
-                    >
-                      <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
-                      <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addPlace}</Text>
-                    </Pressable>
+                    {canEdit && (
+                      <Pressable
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setAddPlaceModal({ dayIdx });
+                        }}
+                        style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
+                      >
+                        <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+                        <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addPlace}</Text>
+                      </Pressable>
+                    )}
                   </View>
                 )}
               </View>
@@ -945,46 +1066,54 @@ export default function ItineraryDetailScreen() {
                         <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
                           <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
                           <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
-                          <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
-                            <Ionicons name="create-outline" size={14} color={colors.primary} />
-                          </Pressable>
-                          <Pressable onPress={() => deleteExpenseNote(expense.id, noteIdx)} hitSlop={6}>
-                            <Ionicons name="close-circle-outline" size={14} color={colors.error} />
-                          </Pressable>
+                          {canEdit && (
+                            <>
+                              <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
+                                <Ionicons name="create-outline" size={14} color={colors.primary} />
+                              </Pressable>
+                              <Pressable onPress={() => deleteExpenseNote(expense.id, noteIdx)} hitSlop={6}>
+                                <Ionicons name="close-circle-outline" size={14} color={colors.error} />
+                              </Pressable>
+                            </>
+                          )}
                         </View>
                       ))}
                     </View>
                   )}
 
-                  <View style={styles.expenseActions}>
-                    <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
-                      <Ionicons name="document-text-outline" size={14} color={colors.primary} />
-                    </Pressable>
-                    <Pressable onPress={() => openEditExpense(expense)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
-                      <Ionicons name="create-outline" size={14} color={colors.accent} />
-                    </Pressable>
-                    <Pressable onPress={() => deleteExpense(expense.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
-                      <Ionicons name="trash-outline" size={14} color={colors.error} />
-                    </Pressable>
-                  </View>
+                  {canEdit && (
+                    <View style={styles.expenseActions}>
+                      <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                        <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+                      </Pressable>
+                      <Pressable onPress={() => openEditExpense(expense)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                        <Ionicons name="create-outline" size={14} color={colors.accent} />
+                      </Pressable>
+                      <Pressable onPress={() => deleteExpense(expense.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
+                        <Ionicons name="trash-outline" size={14} color={colors.error} />
+                      </Pressable>
+                    </View>
+                  )}
                 </View>
               ))
             )}
 
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setExpenseTitle("");
-                setExpenseAmount("");
-                setExpensePaidBy("");
-                setExpenseType("transport");
-                setExpenseModal({});
-              }}
-              style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
-            >
-              <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
-              <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addExpense}</Text>
-            </Pressable>
+            {canEdit && (
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setExpenseTitle("");
+                  setExpenseAmount("");
+                  setExpensePaidBy("");
+                  setExpenseType("transport");
+                  setExpenseModal({});
+                }}
+                style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+                <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addExpense}</Text>
+              </Pressable>
+            )}
           </View>
         )}
       </ScrollView>
@@ -1217,6 +1346,97 @@ export default function ItineraryDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={shareModal} transparent animationType="fade" onRequestClose={() => setShareModal(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShareModal(false)} />
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.inviteCompanion}</Text>
+
+            <View style={styles.permToggle}>
+              <Pressable
+                style={[styles.permBtn, sharePermission === "editor" && { backgroundColor: colors.primary }]}
+                onPress={() => setSharePermission("editor")}
+              >
+                <Text style={[styles.permBtnText, { color: sharePermission === "editor" ? "#fff" : colors.text }]}>
+                  {txt.canEdit}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.permBtn, sharePermission === "viewer" && { backgroundColor: colors.primary }]}
+                onPress={() => setSharePermission("viewer")}
+              >
+                <Text style={[styles.permBtnText, { color: sharePermission === "viewer" ? "#fff" : colors.text }]}>
+                  {txt.viewOnly}
+                </Text>
+              </Pressable>
+            </View>
+
+            <Pressable
+              style={[styles.shareLinkBtn, { backgroundColor: colors.primary }]}
+              onPress={handleGenerateLink}
+            >
+              <Ionicons name="link-outline" size={20} color="#fff" />
+              <Text style={styles.shareLinkBtnText}>{txt.copyLink}</Text>
+            </Pressable>
+
+            {companions.length > 0 && (
+              <Pressable
+                style={[styles.manageCompBtn, { borderColor: colors.cardBorder }]}
+                onPress={() => { setShareModal(false); setCompanionModal(true); }}
+              >
+                <Ionicons name="people-outline" size={18} color={colors.primary} />
+                <Text style={[styles.manageCompBtnText, { color: colors.text }]}>
+                  {txt.manageCompanions} ({companions.length})
+                </Text>
+              </Pressable>
+            )}
+
+            <Pressable onPress={() => setShareModal(false)} style={styles.cancelBtn}>
+              <Text style={[styles.cancelBtnText, { color: colors.textSecondary }]}>{t().common.cancel}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={companionModal} transparent animationType="fade" onRequestClose={() => setCompanionModal(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCompanionModal(false)} />
+          <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: "70%" }]}>
+            <View style={styles.compModalHeader}>
+              <Pressable onPress={() => setCompanionModal(false)}>
+                <Ionicons name="arrow-back" size={22} color={colors.text} />
+              </Pressable>
+              <Text style={[styles.modalTitle, { color: colors.text, flex: 1, marginLeft: 12 }]}>{txt.manageCompanions}</Text>
+            </View>
+
+            <Text style={[styles.compCount, { color: colors.textSecondary }]}>
+              {companions.length} {txt.companions.toLowerCase()}
+            </Text>
+
+            <ScrollView style={styles.compList} showsVerticalScrollIndicator={false}>
+              {companions.map((c) => (
+                <View key={c.userId} style={[styles.compRow, { borderColor: colors.cardBorder }]}>
+                  <View style={[styles.compAvatar, { backgroundColor: colors.primary }]}>
+                    <Text style={styles.compAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.compInfo}>
+                    <Text style={[styles.compName, { color: colors.text }]}>{c.userName}</Text>
+                    <Text style={[styles.compRole, { color: colors.textSecondary }]}>
+                      {c.role === "editor" ? txt.editor : txt.viewer}
+                    </Text>
+                  </View>
+                  {isOwner && (
+                    <Pressable onPress={() => handleRemoveCompanion(c)} hitSlop={8}>
+                      <Ionicons name="close" size={22} color={colors.error} />
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1445,4 +1665,81 @@ const travelStyles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_400Regular",
   },
+  companionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+  },
+  companionBarText: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 },
+  companionAvatars: { flexDirection: "row" },
+  companionAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  companionAvatarText: { color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" },
+  permToggle: {
+    flexDirection: "row",
+    gap: 0,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#ddd",
+  },
+  permBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  permBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  shareLinkBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  shareLinkBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  manageCompBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  manageCompBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  cancelBtn: { alignItems: "center", paddingVertical: 10 },
+  cancelBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  compModalHeader: { flexDirection: "row", alignItems: "center" },
+  compCount: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 8 },
+  compList: { gap: 0 },
+  compRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  compAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compAvatarText: { color: "#fff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  compInfo: { flex: 1, gap: 2 },
+  compName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  compRole: { fontSize: 12, fontFamily: "Inter_400Regular" },
 });
