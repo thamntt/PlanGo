@@ -154,7 +154,7 @@ export default function ItineraryDetailScreen() {
 
   const itinerary = itineraries.find((i) => i.id === id);
   const [expandedDay, setExpandedDay] = useState<number | null>(0);
-  const [noteModal, setNoteModal] = useState<{ activityId: string; dayIdx: number; note: string } | null>(null);
+  const [noteModal, setNoteModal] = useState<{ activityId: string; dayIdx: number; note: string; editIndex?: number } | null>(null);
   const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; paidBy: string } | null>(null);
   const [expenseModal, setExpenseModal] = useState<{ dayIdx: number } | null>(null);
   const [editInfoModal, setEditInfoModal] = useState(false);
@@ -285,15 +285,54 @@ export default function ItineraryDetailScreen() {
     }
   };
 
+  const getActivityNotes = (activity: ItineraryActivity): string[] => {
+    const notes: string[] = [];
+    if (activity.notes && activity.notes.length > 0) {
+      notes.push(...activity.notes);
+    } else if (activity.note) {
+      notes.push(activity.note);
+    }
+    return notes;
+  };
+
   const saveNote = async () => {
-    if (!noteModal) return;
+    if (!noteModal || !noteModal.note.trim()) return;
     const newDays = [...itinerary.days];
     const activity = newDays[noteModal.dayIdx].activities.find((a) => a.id === noteModal.activityId);
     if (activity) {
-      activity.note = noteModal.note.trim() || undefined;
+      const currentNotes = getActivityNotes(activity);
+      if (noteModal.editIndex !== undefined) {
+        currentNotes[noteModal.editIndex] = noteModal.note.trim();
+      } else {
+        currentNotes.push(noteModal.note.trim());
+      }
+      activity.notes = currentNotes;
+      activity.note = undefined;
       await updateItinerary(itinerary.id, { days: newDays });
     }
     setNoteModal(null);
+  };
+
+  const deleteNote = async (dayIdx: number, activityId: string, noteIndex: number) => {
+    const doDelete = async () => {
+      const newDays = [...itinerary.days];
+      const activity = newDays[dayIdx].activities.find((a) => a.id === activityId);
+      if (activity) {
+        const currentNotes = getActivityNotes(activity);
+        currentNotes.splice(noteIndex, 1);
+        activity.notes = currentNotes;
+        activity.note = undefined;
+        await updateItinerary(itinerary.id, { days: newDays });
+      }
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(t().itinerary.deleteNoteConfirm)) doDelete();
+    } else {
+      Alert.alert(t().itinerary.deleteNote, t().itinerary.deleteNoteConfirm, [
+        { text: t().common.cancel, style: "cancel" },
+        { text: t().common.delete, style: "destructive", onPress: doDelete },
+      ]);
+    }
   };
 
   const saveCost = async () => {
@@ -607,16 +646,32 @@ export default function ItineraryDetailScreen() {
                       )}
                     </View>
 
-                    {activity.note && (
-                      <View style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
-                        <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
-                        <Text style={[styles.noteText, { color: colors.textSecondary }]}>{activity.note}</Text>
+                    {getActivityNotes(activity).length > 0 && (
+                      <View style={styles.notesContainer}>
+                        {getActivityNotes(activity).map((noteItem, noteIdx) => (
+                          <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
+                            <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
+                            <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
+                            <Pressable
+                              onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: noteItem, editIndex: noteIdx })}
+                              hitSlop={6}
+                            >
+                              <Ionicons name="create-outline" size={14} color={colors.primary} />
+                            </Pressable>
+                            <Pressable
+                              onPress={() => deleteNote(dayIdx, activity.id, noteIdx)}
+                              hitSlop={6}
+                            >
+                              <Ionicons name="close-circle-outline" size={14} color={colors.error} />
+                            </Pressable>
+                          </View>
+                        ))}
                       </View>
                     )}
 
                     <View style={styles.activityActions}>
                       <Pressable
-                        onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: activity.note || "" })}
+                        onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: "" })}
                         style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
                       >
                         <Ionicons name="document-text-outline" size={14} color={colors.primary} />
@@ -683,7 +738,7 @@ export default function ItineraryDetailScreen() {
       <Modal visible={!!noteModal} transparent animationType="fade" onRequestClose={() => setNoteModal(null)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.addNote}</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{noteModal?.editIndex !== undefined ? txt.editNote : txt.addNote}</Text>
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={noteModal?.note || ""}
@@ -891,7 +946,8 @@ const styles = StyleSheet.create({
   costRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingLeft: 32 },
   costText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   paidByText: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  noteBox: { flexDirection: "row", gap: 6, padding: 8, borderRadius: 8, marginLeft: 32 },
+  notesContainer: { gap: 6, marginLeft: 32 },
+  noteBox: { flexDirection: "row", alignItems: "center", gap: 6, padding: 8, borderRadius: 8 },
   noteText: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
   activityActions: { flexDirection: "row", gap: 6, paddingLeft: 32, flexWrap: "wrap" },
   miniBtn: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },

@@ -162,6 +162,8 @@ const vi = {
     actualCost: "Chi phí thực tế",
     addNote: "Thêm ghi chú",
     editNote: "Sửa ghi chú",
+    deleteNote: "Xóa ghi chú",
+    deleteNoteConfirm: "Bạn có muốn xóa ghi chú này?",
     notePlaceholder: "Nhập ghi chú...",
     addExpense: "Thêm chi phí",
     expenseType: "Loại chi phí",

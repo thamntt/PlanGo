@@ -77,6 +77,7 @@ export interface ItineraryActivity {
   actualCost?: number;
   paidBy?: string;
   note?: string;
+  notes?: string[];
   isCompleted: boolean;
   address?: string;
   latitude?: number;
