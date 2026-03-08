@@ -175,7 +175,7 @@ export default function ItineraryDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary, deleteItinerary, addNotification } = useData();
+  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations } = useData();
 
   const itinerary = itineraries.find((i) => i.id === id);
   const [activeTab, setActiveTab] = useState<"itinerary" | "expenses">("itinerary");
@@ -204,6 +204,7 @@ export default function ItineraryDetailScreen() {
   const [shareModal, setShareModal] = useState(false);
   const [companionModal, setCompanionModal] = useState(false);
   const [sharePermission, setSharePermission] = useState<"editor" | "viewer">("viewer");
+  const [activityDetailModal, setActivityDetailModal] = useState<ItineraryActivity | null>(null);
 
   const totalEstimated = useMemo(() => {
     if (!itinerary) return 0;
@@ -921,9 +922,12 @@ export default function ItineraryDetailScreen() {
                                   <Text style={[styles.typeText, { color: colors.tagText }]}>{getActivityTypeLabel(activity.activityType)}</Text>
                                 </View>
                               </View>
-                              <Text style={[styles.activityTitle, { color: colors.text, textDecorationLine: activity.isCompleted ? "line-through" : "none" }]}>
-                                {activity.title}
-                              </Text>
+                              <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActivityDetailModal(activity); }}>
+                                <Text style={[styles.activityTitle, { color: activity.isCompleted ? colors.textSecondary : colors.primary, textDecorationLine: activity.isCompleted ? "line-through" : "none" }]}>
+                                  {activity.title}
+                                  <Text style={{ fontSize: 12, color: activity.isCompleted ? colors.textTertiary : colors.primary }}> ›</Text>
+                                </Text>
+                              </Pressable>
                               <Text style={[styles.activityDesc, { color: colors.textSecondary }]}>{activity.description}</Text>
                               {activity.duration ? <Text style={[styles.activityDuration, { color: colors.textTertiary }]}>{activity.duration}</Text> : null}
                             </View>
@@ -1437,6 +1441,132 @@ export default function ItineraryDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={!!activityDetailModal} transparent animationType="slide" onRequestClose={() => setActivityDetailModal(null)}>
+        <View style={actDetailStyles.overlay}>
+          <View style={[actDetailStyles.content, { backgroundColor: colors.card }]}>
+            {activityDetailModal && (() => {
+              const act = activityDetailModal;
+              const linkedDest = act.destinationId ? destinations.find((d) => d.id === act.destinationId) : destinations.find((d) => d.name === act.title);
+              const sampleReviews = linkedDest?.sampleReviews || [];
+
+              return (
+                <>
+                  <View style={actDetailStyles.header}>
+                    <Text style={[actDetailStyles.title, { color: colors.text }]} numberOfLines={2}>{act.title}</Text>
+                    <Pressable onPress={() => setActivityDetailModal(null)} hitSlop={8}>
+                      <Ionicons name="close" size={24} color={colors.text} />
+                    </Pressable>
+                  </View>
+
+                  <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 20 }}>
+                    <View style={[actDetailStyles.infoRow, { backgroundColor: colors.inputBg }]}>
+                      <View style={actDetailStyles.infoItem}>
+                        <Ionicons name="time-outline" size={16} color={colors.primary} />
+                        <Text style={[actDetailStyles.infoText, { color: colors.text }]}>{act.time} • {act.duration}</Text>
+                      </View>
+                      <View style={actDetailStyles.infoItem}>
+                        <Ionicons name={getActivityTypeIcon(act.activityType) as any} size={16} color={colors.primary} />
+                        <Text style={[actDetailStyles.infoText, { color: colors.text }]}>{getActivityTypeLabel(act.activityType)}</Text>
+                      </View>
+                    </View>
+
+                    {act.address && (
+                      <View style={actDetailStyles.infoItem}>
+                        <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                        <Text style={[actDetailStyles.addressText, { color: colors.textSecondary }]}>{act.address}</Text>
+                      </View>
+                    )}
+
+                    <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>{txt.activityAbout}</Text>
+                    <Text style={[actDetailStyles.description, { color: colors.textSecondary }]}>
+                      {linkedDest?.description || act.description}
+                    </Text>
+
+                    {linkedDest && (
+                      <View style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg }]}>
+                        <Ionicons name="star" size={18} color="#F59E0B" />
+                        <Text style={[actDetailStyles.ratingText, { color: colors.text }]}>
+                          {linkedDest.rating.toFixed(1)}/5
+                        </Text>
+                        <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>
+                          ({linkedDest.reviewCount} {txt.activityReviewCount})
+                        </Text>
+                        {linkedDest.priceRange && (
+                          <>
+                            <Text style={[actDetailStyles.ratingCount, { color: colors.textTertiary }]}> • </Text>
+                            <Ionicons name="cash-outline" size={14} color={colors.textSecondary} />
+                            <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{linkedDest.priceRange}</Text>
+                          </>
+                        )}
+                      </View>
+                    )}
+
+                    {sampleReviews.length > 0 && (
+                      <>
+                        <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>{txt.activityReviews}</Text>
+                        {sampleReviews.map((review, idx) => (
+                          <View key={idx} style={[actDetailStyles.reviewCard, { backgroundColor: colors.inputBg }]}>
+                            <View style={actDetailStyles.reviewHeader}>
+                              <View style={[actDetailStyles.reviewAvatar, { backgroundColor: review.source === "Google" ? "#4285F4" : "#34E0A1" }]}>
+                                <Text style={actDetailStyles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={[actDetailStyles.reviewName, { color: colors.text }]}>{review.author}</Text>
+                                <View style={[actDetailStyles.sourceBadge, { backgroundColor: review.source === "Google" ? "#4285F420" : "#34E0A120" }]}>
+                                  <Text style={[actDetailStyles.sourceText, { color: review.source === "Google" ? "#4285F4" : "#00AA6C" }]}>{review.source}</Text>
+                                </View>
+                              </View>
+                              <View style={{ flexDirection: "row", gap: 2 }}>
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                  <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
+                                ))}
+                              </View>
+                            </View>
+                            <Text style={[actDetailStyles.reviewComment, { color: colors.textSecondary }]}>{review.comment}</Text>
+                          </View>
+                        ))}
+                      </>
+                    )}
+
+                    {(act.latitude != null && act.longitude != null) && (
+                      <Pressable
+                        onPress={() => {
+                          const query = linkedDest ? encodeURIComponent(linkedDest.name) : `${act.latitude},${act.longitude}`;
+                          Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+                        }}
+                        style={({ pressed }) => [actDetailStyles.moreReviewsBtn, { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 }]}
+                      >
+                        <Ionicons name="logo-google" size={18} color="#fff" />
+                        <Text style={actDetailStyles.moreReviewsBtnText}>{txt.activitySeeMoreReviews}</Text>
+                      </Pressable>
+                    )}
+
+                    {(act.latitude != null && act.longitude != null) && (
+                      <View style={actDetailStyles.deepLinkRow}>
+                        <Pressable
+                          onPress={() => openGoogleMaps(act.latitude, act.longitude, act.address)}
+                          style={({ pressed }) => [actDetailStyles.deepLinkBtn, { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 }]}
+                        >
+                          <Ionicons name="map" size={16} color="#fff" />
+                          <Text style={actDetailStyles.deepLinkText}>{txt.openMaps}</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => openGrab(act.latitude, act.longitude)}
+                          style={({ pressed }) => [actDetailStyles.deepLinkBtn, { backgroundColor: "#00B14F", opacity: pressed ? 0.9 : 1 }]}
+                        >
+                          <Ionicons name="car" size={16} color="#fff" />
+                          <Text style={actDetailStyles.deepLinkText}>{txt.bookGrab}</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </ScrollView>
+                </>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1742,4 +1872,33 @@ const travelStyles = StyleSheet.create({
   compInfo: { flex: 1, gap: 2 },
   compName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   compRole: { fontSize: 12, fontFamily: "Inter_400Regular" },
+});
+
+const actDetailStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  content: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: "85%" },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, gap: 12 },
+  title: { fontSize: 20, fontFamily: "Inter_700Bold", flex: 1 },
+  infoRow: { flexDirection: "row", gap: 16, padding: 12, borderRadius: 12 },
+  infoItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  infoText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  addressText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+  sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  description: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
+  ratingBar: { flexDirection: "row", alignItems: "center", gap: 6, padding: 12, borderRadius: 12 },
+  ratingText: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  ratingCount: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  reviewCard: { borderRadius: 12, padding: 12, gap: 8 },
+  reviewHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  reviewAvatar: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  reviewAvatarText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  reviewName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  sourceBadge: { alignSelf: "flex-start", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 2 },
+  sourceText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  reviewComment: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  moreReviewsBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 14 },
+  moreReviewsBtnText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  deepLinkRow: { flexDirection: "row", gap: 10 },
+  deepLinkBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 12 },
+  deepLinkText: { color: "#fff", fontSize: 13, fontFamily: "Inter_600SemiBold" },
 });

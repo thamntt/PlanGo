@@ -229,6 +229,10 @@ const vi = {
     toDestination: "đến",
     travelMinutes: "phút",
     travelKm: "km",
+    activityAbout: "Giới thiệu",
+    activityReviews: "Đánh giá nổi bật",
+    activityReviewCount: "đánh giá",
+    activitySeeMoreReviews: "Xem thêm đánh giá trên Google Maps",
   },
 
   profile: {
