@@ -320,6 +320,12 @@ const vi = {
     noTripsYet: "Người dùng chưa có chuyến đi nào",
     noReviewsYet: "Người dùng chưa có đánh giá nào",
     timesChosen: "lần chọn",
+    location: "Vị trí",
+    latitude: "Vĩ độ",
+    longitude: "Kinh độ",
+    invalidLatitude: "Vĩ độ phải từ -90 đến 90",
+    invalidLongitude: "Kinh độ phải từ -180 đến 180",
+    coordBothRequired: "Vui lòng nhập cả vĩ độ và kinh độ",
   },
 
   categories: {

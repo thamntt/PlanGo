@@ -27,6 +27,8 @@ type Tab = "dashboard" | "users" | "destinations" | "reviews";
 interface DestFormErrors {
   name?: string;
   address?: string;
+  latitude?: string;
+  longitude?: string;
 }
 
 function confirmAction(title: string, message: string, onConfirm: () => void) {
@@ -69,6 +71,8 @@ export default function AdminDashboard() {
   const [destDesc, setDestDesc] = useState("");
   const [destAddr, setDestAddr] = useState("");
   const [destCategory, setDestCategory] = useState("City");
+  const [destLat, setDestLat] = useState("");
+  const [destLng, setDestLng] = useState("");
   const [destErrors, setDestErrors] = useState<DestFormErrors>({});
 
   const [userDetailId, setUserDetailId] = useState<string | null>(null);
@@ -172,6 +176,8 @@ export default function AdminDashboard() {
     setDestDesc("");
     setDestAddr("");
     setDestCategory("City");
+    setDestLat("");
+    setDestLng("");
     setDestErrors({});
     setDestModalVisible(true);
   };
@@ -184,6 +190,8 @@ export default function AdminDashboard() {
     setDestDesc(dest.description);
     setDestAddr(dest.address);
     setDestCategory(dest.category);
+    setDestLat(dest.latitude?.toString() || "");
+    setDestLng(dest.longitude?.toString() || "");
     setDestErrors({});
     setDestModalVisible(true);
   };
@@ -194,19 +202,42 @@ export default function AdminDashboard() {
     if (nameErr) newErrors.name = nameErr;
     const addrErr = validateAddress(destAddr);
     if (addrErr) newErrors.address = addrErr;
+    const hasLat = destLat.trim() !== "";
+    const hasLng = destLng.trim() !== "";
+    if (hasLat && !hasLng) {
+      newErrors.longitude = t().admin.coordBothRequired;
+    } else if (!hasLat && hasLng) {
+      newErrors.latitude = t().admin.coordBothRequired;
+    }
+    if (hasLat) {
+      const lat = parseFloat(destLat);
+      if (isNaN(lat) || lat < -90 || lat > 90) newErrors.latitude = t().admin.invalidLatitude;
+    }
+    if (hasLng) {
+      const lng = parseFloat(destLng);
+      if (isNaN(lng) || lng < -180 || lng > 180) newErrors.longitude = t().admin.invalidLongitude;
+    }
     setDestErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSaveDest = async () => {
     if (!validateDestForm()) return;
+    const hasCoords = destLat.trim() !== "" && destLng.trim() !== "";
+    const parsedLat = hasCoords ? parseFloat(destLat) : null;
+    const parsedLng = hasCoords ? parseFloat(destLng) : null;
     if (editingDestId) {
-      await updateDestination(editingDestId, {
+      const updates: Record<string, any> = {
         name: destName.trim(),
         description: destDesc.trim() || "A beautiful destination",
         address: destAddr.trim(),
         category: destCategory,
-      });
+      };
+      if (hasCoords && parsedLat !== null && !isNaN(parsedLat) && parsedLng !== null && !isNaN(parsedLng)) {
+        updates.latitude = parsedLat;
+        updates.longitude = parsedLng;
+      }
+      await updateDestination(editingDestId, updates);
     } else {
       await addDestination({
         name: destName.trim(),
@@ -214,8 +245,8 @@ export default function AdminDashboard() {
         images: ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
         category: destCategory,
         address: destAddr.trim(),
-        latitude: 16.0 + Math.random() * 6,
-        longitude: 105.0 + Math.random() * 5,
+        latitude: hasCoords && parsedLat !== null && !isNaN(parsedLat) ? parsedLat : 16.0 + Math.random() * 6,
+        longitude: hasCoords && parsedLng !== null && !isNaN(parsedLng) ? parsedLng : 105.0 + Math.random() * 5,
         priceRange: "2-5M VND",
         tags: [destCategory],
         openHours: "Open 24 hours",
@@ -478,6 +509,12 @@ export default function AdminDashboard() {
                 <View style={s.infoRow}>
                   <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
                   <Text style={[s.infoText, { color: colors.text }]}>{selectedDest.openHours}</Text>
+                </View>
+              )}
+              {(selectedDest.latitude != null && selectedDest.longitude != null) && (
+                <View style={s.infoRow}>
+                  <Ionicons name="navigate-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[s.infoText, { color: colors.text }]}>{txt.location}: {selectedDest.latitude.toFixed(4)}, {selectedDest.longitude.toFixed(4)}</Text>
                 </View>
               )}
             </View>
@@ -762,6 +799,31 @@ export default function AdminDashboard() {
                 onChangeText={setDestDesc}
                 multiline
               />
+              <Text style={[s.categoryLabel, { color: colors.text }]}>{txt.location}</Text>
+              <View style={s.coordRow}>
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.latitude ? colors.error : colors.inputBorder }]}
+                    placeholder={txt.latitude}
+                    placeholderTextColor={colors.textTertiary}
+                    value={destLat}
+                    onChangeText={(v) => { setDestLat(v); if (destErrors.latitude) setDestErrors((e) => ({ ...e, latitude: undefined })); }}
+                    keyboardType="decimal-pad"
+                  />
+                  {destErrors.latitude && <Text style={[s.fieldError, { color: colors.error }]}>{destErrors.latitude}</Text>}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.longitude ? colors.error : colors.inputBorder }]}
+                    placeholder={txt.longitude}
+                    placeholderTextColor={colors.textTertiary}
+                    value={destLng}
+                    onChangeText={(v) => { setDestLng(v); if (destErrors.longitude) setDestErrors((e) => ({ ...e, longitude: undefined })); }}
+                    keyboardType="decimal-pad"
+                  />
+                  {destErrors.longitude && <Text style={[s.fieldError, { color: colors.error }]}>{destErrors.longitude}</Text>}
+                </View>
+              </View>
               <Text style={[s.categoryLabel, { color: colors.text }]}>{txt.category}</Text>
               <View style={s.categoryGrid}>
                 {categories.map((cat) => (
@@ -943,6 +1005,7 @@ const s = StyleSheet.create({
   },
   fieldError: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 4, marginLeft: 4 },
   categoryLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  coordRow: { flexDirection: "row", gap: 10 },
   categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   categoryChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
   categoryChipText: { fontSize: 13, fontFamily: "Inter_500Medium" },
