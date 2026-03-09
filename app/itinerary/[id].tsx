@@ -175,7 +175,7 @@ export default function ItineraryDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations } = useData();
+  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview } = useData();
 
   const itinerary = itineraries.find((i) => i.id === id);
   const [activeTab, setActiveTab] = useState<"itinerary" | "expenses">("itinerary");
@@ -205,6 +205,9 @@ export default function ItineraryDetailScreen() {
   const [companionModal, setCompanionModal] = useState(false);
   const [sharePermission, setSharePermission] = useState<"editor" | "viewer">("viewer");
   const [activityDetailModal, setActivityDetailModal] = useState<ItineraryActivity | null>(null);
+  const [reviewModal, setReviewModal] = useState<{ activityId: string; dayIdx: number; destinationId?: string; editReviewId?: string } | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
 
   const totalEstimated = useMemo(() => {
     if (!itinerary) return 0;
@@ -329,6 +332,37 @@ export default function ItineraryDetailScreen() {
 
   const handleStatusChange = () => {
     const nextStatus = itinerary.status === "draft" ? "active" : itinerary.status === "active" ? "completed" : "draft";
+
+    if (nextStatus === "draft") {
+      const msg = txt.resetConfirm;
+      const doReset = async () => {
+        const newDays = itinerary.days.map((day) => ({
+          ...day,
+          activities: day.activities.map((a) => ({
+            ...a,
+            isCompleted: false,
+            actualCost: 0,
+          })),
+        }));
+        await updateItinerary(itinerary.id, {
+          status: "draft",
+          days: newDays,
+          expenses: [],
+          spentAmount: 0,
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      };
+      if (Platform.OS === "web") {
+        if (window.confirm(msg)) doReset();
+      } else {
+        Alert.alert(t().itinerary.changeStatus, msg, [
+          { text: t().common.cancel, style: "cancel" },
+          { text: t().common.confirm, onPress: doReset },
+        ]);
+      }
+      return;
+    }
+
     const msg = t().itinerary.confirmStatus(getStatusLabel(nextStatus));
     const doChange = async () => {
       await updateItinerary(itinerary.id, { status: nextStatus });
@@ -373,25 +407,104 @@ export default function ItineraryDetailScreen() {
     return activitySpent + expenseSpent;
   };
 
+  const getActivityReview = (activityId: string) => {
+    const activity = itinerary.days.flatMap((d) => d.activities).find((a) => a.id === activityId);
+    if (!activity) return null;
+    const linkedDest = activity.destinationId
+      ? destinations.find((d) => d.id === activity.destinationId)
+      : destinations.find((d) => d.name === activity.title);
+    if (!linkedDest) return null;
+    return reviews.find((r) => r.destinationId === linkedDest.id && r.userId === user?.id && r.comment.includes(`[activity:${activityId}]`));
+  };
+
+  const getActivityDestinationId = (activity: ItineraryActivity): string | undefined => {
+    const linkedDest = activity.destinationId
+      ? destinations.find((d) => d.id === activity.destinationId)
+      : destinations.find((d) => d.name === activity.title);
+    return linkedDest?.id;
+  };
+
   const toggleActivityComplete = async (dayIdx: number, activityId: string) => {
     const newDays = [...itinerary.days];
     const activity = newDays[dayIdx].activities.find((a) => a.id === activityId);
-    if (activity) {
-      activity.isCompleted = !activity.isCompleted;
-      if (activity.isCompleted && !activity.actualCost && activity.estimatedCost) {
-        activity.actualCost = activity.estimatedCost;
-      } else if (!activity.isCompleted && activity.actualCost === activity.estimatedCost) {
-        activity.actualCost = 0;
+    if (!activity) return;
+
+    if (activity.isCompleted) {
+      const existingReview = getActivityReview(activityId);
+      if (existingReview) {
+        if (Platform.OS === "web") {
+          window.alert(txt.cannotUncheckHasReview);
+        } else {
+          Alert.alert("", txt.cannotUncheckHasReview);
+        }
+        return;
       }
-      const newSpent = recalcSpent(newDays, expenses);
-      await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      if (activity.isCompleted) {
-        await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${activity.title}" đã hoàn thành`, type: "info" });
+    }
+
+    activity.isCompleted = !activity.isCompleted;
+    if (activity.isCompleted && !activity.actualCost && activity.estimatedCost) {
+      activity.actualCost = activity.estimatedCost;
+    } else if (!activity.isCompleted && activity.actualCost === activity.estimatedCost) {
+      activity.actualCost = 0;
+    }
+    const newSpent = recalcSpent(newDays, expenses);
+    await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (activity.isCompleted) {
+      await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${activity.title}" đã hoàn thành`, type: "info" });
+    }
+    if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
+      await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
+    }
+  };
+
+  const openReviewModal = (activityId: string, dayIdx: number, editReviewId?: string) => {
+    const activity = itinerary.days[dayIdx].activities.find((a) => a.id === activityId);
+    if (!activity) return;
+    const destId = getActivityDestinationId(activity);
+    if (editReviewId) {
+      const existingReview = reviews.find((r) => r.id === editReviewId);
+      if (existingReview) {
+        setReviewRating(existingReview.rating);
+        setReviewComment(existingReview.comment.replace(/\s*\[activity:[^\]]+\]/, ""));
       }
-      if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
-        await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
-      }
+    } else {
+      setReviewRating(5);
+      setReviewComment("");
+    }
+    setReviewModal({ activityId, dayIdx, destinationId: destId, editReviewId });
+  };
+
+  const submitActivityReview = async () => {
+    if (!reviewModal || !reviewComment.trim()) return;
+    const taggedComment = `${reviewComment.trim()} [activity:${reviewModal.activityId}]`;
+    if (reviewModal.editReviewId) {
+      await updateReview(reviewModal.editReviewId, { rating: reviewRating, comment: taggedComment });
+    } else if (reviewModal.destinationId) {
+      await addReview({
+        userId: user!.id,
+        userName: user!.fullName,
+        destinationId: reviewModal.destinationId,
+        rating: reviewRating,
+        comment: taggedComment,
+      });
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setReviewModal(null);
+  };
+
+  const handleDeleteActivityReview = (reviewId: string) => {
+    const doDelete = async () => {
+      await deleteReview(reviewId);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(txt.deleteReviewConfirm)) doDelete();
+    } else {
+      Alert.alert(txt.deleteReview, txt.deleteReviewConfirm, [
+        { text: t().common.cancel, style: "cancel" },
+        { text: t().common.delete, style: "destructive", onPress: doDelete },
+      ]);
     }
   };
 
@@ -765,7 +878,7 @@ export default function ItineraryDetailScreen() {
           <View style={[styles.budgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.budgetHeader}>
               <Text style={[styles.budgetTitle, { color: colors.text }]}>{txt.budgetProgress}</Text>
-              {canEdit && (
+              {canEdit && itinerary.status === "draft" && (
                 <Pressable
                   onPress={() => {
                     setEditBudget(itinerary.totalBudget.toString());
@@ -906,16 +1019,23 @@ export default function ItineraryDetailScreen() {
                         )}
                         <View style={[styles.activityCard, { backgroundColor: colors.card, borderColor: activity.isCompleted ? colors.success + "50" : colors.cardBorder }]}>
                           <View style={styles.activityTop}>
-                            <Pressable
-                              onPress={() => { if (canEdit) toggleActivityComplete(dayIdx, activity.id); }}
-                              style={[styles.checkbox, { borderColor: activity.isCompleted ? colors.success : colors.textTertiary, backgroundColor: activity.isCompleted ? colors.success : "transparent" }]}
-                            >
-                              {activity.isCompleted && <Ionicons name="checkmark" size={14} color="#fff" />}
-                            </Pressable>
+                            {itinerary.status === "active" && canEdit && (
+                              <Pressable
+                                onPress={() => toggleActivityComplete(dayIdx, activity.id)}
+                                style={[styles.checkbox, { borderColor: activity.isCompleted ? colors.success : colors.textTertiary, backgroundColor: activity.isCompleted ? colors.success : "transparent" }]}
+                              >
+                                {activity.isCompleted && <Ionicons name="checkmark" size={14} color="#fff" />}
+                              </Pressable>
+                            )}
+                            {itinerary.status === "completed" && activity.isCompleted && (
+                              <View style={[styles.checkbox, { borderColor: colors.success, backgroundColor: colors.success }]}>
+                                <Ionicons name="checkmark" size={14} color="#fff" />
+                              </View>
+                            )}
                             <View style={{ flex: 1 }}>
                               <View style={styles.activityTitleRow}>
-                                <Pressable onPress={() => { if (canEdit) setTimeModal({ activityId: activity.id, dayIdx, time: activity.time }); }}>
-                                  <Text style={[styles.activityTime, { color: colors.primary, textDecorationLine: canEdit ? "underline" : "none" }]}>{activity.time}</Text>
+                                <Pressable onPress={() => { if (canEdit && itinerary.status === "draft") setTimeModal({ activityId: activity.id, dayIdx, time: activity.time }); }}>
+                                  <Text style={[styles.activityTime, { color: colors.primary, textDecorationLine: (canEdit && itinerary.status === "draft") ? "underline" : "none" }]}>{activity.time}</Text>
                                 </Pressable>
                                 <View style={[styles.typeBadge, { backgroundColor: colors.tagBg }]}>
                                   <Ionicons name={getActivityTypeIcon(activity.activityType) as any} size={12} color={colors.tagText} />
@@ -951,13 +1071,39 @@ export default function ItineraryDetailScreen() {
                             )}
                           </View>
 
+                          {(() => {
+                            const actReview = getActivityReview(activity.id);
+                            if (actReview && itinerary.status !== "draft") {
+                              return (
+                                <View style={[styles.reviewBox, { backgroundColor: colors.inputBg }]}>
+                                  <View style={styles.reviewBoxHeader}>
+                                    <Ionicons name="star" size={14} color="#F59E0B" />
+                                    <Text style={[styles.reviewBoxRating, { color: colors.text }]}>{actReview.rating}/5</Text>
+                                    <Text style={[styles.reviewBoxComment, { color: colors.textSecondary }]} numberOfLines={2}>
+                                      {actReview.comment.replace(/\s*\[activity:[^\]]+\]/, "")}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.reviewBoxActions}>
+                                    <Pressable onPress={() => openReviewModal(activity.id, dayIdx, actReview.id)} hitSlop={6}>
+                                      <Ionicons name="create-outline" size={14} color={colors.primary} />
+                                    </Pressable>
+                                    <Pressable onPress={() => handleDeleteActivityReview(actReview.id)} hitSlop={6}>
+                                      <Ionicons name="trash-outline" size={14} color={colors.error} />
+                                    </Pressable>
+                                  </View>
+                                </View>
+                              );
+                            }
+                            return null;
+                          })()}
+
                           {getActivityNotes(activity).length > 0 && (
                             <View style={styles.notesContainer}>
                               {getActivityNotes(activity).map((noteItem, noteIdx) => (
                                 <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
                                   <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
                                   <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
-                                  {canEdit && (
+                                  {canEdit && itinerary.status !== "completed" && (
                                     <>
                                       <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
                                         <Ionicons name="create-outline" size={14} color={colors.primary} />
@@ -973,17 +1119,17 @@ export default function ItineraryDetailScreen() {
                           )}
 
                           <View style={styles.activityActions}>
-                            {canEdit && (
+                            {canEdit && itinerary.status !== "completed" && (
                               <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="document-text-outline" size={14} color={colors.primary} />
                               </Pressable>
                             )}
-                            {canEdit && (
+                            {canEdit && itinerary.status === "draft" && (
                               <Pressable onPress={() => setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="cash-outline" size={14} color={colors.accent} />
                               </Pressable>
                             )}
-                            {canEdit && (
+                            {canEdit && itinerary.status === "draft" && (
                               <Pressable onPress={() => setTimeModal({ activityId: activity.id, dayIdx, time: activity.time })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="time-outline" size={14} color={colors.primary} />
                               </Pressable>
@@ -998,19 +1144,24 @@ export default function ItineraryDetailScreen() {
                                 </Pressable>
                               </>
                             )}
-                            {canEdit && actIdx > 0 && (
+                            {canEdit && itinerary.status === "draft" && actIdx > 0 && (
                               <Pressable onPress={() => moveActivity(dayIdx, actIdx, "up")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="arrow-up" size={14} color={colors.textSecondary} />
                               </Pressable>
                             )}
-                            {canEdit && actIdx < day.activities.length - 1 && (
+                            {canEdit && itinerary.status === "draft" && actIdx < day.activities.length - 1 && (
                               <Pressable onPress={() => moveActivity(dayIdx, actIdx, "down")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="arrow-down" size={14} color={colors.textSecondary} />
                               </Pressable>
                             )}
-                            {canEdit && (
+                            {canEdit && itinerary.status === "draft" && (
                               <Pressable onPress={() => deleteActivity(dayIdx, activity.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
                                 <Ionicons name="trash-outline" size={14} color={colors.error} />
+                              </Pressable>
+                            )}
+                            {itinerary.status === "active" && activity.isCompleted && getActivityDestinationId(activity) && !getActivityReview(activity.id) && (
+                              <Pressable onPress={() => openReviewModal(activity.id, dayIdx)} style={[styles.miniBtn, { backgroundColor: colors.primary + "15" }]}>
+                                <Ionicons name="star-outline" size={14} color={colors.primary} />
                               </Pressable>
                             )}
                           </View>
@@ -1018,7 +1169,7 @@ export default function ItineraryDetailScreen() {
                       </React.Fragment>
                     ))}
 
-                    {canEdit && (
+                    {canEdit && itinerary.status === "draft" && (
                       <Pressable
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1070,7 +1221,7 @@ export default function ItineraryDetailScreen() {
                         <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
                           <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
                           <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
-                          {canEdit && (
+                          {canEdit && itinerary.status !== "completed" && (
                             <>
                               <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
                                 <Ionicons name="create-outline" size={14} color={colors.primary} />
@@ -1085,7 +1236,7 @@ export default function ItineraryDetailScreen() {
                     </View>
                   )}
 
-                  {canEdit && (
+                  {canEdit && itinerary.status !== "completed" && (
                     <View style={styles.expenseActions}>
                       <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                         <Ionicons name="document-text-outline" size={14} color={colors.primary} />
@@ -1102,7 +1253,7 @@ export default function ItineraryDetailScreen() {
               ))
             )}
 
-            {canEdit && (
+            {canEdit && itinerary.status !== "completed" && (
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1567,6 +1718,43 @@ export default function ItineraryDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={!!reviewModal} transparent animationType="fade" onRequestClose={() => setReviewModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              {reviewModal?.editReviewId ? txt.editReview : txt.reviewActivity}
+            </Text>
+            <View style={styles.ratingRow}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Pressable key={star} onPress={() => setReviewRating(star)} hitSlop={8}>
+                  <Ionicons
+                    name={star <= reviewRating ? "star" : "star-outline"}
+                    size={28}
+                    color={star <= reviewRating ? "#F59E0B" : colors.textTertiary}
+                  />
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder, minHeight: 80, textAlignVertical: "top" }]}
+              value={reviewComment}
+              onChangeText={setReviewComment}
+              placeholder={txt.notePlaceholder}
+              placeholderTextColor={colors.textTertiary}
+              multiline
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setReviewModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                <Text style={[styles.modalBtnText, { color: colors.textSecondary }]}>{t().common.cancel}</Text>
+              </Pressable>
+              <Pressable onPress={submitActivityReview} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1670,6 +1858,12 @@ const styles = StyleSheet.create({
   noteBox: { flexDirection: "row", alignItems: "center", gap: 6, padding: 8, borderRadius: 8 },
   noteText: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
   activityActions: { flexDirection: "row", gap: 6, paddingLeft: 32, flexWrap: "wrap" },
+  reviewBox: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 10, padding: 10, marginTop: 6, marginLeft: 32 },
+  reviewBoxHeader: { flexDirection: "row", alignItems: "center", gap: 4, flex: 1 },
+  reviewBoxRating: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  reviewBoxComment: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1, marginLeft: 4 },
+  reviewBoxActions: { flexDirection: "row", gap: 10, marginLeft: 8 },
+  ratingRow: { flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 12 },
   miniBtn: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   addExpenseBtn: {
     flexDirection: "row",

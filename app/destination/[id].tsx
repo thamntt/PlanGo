@@ -279,6 +279,16 @@ export default function DestinationDetailScreen() {
                   <Text style={[styles.reviewComment, { color: colors.textSecondary }]}>{review.comment}</Text>
                 </View>
               ))}
+              <Pressable
+                onPress={() => {
+                  const query = encodeURIComponent(destination.name);
+                  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+                }}
+                style={({ pressed }) => [styles.seeMoreGoogleBtn, { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Ionicons name="logo-google" size={18} color="#fff" />
+                <Text style={styles.seeMoreGoogleText}>{txt.seeMoreOnGoogle}</Text>
+              </Pressable>
             </>
           )}
 
@@ -409,6 +419,16 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   planButtonText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  seeMoreGoogleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  seeMoreGoogleText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
   coordCard: { borderRadius: 14, borderWidth: 1, padding: 12 },
   coordRow: { flexDirection: "row", gap: 12 },
   coordItem: { flex: 1, borderRadius: 10, padding: 12, alignItems: "center", gap: 2 },

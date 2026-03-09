@@ -32,6 +32,7 @@ interface DataContextValue {
   updateItinerary: (id: string, data: Partial<Itinerary>) => Promise<void>;
   deleteItinerary: (id: string) => Promise<void>;
   addReview: (review: Omit<Review, "id" | "createdAt">) => Promise<Review>;
+  updateReview: (id: string, data: Partial<Review>) => Promise<void>;
   deleteReview: (id: string) => Promise<void>;
   generateItinerary: (params: {
     destination: string;
@@ -406,6 +407,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return newReview;
   }, []);
 
+  const updateReview = useCallback(async (id: string, data: Partial<Review>) => {
+    const allReviews = await getReviews();
+    const idx = allReviews.findIndex((r) => r.id === id);
+    if (idx === -1) return;
+    allReviews[idx] = { ...allReviews[idx], ...data };
+    await saveReviews(allReviews);
+    setReviews([...allReviews]);
+
+    const destId = allReviews[idx].destinationId;
+    const destReviewsArr = allReviews.filter((r) => r.destinationId === destId);
+    const avgRating = destReviewsArr.reduce((sum, r) => sum + r.rating, 0) / destReviewsArr.length;
+    const allDests = await getDestinations();
+    const destIdx = allDests.findIndex((d) => d.id === destId);
+    if (destIdx !== -1) {
+      allDests[destIdx].rating = Math.round(avgRating * 10) / 10;
+      allDests[destIdx].reviewCount = destReviewsArr.length;
+      await saveDestinations(allDests);
+      setDestinations([...allDests]);
+    }
+  }, []);
+
   const deleteReview = useCallback(async (id: string) => {
     const currentReviews = await getReviews();
     const deleted = currentReviews.find((r) => r.id === id);
@@ -518,6 +540,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       updateItinerary,
       deleteItinerary,
       addReview,
+      updateReview,
       deleteReview,
       generateItinerary,
       addNotification,
@@ -526,7 +549,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       clearNotifications,
       refreshData,
     }),
-    [destinations, itineraries, reviews, notifications, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, updateItinerary, deleteItinerary, addReview, deleteReview, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
+    [destinations, itineraries, reviews, notifications, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -117,6 +117,7 @@ const vi = {
     userReviews: "Đánh giá người dùng",
     estimatedCost: "Chi phí ước tính",
     perPerson: "/ người",
+    seeMoreOnGoogle: "Xem thêm đánh giá trên Google",
   },
 
   createTrip: {
@@ -236,6 +237,13 @@ const vi = {
     activityReviews: "Đánh giá nổi bật",
     activityReviewCount: "đánh giá",
     activitySeeMoreReviews: "Xem thêm đánh giá trên Google Maps",
+    reviewActivity: "Đánh giá",
+    editReview: "Sửa đánh giá",
+    deleteReview: "Xóa đánh giá",
+    deleteReviewConfirm: "Bạn có muốn xóa đánh giá này? Sau khi xóa, bạn có thể bỏ tick hoàn thành hoạt động.",
+    cannotUncheckHasReview: "Không thể bỏ tick vì đã có đánh giá. Hãy xóa đánh giá trước.",
+    resetConfirm: "Đặt lại chuyến đi? Tick hoàn thành, chi phí thực tế và chi phí phát sinh sẽ bị xóa. Danh sách địa điểm, thời gian và ghi chú sẽ được giữ lại.",
+    activityCosts: "Chi phí hoạt động",
   },
 
   profile: {

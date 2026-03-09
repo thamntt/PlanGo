@@ -58,9 +58,10 @@ server/
 - **Trip Planning**: Create trip with searchable location fields (starting point + destination with dropdown suggestions from destinations & Vietnam cities), calendar date range picker (visual month grid, range selection, pre-fills on edit), numeric VND budget (thousand-separator formatting), traveler count, preferences → auto-generate itineraries
 - **Itinerary Generation**: Geo-sorted by proximity from starting point (haversine), activities within each day sorted by nearest-neighbor proximity, granular time slots (07:00-20:00), food activities with restaurant suggestions, estimated costs per activity × numPeople
 - **Travel Connectors**: Between activities in itinerary detail, shows estimated travel time/distance with transport mode (car, motorbike, walking). Default: car for >1km, walking for ≤1km. Tappable to expand and see all transport mode options
-- **Itinerary Detail**: Budget tracking card (total/spent/remaining with progress bar), activity completion checkboxes, edit actual cost + paidBy, add notes, reorder activities, add custom expenses, Google Maps & Grab deep links, share as formatted text, edit trip info modal
+- **Itinerary Detail**: Budget tracking card (total/spent/remaining with progress bar), status-based permissions (draft/active/completed), activity completion checkboxes (active only), review after completion, edit actual cost + paidBy, add notes, reorder activities, add custom expenses, Google Maps & Grab deep links, share as formatted text, edit trip info modal
+- **Status Permissions**: Draft=full edit (no checkboxes), Active=checkboxes + notes + review completed activities (uncheck blocked if review exists), Completed=read-only except review edit/delete, Reset (completed→draft)=clear completions/actualCost/expenses/spentAmount
 - **Budget Tracking**: Real-time budget progress, warnings when exceeding budget, cost per activity
-- **Reviews**: Rate & review destinations (star rating), sample reviews from Google/TripAdvisor displayed with badges
+- **Reviews**: Rate & review destinations (star rating), sample reviews from Google/TripAdvisor displayed with badges, activity-linked reviews via review modal (star rating + comment)
 - **Notifications**: Trip created/started/completed, budget warnings, activity completion — bell icon with unread badge, mark read/clear all
 - **Deep Links**: Google Maps directions, Grab booking for destinations and itinerary activities
 - **GPS**: Location tracking with expo-location
