@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +21,7 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { PREFERENCE_OPTIONS } from "@/lib/seed-data";
 import { validateRequired, validateDate, validateDateRange, validateNumPeople } from "@/lib/validation";
+import { parseDDMMYYYY } from "@/lib/validation";
 import { formatVND } from "@/lib/storage";
 import { t } from "@/lib/i18n";
 
@@ -33,10 +35,40 @@ interface FormErrors {
   startingPoint?: string;
 }
 
+const VIETNAM_CITIES = [
+  "Hà Nội", "TP. Hồ Chí Minh", "Đà Nẵng", "Hải Phòng", "Cần Thơ",
+  "Huế", "Nha Trang", "Đà Lạt", "Vũng Tàu", "Quy Nhơn",
+  "Buôn Ma Thuột", "Vinh", "Thanh Hóa", "Thái Nguyên", "Nam Định",
+  "Hạ Long", "Biên Hòa", "Mỹ Tho", "Long Xuyên", "Rạch Giá",
+  "Phan Thiết", "Cam Ranh", "Pleiku", "Kon Tum", "Lào Cai",
+];
+
+const WEEKDAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+
 function formatBudgetInput(value: string): string {
   const digits = value.replace(/[^0-9]/g, "");
   if (!digits) return "";
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+function formatDateDDMMYYYY(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function isInRange(day: Date, start: Date | null, end: Date | null): boolean {
+  if (!start || !end) return false;
+  return day > start && day < end;
 }
 
 export default function CreateTripScreen() {
@@ -44,7 +76,7 @@ export default function CreateTripScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { generateItinerary, itineraries, deleteItinerary } = useData();
+  const { generateItinerary, itineraries, deleteItinerary, destinations } = useData();
   const params = useLocalSearchParams<{ editId?: string; dest?: string }>();
 
   const editingItinerary = params.editId ? itineraries.find((i) => i.id === params.editId) : null;
@@ -61,6 +93,33 @@ export default function CreateTripScreen() {
   const [selectedPrefs, setSelectedPrefs] = useState<string[]>(editingItinerary?.preferences || []);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
+
+  const [showStartingSuggestions, setShowStartingSuggestions] = useState(false);
+  const [showDestSuggestions, setShowDestSuggestions] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
+  const [rangeStart, setRangeStart] = useState<Date | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<Date | null>(null);
+
+  const destinationNames = useMemo(() => destinations.map((d) => d.name), [destinations]);
+
+  const allLocationNames = useMemo(() => {
+    const set = new Set([...VIETNAM_CITIES, ...destinationNames]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "vi"));
+  }, [destinationNames]);
+
+  const startingSuggestions = useMemo(() => {
+    if (!startingPoint.trim()) return allLocationNames.slice(0, 8);
+    const q = startingPoint.toLowerCase().trim();
+    return allLocationNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
+  }, [startingPoint, allLocationNames]);
+
+  const destSuggestions = useMemo(() => {
+    if (!destination.trim()) return allLocationNames.slice(0, 8);
+    const q = destination.toLowerCase().trim();
+    return allLocationNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
+  }, [destination, allLocationNames]);
 
   const clearError = (field: keyof FormErrors) => {
     if (errors[field]) setErrors((e) => ({ ...e, [field]: undefined }));
@@ -131,6 +190,95 @@ export default function CreateTripScreen() {
     setLoading(false);
   };
 
+  const openCalendar = useCallback(() => {
+    const existingStart = startDate ? parseDDMMYYYY(startDate) : null;
+    const existingEnd = endDate ? parseDDMMYYYY(endDate) : null;
+    if (existingStart) {
+      setRangeStart(existingStart);
+      setCalendarMonth(existingStart.getMonth());
+      setCalendarYear(existingStart.getFullYear());
+    } else {
+      const now = new Date();
+      setRangeStart(null);
+      setCalendarMonth(now.getMonth());
+      setCalendarYear(now.getFullYear());
+    }
+    setRangeEnd(existingEnd);
+    setShowStartingSuggestions(false);
+    setShowDestSuggestions(false);
+    setShowCalendar(true);
+  }, [startDate, endDate]);
+
+  const handleCalendarDayPress = useCallback((day: Date) => {
+    Haptics.selectionAsync();
+    if (!rangeStart || (rangeStart && rangeEnd)) {
+      setRangeStart(day);
+      setRangeEnd(null);
+    } else {
+      if (day <= rangeStart) {
+        setRangeStart(day);
+        setRangeEnd(null);
+      } else {
+        const diffDays = Math.ceil((day.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays > 30) {
+          Alert.alert(t().common.error, t().validation.maxTripDuration);
+          return;
+        }
+        setRangeEnd(day);
+      }
+    }
+  }, [rangeStart, rangeEnd]);
+
+  const confirmDateRange = useCallback(() => {
+    if (rangeStart && rangeEnd) {
+      setStartDate(formatDateDDMMYYYY(rangeStart));
+      setEndDate(formatDateDDMMYYYY(rangeEnd));
+      clearError("startDate");
+      clearError("endDate");
+      clearError("dateRange");
+      setShowCalendar(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [rangeStart, rangeEnd]);
+
+  const goToPrevMonth = () => {
+    if (calendarMonth === 0) {
+      setCalendarMonth(11);
+      setCalendarYear(calendarYear - 1);
+    } else {
+      setCalendarMonth(calendarMonth - 1);
+    }
+  };
+
+  const goToNextMonth = () => {
+    if (calendarMonth === 11) {
+      setCalendarMonth(0);
+      setCalendarYear(calendarYear + 1);
+    } else {
+      setCalendarMonth(calendarMonth + 1);
+    }
+  };
+
+  const calendarDays = useMemo(() => {
+    const daysInMonth = getDaysInMonth(calendarYear, calendarMonth);
+    const firstDayOfWeek = new Date(calendarYear, calendarMonth, 1).getDay();
+    const adjustedFirst = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
+    const days: (Date | null)[] = [];
+    for (let i = 0; i < adjustedFirst; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(calendarYear, calendarMonth, i));
+    return days;
+  }, [calendarYear, calendarMonth]);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const monthNames = [
+    "Tháng 1", "Tháng 2", "Tháng 3", "Tháng 4", "Tháng 5", "Tháng 6",
+    "Tháng 7", "Tháng 8", "Tháng 9", "Tháng 10", "Tháng 11", "Tháng 12",
+  ];
+
+  const isPrevDisabled = calendarYear === today.getFullYear() && calendarMonth <= today.getMonth();
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
   return (
@@ -148,7 +296,7 @@ export default function CreateTripScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.section}>
+        <View style={[styles.section, { zIndex: 20 }]}>
           <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.startingPoint}</Text>
           <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
             <Ionicons name="navigate-outline" size={20} color={colors.textTertiary} />
@@ -157,12 +305,38 @@ export default function CreateTripScreen() {
               placeholder={t().createTrip.startingPointPlaceholder}
               placeholderTextColor={colors.textTertiary}
               value={startingPoint}
-              onChangeText={(v) => { setStartingPoint(v); clearError("startingPoint"); }}
+              onChangeText={(v) => { setStartingPoint(v); clearError("startingPoint"); setShowStartingSuggestions(true); }}
+              onFocus={() => setShowStartingSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowStartingSuggestions(false), 200)}
             />
+            {startingPoint.length > 0 && (
+              <Pressable onPress={() => { setStartingPoint(""); setShowStartingSuggestions(true); }}>
+                <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+              </Pressable>
+            )}
           </View>
+          {showStartingSuggestions && startingSuggestions.length > 0 && (
+            <View style={[styles.suggestionList, { backgroundColor: colors.card, borderColor: colors.inputBorder }]}>
+              {startingSuggestions.map((name) => (
+                <Pressable
+                  key={name}
+                  style={({ pressed }) => [styles.suggestionItem, { backgroundColor: pressed ? colors.inputBg : "transparent" }]}
+                  onPress={() => {
+                    setStartingPoint(name);
+                    setShowStartingSuggestions(false);
+                    clearError("startingPoint");
+                    Haptics.selectionAsync();
+                  }}
+                >
+                  <Ionicons name="location" size={16} color={colors.primary} />
+                  <Text style={[styles.suggestionText, { color: colors.text }]}>{name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
 
-        <View style={styles.section}>
+        <View style={[styles.section, { zIndex: 10 }]}>
           <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.destination}</Text>
           <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.destination ? colors.error : colors.inputBorder }]}>
             <Ionicons name="location-outline" size={20} color={errors.destination ? colors.error : colors.textTertiary} />
@@ -171,43 +345,53 @@ export default function CreateTripScreen() {
               placeholder={t().createTrip.destPlaceholder}
               placeholderTextColor={colors.textTertiary}
               value={destination}
-              onChangeText={(v) => { setDestination(v); clearError("destination"); }}
+              onChangeText={(v) => { setDestination(v); clearError("destination"); setShowDestSuggestions(true); }}
+              onFocus={() => setShowDestSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowDestSuggestions(false), 200)}
             />
+            {destination.length > 0 && (
+              <Pressable onPress={() => { setDestination(""); setShowDestSuggestions(true); }}>
+                <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+              </Pressable>
+            )}
           </View>
+          {showDestSuggestions && destSuggestions.length > 0 && (
+            <View style={[styles.suggestionList, { backgroundColor: colors.card, borderColor: colors.inputBorder }]}>
+              {destSuggestions.map((name) => (
+                <Pressable
+                  key={name}
+                  style={({ pressed }) => [styles.suggestionItem, { backgroundColor: pressed ? colors.inputBg : "transparent" }]}
+                  onPress={() => {
+                    setDestination(name);
+                    setShowDestSuggestions(false);
+                    clearError("destination");
+                    Haptics.selectionAsync();
+                  }}
+                >
+                  <Ionicons name="location" size={16} color={colors.primary} />
+                  <Text style={[styles.suggestionText, { color: colors.text }]}>{name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
           {errors.destination && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.destination}</Text>}
         </View>
 
-        <View style={styles.rowSection}>
-          <View style={[styles.halfSection, { flex: 1 }]}>
-            <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.startDate}</Text>
-            <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.startDate ? colors.error : colors.inputBorder }]}>
-              <Ionicons name="calendar-outline" size={18} color={errors.startDate ? colors.error : colors.textTertiary} />
-              <TextInput
-                style={[styles.input, { color: colors.text }]}
-                placeholder={t().createTrip.datePlaceholder}
-                placeholderTextColor={colors.textTertiary}
-                value={startDate}
-                onChangeText={(v) => { setStartDate(v); clearError("startDate"); clearError("dateRange"); }}
-              />
-            </View>
-            {errors.startDate && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.startDate}</Text>}
-          </View>
-          <View style={[styles.halfSection, { flex: 1 }]}>
-            <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.endDate}</Text>
-            <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: errors.endDate ? colors.error : colors.inputBorder }]}>
-              <Ionicons name="calendar-outline" size={18} color={errors.endDate ? colors.error : colors.textTertiary} />
-              <TextInput
-                style={[styles.input, { color: colors.text }]}
-                placeholder={t().createTrip.datePlaceholder}
-                placeholderTextColor={colors.textTertiary}
-                value={endDate}
-                onChangeText={(v) => { setEndDate(v); clearError("endDate"); clearError("dateRange"); }}
-              />
-            </View>
-            {errors.endDate && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.endDate}</Text>}
-          </View>
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.startDate} - {t().createTrip.endDate}</Text>
+          <Pressable
+            onPress={openCalendar}
+            style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: (errors.startDate || errors.endDate || errors.dateRange) ? colors.error : colors.inputBorder }]}
+          >
+            <Ionicons name="calendar-outline" size={20} color={(errors.startDate || errors.endDate) ? colors.error : colors.textTertiary} />
+            <Text style={[styles.dateDisplayText, { color: (startDate && endDate) ? colors.text : colors.textTertiary }]}>
+              {(startDate && endDate) ? `${startDate}  →  ${endDate}` : t().createTrip.selectDateRange}
+            </Text>
+          </Pressable>
+          {(errors.startDate || errors.endDate || errors.dateRange) && (
+            <Text style={[styles.fieldError, { color: colors.error }]}>{errors.startDate || errors.endDate || errors.dateRange}</Text>
+          )}
         </View>
-        {errors.dateRange && <Text style={[styles.fieldError, { color: colors.error, marginTop: -12 }]}>{errors.dateRange}</Text>}
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.numTravelers}</Text>
@@ -306,6 +490,92 @@ export default function CreateTripScreen() {
           )}
         </Pressable>
       </ScrollView>
+
+      <Modal visible={showCalendar} transparent animationType="fade" onRequestClose={() => setShowCalendar(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowCalendar(false)}>
+          <Pressable style={[styles.calendarModal, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.calendarHeader}>
+              <Pressable onPress={goToPrevMonth} disabled={isPrevDisabled} style={{ opacity: isPrevDisabled ? 0.3 : 1 }}>
+                <Ionicons name="chevron-back" size={24} color={colors.text} />
+              </Pressable>
+              <Text style={[styles.calendarTitle, { color: colors.text }]}>{monthNames[calendarMonth]} {calendarYear}</Text>
+              <Pressable onPress={goToNextMonth}>
+                <Ionicons name="chevron-forward" size={24} color={colors.text} />
+              </Pressable>
+            </View>
+
+            <View style={styles.weekdayRow}>
+              {WEEKDAY_LABELS.map((label) => (
+                <Text key={label} style={[styles.weekdayLabel, { color: colors.textTertiary }]}>{label}</Text>
+              ))}
+            </View>
+
+            <View style={styles.daysGrid}>
+              {calendarDays.map((day, idx) => {
+                if (!day) return <View key={`empty-${idx}`} style={styles.dayCell} />;
+                const isPast = day < today;
+                const isStart = rangeStart ? isSameDay(day, rangeStart) : false;
+                const isEnd = rangeEnd ? isSameDay(day, rangeEnd) : false;
+                const inRange = isInRange(day, rangeStart, rangeEnd);
+                const isToday = isSameDay(day, today);
+                const isSelected = isStart || isEnd;
+
+                return (
+                  <Pressable
+                    key={day.toISOString()}
+                    onPress={() => !isPast && handleCalendarDayPress(day)}
+                    disabled={isPast}
+                    style={[
+                      styles.dayCell,
+                      inRange && { backgroundColor: colors.primary + "20" },
+                      isStart && { backgroundColor: colors.primary, borderTopLeftRadius: 20, borderBottomLeftRadius: 20 },
+                      isEnd && { backgroundColor: colors.primary, borderTopRightRadius: 20, borderBottomRightRadius: 20 },
+                      (isStart && !isEnd && rangeEnd) && { borderTopRightRadius: 0, borderBottomRightRadius: 0 },
+                      (isEnd && !isStart) && { borderTopLeftRadius: 0, borderBottomLeftRadius: 0 },
+                    ]}
+                  >
+                    <Text style={[
+                      styles.dayText,
+                      { color: colors.text },
+                      isPast && { color: colors.textTertiary, opacity: 0.4 },
+                      isSelected && { color: "#fff", fontFamily: "Inter_700Bold" },
+                      inRange && { color: colors.primary },
+                      isToday && !isSelected && { color: colors.primary, fontFamily: "Inter_700Bold" },
+                    ]}>
+                      {day.getDate()}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {(rangeStart || rangeEnd) && (
+              <View style={styles.calendarSelectionInfo}>
+                <Text style={[styles.calendarInfoText, { color: colors.textSecondary }]}>
+                  {rangeStart && !rangeEnd && `${t().createTrip.startDate}: ${formatDateDDMMYYYY(rangeStart)} — ${t().createTrip.selectEndDate}`}
+                  {rangeStart && rangeEnd && `${formatDateDDMMYYYY(rangeStart)}  →  ${formatDateDDMMYYYY(rangeEnd)} (${Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24))} ${t().createTrip.days})`}
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.calendarActions}>
+              <Pressable
+                onPress={() => setShowCalendar(false)}
+                style={[styles.calendarBtn, { borderColor: colors.inputBorder, borderWidth: 1 }]}
+              >
+                <Text style={[styles.calendarBtnText, { color: colors.textSecondary }]}>{t().common.cancel}</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDateRange}
+                disabled={!rangeStart || !rangeEnd}
+                style={[styles.calendarBtn, { backgroundColor: colors.primary, opacity: (rangeStart && rangeEnd) ? 1 : 0.4 }]}
+              >
+                <Text style={[styles.calendarBtnText, { color: "#fff" }]}>{t().common.confirm}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -322,8 +592,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 100, gap: 20 },
   section: { gap: 8 },
-  rowSection: { flexDirection: "row", gap: 12 },
-  halfSection: { gap: 8 },
   label: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   inputBox: {
     flexDirection: "row",
@@ -366,4 +634,88 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   generateButtonText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  suggestionList: {
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+    maxHeight: 280,
+  },
+  suggestionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  suggestionText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  dateDisplayText: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  calendarModal: {
+    width: "100%",
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 20,
+  },
+  calendarHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  calendarTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
+  weekdayRow: {
+    flexDirection: "row",
+    marginBottom: 8,
+  },
+  weekdayLabel: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  daysGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  dayCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dayText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+  },
+  calendarSelectionInfo: {
+    marginTop: 12,
+    alignItems: "center",
+  },
+  calendarInfoText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    textAlign: "center",
+  },
+  calendarActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  calendarBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
 });

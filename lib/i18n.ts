@@ -136,6 +136,9 @@ const vi = {
     startingPointPlaceholder: "VD: Hà Nội, TP.HCM...",
     budgetPlaceholder: "VD: 5000000",
     budgetUnit: "VNĐ",
+    selectDateRange: "Chọn khoảng ngày",
+    selectEndDate: "Chọn ngày kết thúc",
+    days: "ngày",
   },
 
   itinerary: {
