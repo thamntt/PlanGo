@@ -21,9 +21,9 @@ import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import * as Clipboard from "expo-clipboard";
-import { formatVND, generateId } from "@/lib/storage";
+import { formatVND, generateId, getUsers } from "@/lib/storage";
 import { t } from "@/lib/i18n";
-import type { ItineraryActivity, Expense, TripCompanion } from "@/lib/storage";
+import type { ItineraryActivity, Expense, ExpenseSplit, TripCompanion } from "@/lib/storage";
 
 function getStatusLabel(status: string): string {
   const labels = t().trips;
@@ -196,6 +196,11 @@ export default function ItineraryDetailScreen() {
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseType, setExpenseType] = useState<"transport" | "shopping" | "food" | "sightseeing" | "other">("transport");
   const [expensePaidBy, setExpensePaidBy] = useState("");
+  const [expensePaidByUserId, setExpensePaidByUserId] = useState("");
+  const [expenseSplitType, setExpenseSplitType] = useState<"none" | "equal" | "custom">("none");
+  const [expenseSplitChecked, setExpenseSplitChecked] = useState<Record<string, boolean>>({});
+  const [expenseSplitAmounts, setExpenseSplitAmounts] = useState<Record<string, string>>({});
+  const [paidByDropdown, setPaidByDropdown] = useState(false);
   const [expenseNoteModal, setExpenseNoteModal] = useState<{ expenseId: string; note: string; editIndex?: number } | null>(null);
 
   const [editBudget, setEditBudget] = useState("");
@@ -234,6 +239,37 @@ export default function ItineraryDetailScreen() {
   const myCompanion = companions.find((c) => c.userId === user?.id);
   const isCompanion = !!myCompanion;
   const canEdit = isOwner || (myCompanion?.role === "editor");
+
+  const [ownerName, setOwnerName] = useState("");
+  useEffect(() => {
+    if (isOwner && user) {
+      setOwnerName(user.fullName);
+    } else if (itinerary) {
+      getUsers().then((users) => {
+        const owner = users.find((u) => u.id === itinerary.userId);
+        if (owner) setOwnerName(owner.fullName);
+      });
+    }
+  }, [isOwner, user, itinerary?.userId]);
+
+  const tripMembers = useMemo(() => {
+    const members: { userId: string; userName: string; isOwner: boolean }[] = [];
+    if (itinerary) {
+      members.push({ userId: itinerary.userId, userName: ownerName || itinerary.userId, isOwner: true });
+    }
+    for (const c of companions) {
+      if (!members.find((m) => m.userId === c.userId)) {
+        members.push({ userId: c.userId, userName: c.userName, isOwner: false });
+      }
+    }
+    return members;
+  }, [ownerName, itinerary?.userId, companions]);
+
+  const initSplitChecked = () => {
+    const checked: Record<string, boolean> = {};
+    tripMembers.forEach((m) => { checked[m.userId] = true; });
+    return checked;
+  };
 
   const remaining = (itinerary.totalBudget || 0) - totalSpent;
   const budgetPercent = itinerary.totalBudget > 0 ? Math.min(100, (totalSpent / itinerary.totalBudget) * 100) : 0;
@@ -682,10 +718,58 @@ export default function ItineraryDetailScreen() {
     setEditInfoModal(false);
   };
 
+  const buildSplits = (amount: number): ExpenseSplit[] | undefined => {
+    if (expenseSplitType === "none") return undefined;
+    if (expenseSplitType === "equal") {
+      const checked = Object.entries(expenseSplitChecked).filter(([, v]) => v);
+      if (checked.length === 0) return undefined;
+      const base = Math.floor(amount / checked.length);
+      let remainder = amount - base * checked.length;
+      return checked.map(([uid]) => {
+        const m = tripMembers.find((t) => t.userId === uid);
+        const extra = remainder > 0 ? 1 : 0;
+        remainder -= extra;
+        return { userId: uid, userName: m?.userName || "", amount: base + extra };
+      });
+    }
+    if (expenseSplitType === "custom") {
+      return tripMembers
+        .filter((m) => expenseSplitChecked[m.userId])
+        .map((m) => ({
+          userId: m.userId,
+          userName: m.userName,
+          amount: parseInt((expenseSplitAmounts[m.userId] || "0").replace(/[^0-9]/g, ""), 10) || 0,
+        }));
+    }
+    return undefined;
+  };
+
   const addOrEditExpense = async () => {
     if (!expenseModal || !expenseTitle.trim() || !expenseAmount.trim()) return;
     const amount = parseInt(expenseAmount.replace(/[^0-9]/g, ""), 10) || 0;
     if (amount <= 0) return;
+
+    if (expenseSplitType !== "none" && !expensePaidByUserId) return;
+
+    if (expenseSplitType !== "none") {
+      const checkedCount = Object.values(expenseSplitChecked).filter(Boolean).length;
+      if (checkedCount === 0) return;
+    }
+
+    if (expenseSplitType === "custom") {
+      const splits = buildSplits(amount);
+      const splitTotal = (splits || []).reduce((s, sp) => s + sp.amount, 0);
+      if (splitTotal !== amount) {
+        if (Platform.OS === "web") {
+          window.alert(txt.splitTotalMismatch);
+        } else {
+          Alert.alert("", txt.splitTotalMismatch);
+        }
+        return;
+      }
+    }
+
+    const splits = buildSplits(amount);
 
     let newExpenses = [...expenses];
     if (expenseModal.editId) {
@@ -697,6 +781,9 @@ export default function ItineraryDetailScreen() {
           amount,
           type: expenseType,
           paidBy: expensePaidBy.trim() || undefined,
+          paidByUserId: expensePaidByUserId || undefined,
+          splitType: expenseSplitType,
+          splits,
         };
       }
     } else {
@@ -706,6 +793,9 @@ export default function ItineraryDetailScreen() {
         amount,
         type: expenseType,
         paidBy: expensePaidBy.trim() || undefined,
+        paidByUserId: expensePaidByUserId || undefined,
+        splitType: expenseSplitType,
+        splits,
         createdAt: new Date().toISOString(),
       });
     }
@@ -717,10 +807,19 @@ export default function ItineraryDetailScreen() {
       await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
     }
 
+    resetExpenseModal();
+  };
+
+  const resetExpenseModal = () => {
     setExpenseTitle("");
     setExpenseAmount("");
     setExpensePaidBy("");
+    setExpensePaidByUserId("");
     setExpenseType("transport");
+    setExpenseSplitType("none");
+    setExpenseSplitChecked({});
+    setExpenseSplitAmounts({});
+    setPaidByDropdown(false);
     setExpenseModal(null);
   };
 
@@ -745,6 +844,21 @@ export default function ItineraryDetailScreen() {
     setExpenseAmount(expense.amount.toString());
     setExpenseType(expense.type);
     setExpensePaidBy(expense.paidBy || "");
+    setExpensePaidByUserId(expense.paidByUserId || "");
+    setExpenseSplitType(expense.splitType || "none");
+    if (expense.splits) {
+      const checked: Record<string, boolean> = {};
+      const amounts: Record<string, string> = {};
+      expense.splits.forEach((sp) => {
+        checked[sp.userId] = true;
+        amounts[sp.userId] = sp.amount.toString();
+      });
+      setExpenseSplitChecked(checked);
+      setExpenseSplitAmounts(amounts);
+    } else {
+      setExpenseSplitChecked(initSplitChecked());
+      setExpenseSplitAmounts({});
+    }
     setExpenseModal({ editId: expense.id });
   };
 
@@ -1210,10 +1324,26 @@ export default function ItineraryDetailScreen() {
                         {expense.paidBy && (
                           <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}> • {txt.paidBy}: {expense.paidBy}</Text>
                         )}
+                        {expense.splitType && expense.splitType !== "none" && (
+                          <Text style={[styles.expenseMetaText, { color: colors.primary }]}>
+                            {" "} • {expense.splitType === "equal" ? txt.splitEqual : txt.splitCustom}
+                          </Text>
+                        )}
                       </View>
                     </View>
                     <Text style={[styles.expenseAmount, { color: colors.text }]}>{formatVND(expense.amount)}</Text>
                   </View>
+
+                  {expense.splits && expense.splits.length > 0 && (
+                    <View style={styles.splitDetails}>
+                      {expense.splits.map((sp) => (
+                        <View key={sp.userId} style={styles.splitDetailRow}>
+                          <Text style={[styles.splitDetailName, { color: colors.textSecondary }]}>{sp.userName}</Text>
+                          <Text style={[styles.splitDetailAmount, { color: colors.accent }]}>{formatVND(sp.amount)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
 
                   {expense.notes && expense.notes.length > 0 && (
                     <View style={styles.notesContainer}>
@@ -1253,14 +1383,79 @@ export default function ItineraryDetailScreen() {
               ))
             )}
 
+            {(() => {
+              const expensesWithSplits = expenses.filter((e) => e.splits && e.splits.length > 0 && e.paidByUserId);
+              if (expensesWithSplits.length === 0) return null;
+
+              const balances: Record<string, Record<string, number>> = {};
+              for (const exp of expensesWithSplits) {
+                const payerId = exp.paidByUserId!;
+                for (const sp of exp.splits!) {
+                  if (sp.userId === payerId) continue;
+                  if (!balances[sp.userId]) balances[sp.userId] = {};
+                  balances[sp.userId][payerId] = (balances[sp.userId][payerId] || 0) + sp.amount;
+                }
+              }
+
+              const settlements: { from: string; fromName: string; to: string; toName: string; amount: number }[] = [];
+              const netOwes: Record<string, Record<string, number>> = {};
+
+              for (const [debtor, creditors] of Object.entries(balances)) {
+                for (const [creditor, amount] of Object.entries(creditors)) {
+                  const reverse = balances[creditor]?.[debtor] || 0;
+                  const net = amount - reverse;
+                  if (net > 0) {
+                    if (!netOwes[debtor]) netOwes[debtor] = {};
+                    netOwes[debtor][creditor] = net;
+                  }
+                }
+              }
+
+              const allMemberMap = new Map(tripMembers.map((m) => [m.userId, m.userName]));
+              for (const [debtor, creditors] of Object.entries(netOwes)) {
+                for (const [creditor, amount] of Object.entries(creditors)) {
+                  settlements.push({
+                    from: debtor,
+                    fromName: allMemberMap.get(debtor) || debtor,
+                    to: creditor,
+                    toName: allMemberMap.get(creditor) || creditor,
+                    amount,
+                  });
+                }
+              }
+
+              if (settlements.length === 0) return null;
+
+              return (
+                <View style={[styles.settlementCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                  <View style={styles.settlementHeader}>
+                    <Ionicons name="swap-horizontal-outline" size={18} color={colors.primary} />
+                    <Text style={[styles.settlementTitle, { color: colors.text }]}>{txt.settlement}</Text>
+                  </View>
+                  {settlements.map((s, idx) => (
+                    <View key={idx} style={styles.settlementRow}>
+                      <Text style={[styles.settlementName, { color: colors.text }]}>{s.fromName}</Text>
+                      <Text style={[styles.settlementOwes, { color: colors.textSecondary }]}>{txt.owes}</Text>
+                      <Text style={[styles.settlementName, { color: colors.text }]}>{s.toName}</Text>
+                      <Text style={[styles.settlementAmount, { color: colors.error }]}>{formatVND(s.amount)}</Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })()}
+
             {canEdit && itinerary.status !== "completed" && (
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setExpenseTitle("");
                   setExpenseAmount("");
-                  setExpensePaidBy("");
+                  setExpensePaidBy(user?.fullName || "");
+                  setExpensePaidByUserId(user?.id || "");
                   setExpenseType("transport");
+                  setExpenseSplitType("none");
+                  setExpenseSplitChecked(initSplitChecked());
+                  setExpenseSplitAmounts({});
                   setExpenseModal({});
                 }}
                 style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
@@ -1397,53 +1592,151 @@ export default function ItineraryDetailScreen() {
         </View>
       </Modal>
 
-      <Modal visible={!!expenseModal} transparent animationType="fade" onRequestClose={() => setExpenseModal(null)}>
+      <Modal visible={!!expenseModal} transparent animationType="fade" onRequestClose={() => resetExpenseModal()}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{expenseModal?.editId ? txt.editExpense : txt.addExpense}</Text>
-            <TextInput
-              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-              value={expenseTitle}
-              onChangeText={setExpenseTitle}
-              placeholder="VD: Taxi sân bay"
-              placeholderTextColor={colors.textTertiary}
-            />
-            <View style={styles.typeRow}>
-              {(["transport", "shopping", "food", "sightseeing", "other"] as const).map((tp) => (
-                <Pressable
-                  key={tp}
-                  onPress={() => setExpenseType(tp)}
-                  style={[styles.typeChip, { backgroundColor: expenseType === tp ? colors.primary : colors.inputBg, borderColor: expenseType === tp ? colors.primary : colors.inputBorder }]}
-                >
-                  <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={expenseType === tp ? "#fff" : colors.textSecondary} />
-                  <Text style={[styles.typeChipText, { color: expenseType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
+          <ScrollView style={{ maxHeight: "90%" }} contentContainerStyle={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled">
+            <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>{expenseModal?.editId ? txt.editExpense : txt.addExpense}</Text>
+              <TextInput
+                style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                value={expenseTitle}
+                onChangeText={setExpenseTitle}
+                placeholder="VD: Taxi sân bay"
+                placeholderTextColor={colors.textTertiary}
+              />
+              <View style={styles.typeRow}>
+                {(["transport", "shopping", "food", "sightseeing", "other"] as const).map((tp) => (
+                  <Pressable
+                    key={tp}
+                    onPress={() => setExpenseType(tp)}
+                    style={[styles.typeChip, { backgroundColor: expenseType === tp ? colors.primary : colors.inputBg, borderColor: expenseType === tp ? colors.primary : colors.inputBorder }]}
+                  >
+                    <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={expenseType === tp ? "#fff" : colors.textSecondary} />
+                    <Text style={[styles.typeChipText, { color: expenseType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <TextInput
+                style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                value={expenseAmount}
+                onChangeText={setExpenseAmount}
+                placeholder={txt.expenseAmount + " (VNĐ)"}
+                placeholderTextColor={colors.textTertiary}
+                keyboardType="numeric"
+              />
+
+              <Text style={[styles.splitLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
+              <Pressable
+                onPress={() => setPaidByDropdown(!paidByDropdown)}
+                style={[styles.dropdownBtn, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              >
+                <Text style={[styles.dropdownBtnText, { color: expensePaidBy ? colors.text : colors.textTertiary }]}>
+                  {expensePaidBy || txt.selectPaidBy}
+                </Text>
+                <Ionicons name={paidByDropdown ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
+              </Pressable>
+              {paidByDropdown && (
+                <View style={[styles.dropdownList, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                  {tripMembers.map((m) => (
+                    <Pressable
+                      key={m.userId}
+                      onPress={() => {
+                        setExpensePaidBy(m.userName);
+                        setExpensePaidByUserId(m.userId);
+                        setPaidByDropdown(false);
+                      }}
+                      style={[styles.dropdownItem, expensePaidByUserId === m.userId && { backgroundColor: colors.primary + "15" }]}
+                    >
+                      <Text style={[styles.dropdownItemText, { color: colors.text }]}>
+                        {m.userName}{m.isOwner ? ` (${txt.tripOwnerLabel})` : ""}
+                      </Text>
+                      {expensePaidByUserId === m.userId && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+
+              <Text style={[styles.splitLabel, { color: colors.textSecondary, marginTop: 12 }]}>{txt.splitType}</Text>
+              <View style={styles.typeRow}>
+                {(["none", "equal", "custom"] as const).map((st) => (
+                  <Pressable
+                    key={st}
+                    onPress={() => {
+                      setExpenseSplitType(st);
+                      if (st !== "none" && Object.keys(expenseSplitChecked).length === 0) {
+                        setExpenseSplitChecked(initSplitChecked());
+                      }
+                    }}
+                    style={[styles.typeChip, { backgroundColor: expenseSplitType === st ? colors.primary : colors.inputBg, borderColor: expenseSplitType === st ? colors.primary : colors.inputBorder }]}
+                  >
+                    <Text style={[styles.typeChipText, { color: expenseSplitType === st ? "#fff" : colors.textSecondary }]}>
+                      {st === "none" ? txt.splitNone : st === "equal" ? txt.splitEqual : txt.splitCustom}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {expenseSplitType !== "none" && (
+                <View style={[styles.splitMemberList, { borderColor: colors.inputBorder }]}>
+                  <Text style={[styles.splitMembersTitle, { color: colors.textSecondary }]}>{txt.splitMembers}</Text>
+                  {tripMembers.map((m) => {
+                    const isChecked = expenseSplitChecked[m.userId] ?? false;
+                    const totalAmount = parseInt(expenseAmount.replace(/[^0-9]/g, ""), 10) || 0;
+                    const checkedCount = Object.values(expenseSplitChecked).filter(Boolean).length;
+                    const equalShare = checkedCount > 0 ? Math.floor(totalAmount / checkedCount) : 0;
+
+                    return (
+                      <View key={m.userId} style={styles.splitMemberRow}>
+                        <Pressable
+                          onPress={() => setExpenseSplitChecked({ ...expenseSplitChecked, [m.userId]: !isChecked })}
+                          style={[styles.checkbox, { borderColor: isChecked ? colors.success : colors.textTertiary, backgroundColor: isChecked ? colors.success : "transparent", width: 20, height: 20 }]}
+                        >
+                          {isChecked && <Ionicons name="checkmark" size={12} color="#fff" />}
+                        </Pressable>
+                        <Text style={[styles.splitMemberName, { color: colors.text }]} numberOfLines={1}>
+                          {m.userName}{m.isOwner ? ` (${txt.tripOwnerLabel})` : ""}
+                        </Text>
+                        {expenseSplitType === "equal" && isChecked && (
+                          <Text style={[styles.splitMemberAmount, { color: colors.accent }]}>{formatVND(equalShare)}</Text>
+                        )}
+                        {expenseSplitType === "custom" && isChecked && (
+                          <TextInput
+                            style={[styles.splitAmountInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                            value={expenseSplitAmounts[m.userId] || ""}
+                            onChangeText={(v) => setExpenseSplitAmounts({ ...expenseSplitAmounts, [m.userId]: v })}
+                            placeholder="0"
+                            placeholderTextColor={colors.textTertiary}
+                            keyboardType="numeric"
+                          />
+                        )}
+                      </View>
+                    );
+                  })}
+                  {expenseSplitType === "custom" && (() => {
+                    const totalAmount = parseInt(expenseAmount.replace(/[^0-9]/g, ""), 10) || 0;
+                    const splitSum = Object.entries(expenseSplitAmounts)
+                      .filter(([uid]) => expenseSplitChecked[uid])
+                      .reduce((s, [, v]) => s + (parseInt(v.replace(/[^0-9]/g, ""), 10) || 0), 0);
+                    const diff = totalAmount - splitSum;
+                    return diff !== 0 ? (
+                      <Text style={[styles.splitWarning, { color: colors.error }]}>
+                        {txt.splitTotalMismatch} ({diff > 0 ? "+" : ""}{formatVND(diff)})
+                      </Text>
+                    ) : null;
+                  })()}
+                </View>
+              )}
+
+              <View style={styles.modalActions}>
+                <Pressable onPress={resetExpenseModal} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
                 </Pressable>
-              ))}
+                <Pressable onPress={addOrEditExpense} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                  <Text style={[styles.modalBtnText, { color: "#fff" }]}>{expenseModal?.editId ? t().common.save : t().common.add}</Text>
+                </Pressable>
+              </View>
             </View>
-            <TextInput
-              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-              value={expenseAmount}
-              onChangeText={setExpenseAmount}
-              placeholder={txt.expenseAmount + " (VNĐ)"}
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="numeric"
-            />
-            <TextInput
-              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-              value={expensePaidBy}
-              onChangeText={setExpensePaidBy}
-              placeholder={txt.paidBy}
-              placeholderTextColor={colors.textTertiary}
-            />
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setExpenseModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
-                <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
-              </Pressable>
-              <Pressable onPress={addOrEditExpense} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{expenseModal?.editId ? t().common.save : t().common.add}</Text>
-              </Pressable>
-            </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -1925,6 +2218,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   typeChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  splitLabel: { fontSize: 13, fontFamily: "Inter_500Medium", marginBottom: 6 },
+  dropdownBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+  dropdownBtnText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  dropdownList: { borderWidth: 1, borderRadius: 10, marginBottom: 8, overflow: "hidden" },
+  dropdownItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 10 },
+  dropdownItemText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  splitMemberList: { borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 8 },
+  splitMembersTitle: { fontSize: 12, fontFamily: "Inter_500Medium", marginBottom: 8 },
+  splitMemberRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  splitMemberName: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+  splitMemberAmount: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  splitAmountInput: { width: 90, borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "right" },
+  splitWarning: { fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 4 },
+  splitDetails: { paddingLeft: 28, paddingTop: 4, gap: 2 },
+  splitDetailRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  splitDetailName: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  splitDetailAmount: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  settlementCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 8 },
+  settlementHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  settlementTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  settlementRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" },
+  settlementName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  settlementOwes: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  settlementAmount: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginLeft: "auto" },
 });
 
 const travelStyles = StyleSheet.create({

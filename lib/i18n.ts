@@ -244,6 +244,18 @@ const vi = {
     cannotUncheckHasReview: "Không thể bỏ tick vì đã có đánh giá. Hãy xóa đánh giá trước.",
     resetConfirm: "Đặt lại chuyến đi? Tick hoàn thành, chi phí thực tế và chi phí phát sinh sẽ bị xóa. Danh sách địa điểm, thời gian và ghi chú sẽ được giữ lại.",
     activityCosts: "Chi phí hoạt động",
+    splitType: "Kiểu chia",
+    splitNone: "Không chia",
+    splitEqual: "Chia đều",
+    splitCustom: "Chia cá nhân",
+    splitMembers: "Thành viên tham gia",
+    splitAmount: "Số tiền",
+    splitTotalMismatch: "Tổng tiền chia phải bằng tổng chi phí",
+    perPerson: "mỗi người",
+    settlement: "Quyết toán",
+    owes: "nợ",
+    selectPaidBy: "Chọn người trả",
+    tripOwnerLabel: "Người tạo",
   },
 
   profile: {

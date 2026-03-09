@@ -85,12 +85,21 @@ export interface ItineraryActivity {
   activityType: "sightseeing" | "food" | "transport" | "shopping" | "other";
 }
 
+export interface ExpenseSplit {
+  userId: string;
+  userName: string;
+  amount: number;
+}
+
 export interface Expense {
   id: string;
   title: string;
   amount: number;
   type: "transport" | "shopping" | "food" | "sightseeing" | "other";
   paidBy?: string;
+  paidByUserId?: string;
+  splitType?: "none" | "equal" | "custom";
+  splits?: ExpenseSplit[];
   notes?: string[];
   dayIndex?: number;
   createdAt: string;

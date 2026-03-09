@@ -60,6 +60,7 @@ server/
 - **Travel Connectors**: Between activities in itinerary detail, shows estimated travel time/distance with transport mode (car, motorbike, walking). Default: car for >1km, walking for ≤1km. Tappable to expand and see all transport mode options
 - **Itinerary Detail**: Budget tracking card (total/spent/remaining with progress bar), status-based permissions (draft/active/completed), activity completion checkboxes (active only), review after completion, edit actual cost + paidBy, add notes, reorder activities, add custom expenses, Google Maps & Grab deep links, share as formatted text, edit trip info modal
 - **Status Permissions**: Draft=full edit (no checkboxes), Active=checkboxes + notes + review completed activities (uncheck blocked if review exists), Completed=read-only except review edit/delete, Reset (completed→draft)=clear completions/actualCost/expenses/spentAmount
+- **Expense Splitting**: Expense modal with paid-by dropdown (trip members), split type (none/equal/custom), member checklist with auto-equal-divide or custom per-person amounts, settlement calculation showing who owes whom
 - **Budget Tracking**: Real-time budget progress, warnings when exceeding budget, cost per activity
 - **Reviews**: Rate & review destinations (star rating), sample reviews from Google/TripAdvisor displayed with badges, activity-linked reviews via review modal (star rating + comment)
 - **Notifications**: Trip created/started/completed, budget warnings, activity completion — bell icon with unread badge, mark read/clear all
@@ -71,6 +72,8 @@ server/
 - **ItineraryActivity**: estimatedCost, actualCost, paidBy, note, isCompleted, activityType (sightseeing/food/transport/shopping/other), address, lat/lng
 - **Itinerary**: totalBudget (numeric VND), spentAmount, startingPoint, budget (display string)
 - **Notification**: userId, title, message, type (info/warning/success), isRead
+- **Expense**: id, title, amount, type, paidBy, paidByUserId, splitType (none/equal/custom), splits (ExpenseSplit[]), notes, createdAt
+- **ExpenseSplit**: userId, userName, amount
 - **Destination**: estimatedCostPerPerson, sampleReviews (with source badge), nearbyFood (with coordinates/cost)
 - Budget stored as `totalBudget: number` (VND integer), display via `formatVND()` from `lib/storage.ts`
 
