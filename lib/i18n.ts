@@ -330,6 +330,9 @@ const vi = {
     invalidLatitude: "Vĩ độ phải từ -90 đến 90",
     invalidLongitude: "Kinh độ phải từ -180 đến 180",
     coordBothRequired: "Vui lòng nhập cả vĩ độ và kinh độ",
+    searchUserPlaceholder: "Tìm theo tên, email...",
+    searchDestPlaceholder: "Tìm theo tên, loại địa điểm...",
+    searchReviewPlaceholder: "Tìm theo địa điểm, người dùng...",
   },
 
   categories: {

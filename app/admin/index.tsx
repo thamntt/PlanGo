@@ -84,6 +84,15 @@ export default function AdminDashboard() {
   const [destDetailId, setDestDetailId] = useState<string | null>(null);
   const [reviewDetailId, setReviewDetailId] = useState<string | null>(null);
 
+  const [userSearch, setUserSearch] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState<"all" | "active" | "locked">("all");
+
+  const [destSearch, setDestSearch] = useState("");
+  const [destCategoryFilter, setDestCategoryFilter] = useState<string>("all");
+
+  const [reviewSearch, setReviewSearch] = useState("");
+  const [reviewStarFilter, setReviewStarFilter] = useState<number>(0);
+
   const categories = ["City", "Beach", "Mountain", "Heritage", "Nature", "Island"];
 
   const loadUsers = useCallback(async () => {
@@ -97,6 +106,49 @@ export default function AdminDashboard() {
   }
 
   const txt = t().admin;
+
+  const filteredUsers = useMemo(() => {
+    let result = [...users];
+    if (userSearch.trim()) {
+      const q = userSearch.toLowerCase().trim();
+      result = result.filter((u) => u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+    }
+    if (userStatusFilter === "active") result = result.filter((u) => !u.isLocked);
+    else if (userStatusFilter === "locked") result = result.filter((u) => u.isLocked);
+    result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return result;
+  }, [users, userSearch, userStatusFilter]);
+
+  const uniqueCategories = useMemo(() => {
+    const cats = new Set<string>();
+    destinations.forEach((d) => cats.add(d.category));
+    return Array.from(cats).sort();
+  }, [destinations]);
+
+  const filteredDestinations = useMemo(() => {
+    let result = [...destinations];
+    if (destSearch.trim()) {
+      const q = destSearch.toLowerCase().trim();
+      result = result.filter((d) => d.name.toLowerCase().includes(q) || d.category.toLowerCase().includes(q) || (t().categories[d.category] || "").toLowerCase().includes(q));
+    }
+    if (destCategoryFilter !== "all") result = result.filter((d) => d.category === destCategoryFilter);
+    result.sort((a, b) => b.rating - a.rating);
+    return result;
+  }, [destinations, destSearch, destCategoryFilter]);
+
+  const filteredReviews = useMemo(() => {
+    let result = [...reviews];
+    if (reviewSearch.trim()) {
+      const q = reviewSearch.toLowerCase().trim();
+      result = result.filter((r) => {
+        const dest = destinations.find((d) => d.id === r.destinationId);
+        return r.userName.toLowerCase().includes(q) || (dest?.name || "").toLowerCase().includes(q);
+      });
+    }
+    if (reviewStarFilter > 0) result = result.filter((r) => r.rating === reviewStarFilter);
+    result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return result;
+  }, [reviews, reviewSearch, reviewStarFilter, destinations]);
 
   const topDestinations = useMemo(() => {
     const destCount: Record<string, number> = {};
@@ -651,7 +703,38 @@ export default function AdminDashboard() {
 
         {!userDetailId && !destDetailId && !reviewDetailId && activeTab === "users" && (
           <>
-            {users.map((u) => (
+            <View style={[s.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+              <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
+              <TextInput
+                style={[s.searchInput, { color: colors.text }]}
+                placeholder={txt.searchUserPlaceholder}
+                placeholderTextColor={colors.textTertiary}
+                value={userSearch}
+                onChangeText={setUserSearch}
+              />
+              {userSearch.length > 0 && (
+                <Pressable onPress={() => setUserSearch("")} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                </Pressable>
+              )}
+            </View>
+            <View style={s.filterRow}>
+              {(["all", "active", "locked"] as const).map((status) => (
+                <Pressable
+                  key={status}
+                  onPress={() => setUserStatusFilter(status)}
+                  style={[s.filterChip, { backgroundColor: userStatusFilter === status ? colors.primary : colors.inputBg, borderColor: userStatusFilter === status ? colors.primary : colors.inputBorder }]}
+                >
+                  <Text style={[s.filterChipText, { color: userStatusFilter === status ? "#fff" : colors.textSecondary }]}>
+                    {status === "all" ? t().common.all : status === "active" ? txt.active : txt.locked}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {filteredUsers.length === 0 ? (
+              <Text style={[s.noData, { color: colors.textTertiary }]}>{t().common.noData}</Text>
+            ) : null}
+            {filteredUsers.map((u) => (
               <Pressable
                 key={u.id}
                 onPress={() => { setUserDetailId(u.id); setUserDetailTab("info"); }}
@@ -693,7 +776,42 @@ export default function AdminDashboard() {
               <Ionicons name="add" size={20} color="#fff" />
               <Text style={s.addBtnText}>{txt.addDestination}</Text>
             </Pressable>
-            {destinations.map((d) => (
+            <View style={[s.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+              <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
+              <TextInput
+                style={[s.searchInput, { color: colors.text }]}
+                placeholder={txt.searchDestPlaceholder}
+                placeholderTextColor={colors.textTertiary}
+                value={destSearch}
+                onChangeText={setDestSearch}
+              />
+              {destSearch.length > 0 && (
+                <Pressable onPress={() => setDestSearch("")} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                </Pressable>
+              )}
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+              <Pressable
+                onPress={() => setDestCategoryFilter("all")}
+                style={[s.filterChip, { backgroundColor: destCategoryFilter === "all" ? colors.primary : colors.inputBg, borderColor: destCategoryFilter === "all" ? colors.primary : colors.inputBorder }]}
+              >
+                <Text style={[s.filterChipText, { color: destCategoryFilter === "all" ? "#fff" : colors.textSecondary }]}>{t().common.all}</Text>
+              </Pressable>
+              {uniqueCategories.map((cat) => (
+                <Pressable
+                  key={cat}
+                  onPress={() => setDestCategoryFilter(cat)}
+                  style={[s.filterChip, { backgroundColor: destCategoryFilter === cat ? colors.primary : colors.inputBg, borderColor: destCategoryFilter === cat ? colors.primary : colors.inputBorder }]}
+                >
+                  <Text style={[s.filterChipText, { color: destCategoryFilter === cat ? "#fff" : colors.textSecondary }]}>{t().categories[cat] || cat}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {filteredDestinations.length === 0 ? (
+              <Text style={[s.noData, { color: colors.textTertiary }]}>{t().common.noData}</Text>
+            ) : null}
+            {filteredDestinations.map((d) => (
               <Pressable
                 key={d.id}
                 onPress={() => setDestDetailId(d.id)}
@@ -724,13 +842,46 @@ export default function AdminDashboard() {
 
         {!userDetailId && !destDetailId && !reviewDetailId && activeTab === "reviews" && (
           <>
-            {reviews.length === 0 ? (
+            <View style={[s.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+              <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
+              <TextInput
+                style={[s.searchInput, { color: colors.text }]}
+                placeholder={txt.searchReviewPlaceholder}
+                placeholderTextColor={colors.textTertiary}
+                value={reviewSearch}
+                onChangeText={setReviewSearch}
+              />
+              {reviewSearch.length > 0 && (
+                <Pressable onPress={() => setReviewSearch("")} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                </Pressable>
+              )}
+            </View>
+            <View style={s.filterRow}>
+              <Pressable
+                onPress={() => setReviewStarFilter(0)}
+                style={[s.filterChip, { backgroundColor: reviewStarFilter === 0 ? colors.primary : colors.inputBg, borderColor: reviewStarFilter === 0 ? colors.primary : colors.inputBorder }]}
+              >
+                <Text style={[s.filterChipText, { color: reviewStarFilter === 0 ? "#fff" : colors.textSecondary }]}>{t().common.all}</Text>
+              </Pressable>
+              {[5, 4, 3, 2, 1].map((star) => (
+                <Pressable
+                  key={star}
+                  onPress={() => setReviewStarFilter(reviewStarFilter === star ? 0 : star)}
+                  style={[s.filterChip, { backgroundColor: reviewStarFilter === star ? colors.primary : colors.inputBg, borderColor: reviewStarFilter === star ? colors.primary : colors.inputBorder }]}
+                >
+                  <Ionicons name="star" size={12} color={reviewStarFilter === star ? "#fff" : "#F59E0B"} />
+                  <Text style={[s.filterChipText, { color: reviewStarFilter === star ? "#fff" : colors.textSecondary }]}>{star}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {filteredReviews.length === 0 ? (
               <View style={s.emptyState}>
                 <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} />
                 <Text style={[s.noData, { color: colors.textTertiary }]}>{txt.noReviews}</Text>
               </View>
             ) : (
-              reviews.map((r) => {
+              filteredReviews.map((r) => {
                 const dest = destinations.find((d) => d.id === r.destinationId);
                 return (
                   <Pressable
@@ -1004,6 +1155,27 @@ const s = StyleSheet.create({
     fontFamily: "Inter_400Regular",
   },
   fieldError: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 4, marginLeft: 4 },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  searchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", padding: 0 },
+  filterRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   categoryLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   coordRow: { flexDirection: "row", gap: 10 },
   categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
