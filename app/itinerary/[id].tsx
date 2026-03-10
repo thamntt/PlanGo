@@ -968,23 +968,34 @@ export default function ItineraryDetailScreen() {
             style={[styles.companionBar, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
             onPress={() => setCompanionModal(true)}
           >
-            <Ionicons name="people-outline" size={18} color={colors.primary} />
-            <Text style={[styles.companionBarText, { color: colors.text }]}>
-              {txt.companions}: {companions.length}
-            </Text>
-            <View style={styles.companionAvatars}>
-              {companions.slice(0, 4).map((c, i) => (
-                <View key={c.userId} style={[styles.companionAvatar, { backgroundColor: colors.primary, marginLeft: i > 0 ? -8 : 0 }]}>
-                  <Text style={styles.companionAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
-                </View>
-              ))}
-              {companions.length > 4 && (
-                <View style={[styles.companionAvatar, { backgroundColor: colors.textSecondary, marginLeft: -8 }]}>
-                  <Text style={styles.companionAvatarText}>+{companions.length - 4}</Text>
-                </View>
-              )}
+            <View style={styles.companionBarLeft}>
+              <View style={styles.companionAvatars}>
+                {companions.slice(0, 5).map((c, i) => {
+                  const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+                  const bg = avatarColors[i % avatarColors.length];
+                  return (
+                    <View key={c.userId} style={[styles.companionAvatar, { backgroundColor: bg, marginLeft: i > 0 ? -10 : 0, zIndex: 5 - i }]}>
+                      <Text style={styles.companionAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
+                    </View>
+                  );
+                })}
+                {companions.length > 5 && (
+                  <View style={[styles.companionAvatar, { backgroundColor: colors.textSecondary, marginLeft: -10, zIndex: 0 }]}>
+                    <Text style={styles.companionAvatarText}>+{companions.length - 5}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.companionBarInfo}>
+                <Text style={[styles.companionBarTitle, { color: colors.text }]}>{txt.companions}</Text>
+                <Text style={[styles.companionBarCount, { color: colors.textSecondary }]}>
+                  {companions.length} {txt.companions.toLowerCase()}
+                </Text>
+              </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+            <View style={[styles.companionBarAction, { backgroundColor: colors.primary + "15" }]}>
+              <Ionicons name="people-outline" size={16} color={colors.primary} />
+              <Text style={[styles.companionBarActionText, { color: colors.primary }]}>{txt.manageShort}</Text>
+            </View>
           </Pressable>
         )}
 
@@ -1795,92 +1806,149 @@ export default function ItineraryDetailScreen() {
         </View>
       </Modal>
 
-      <Modal visible={shareModal} transparent animationType="fade" onRequestClose={() => setShareModal(false)}>
-        <View style={styles.modalOverlay}>
+      <Modal visible={shareModal} transparent animationType="slide" onRequestClose={() => setShareModal(false)}>
+        <View style={invStyles.overlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShareModal(false)} />
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.inviteCompanion}</Text>
+          <View style={[invStyles.sheet, { backgroundColor: colors.card }]}>
+            <View style={invStyles.handle} />
 
-            <View style={styles.permToggle}>
-              <Pressable
-                style={[styles.permBtn, sharePermission === "editor" && { backgroundColor: colors.primary }]}
-                onPress={() => setSharePermission("editor")}
-              >
-                <Text style={[styles.permBtnText, { color: sharePermission === "editor" ? "#fff" : colors.text }]}>
-                  {txt.canEdit}
+            <View style={invStyles.headerRow}>
+              <View style={[invStyles.headerIcon, { backgroundColor: colors.primary + "15" }]}>
+                <Ionicons name="person-add" size={22} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[invStyles.headerTitle, { color: colors.text }]}>{txt.inviteCompanion}</Text>
+                <Text style={[invStyles.headerSub, { color: colors.textSecondary }]}>
+                  {txt.inviteSubtitle}
                 </Text>
-              </Pressable>
-              <Pressable
-                style={[styles.permBtn, sharePermission === "viewer" && { backgroundColor: colors.primary }]}
-                onPress={() => setSharePermission("viewer")}
-              >
-                <Text style={[styles.permBtnText, { color: sharePermission === "viewer" ? "#fff" : colors.text }]}>
-                  {txt.viewOnly}
-                </Text>
+              </View>
+              <Pressable onPress={() => setShareModal(false)} hitSlop={10} style={[invStyles.closeBtn, { backgroundColor: colors.inputBg }]}>
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
               </Pressable>
             </View>
 
+            <View style={invStyles.section}>
+              <Text style={[invStyles.sectionLabel, { color: colors.textSecondary }]}>{txt.permission}</Text>
+              <View style={[invStyles.permToggle, { backgroundColor: colors.inputBg }]}>
+                <Pressable
+                  style={[invStyles.permBtn, sharePermission === "editor" && [invStyles.permBtnActive, { backgroundColor: colors.primary }]]}
+                  onPress={() => setSharePermission("editor")}
+                >
+                  <Ionicons name="create-outline" size={16} color={sharePermission === "editor" ? "#fff" : colors.textSecondary} />
+                  <Text style={[invStyles.permBtnText, { color: sharePermission === "editor" ? "#fff" : colors.text }]}>
+                    {txt.canEdit}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[invStyles.permBtn, sharePermission === "viewer" && [invStyles.permBtnActive, { backgroundColor: colors.primary }]]}
+                  onPress={() => setSharePermission("viewer")}
+                >
+                  <Ionicons name="eye-outline" size={16} color={sharePermission === "viewer" ? "#fff" : colors.textSecondary} />
+                  <Text style={[invStyles.permBtnText, { color: sharePermission === "viewer" ? "#fff" : colors.text }]}>
+                    {txt.viewOnly}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
             <Pressable
-              style={[styles.shareLinkBtn, { backgroundColor: colors.primary }]}
+              style={[invStyles.copyLinkBtn, { backgroundColor: colors.primary }]}
               onPress={handleGenerateLink}
             >
-              <Ionicons name="link-outline" size={20} color="#fff" />
-              <Text style={styles.shareLinkBtnText}>{txt.copyLink}</Text>
+              <View style={invStyles.copyLinkInner}>
+                <View style={invStyles.copyLinkIconWrap}>
+                  <Ionicons name="link" size={20} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={invStyles.copyLinkTitle}>{txt.copyLink}</Text>
+                  <Text style={invStyles.copyLinkSub}>{txt.copyLinkHint}</Text>
+                </View>
+                <Ionicons name="copy-outline" size={20} color="rgba(255,255,255,0.7)" />
+              </View>
             </Pressable>
 
             {companions.length > 0 && (
               <Pressable
-                style={[styles.manageCompBtn, { borderColor: colors.cardBorder }]}
+                style={[invStyles.manageBtn, { backgroundColor: colors.inputBg }]}
                 onPress={() => { setShareModal(false); setCompanionModal(true); }}
               >
-                <Ionicons name="people-outline" size={18} color={colors.primary} />
-                <Text style={[styles.manageCompBtnText, { color: colors.text }]}>
-                  {txt.manageCompanions} ({companions.length})
-                </Text>
+                <View style={invStyles.manageBtnLeft}>
+                  <View style={invStyles.manageBtnAvatars}>
+                    {companions.slice(0, 3).map((c, i) => {
+                      const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981"];
+                      return (
+                        <View key={c.userId} style={[invStyles.manageBtnAvatar, { backgroundColor: avatarColors[i], marginLeft: i > 0 ? -8 : 0, zIndex: 3 - i }]}>
+                          <Text style={invStyles.manageBtnAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  <Text style={[invStyles.manageBtnText, { color: colors.text }]}>
+                    {companions.length} {txt.companions.toLowerCase()}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
               </Pressable>
             )}
-
-            <Pressable onPress={() => setShareModal(false)} style={styles.cancelBtn}>
-              <Text style={[styles.cancelBtnText, { color: colors.textSecondary }]}>{t().common.cancel}</Text>
-            </Pressable>
           </View>
         </View>
       </Modal>
 
-      <Modal visible={companionModal} transparent animationType="fade" onRequestClose={() => setCompanionModal(false)}>
-        <View style={styles.modalOverlay}>
+      <Modal visible={companionModal} transparent animationType="slide" onRequestClose={() => setCompanionModal(false)}>
+        <View style={invStyles.overlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setCompanionModal(false)} />
-          <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: "70%" }]}>
-            <View style={styles.compModalHeader}>
-              <Pressable onPress={() => setCompanionModal(false)}>
+          <View style={[invStyles.sheet, { backgroundColor: colors.card, maxHeight: "75%" }]}>
+            <View style={invStyles.handle} />
+
+            <View style={invStyles.headerRow}>
+              <Pressable onPress={() => { setCompanionModal(false); if (isOwner) setShareModal(true); }} hitSlop={10}>
                 <Ionicons name="arrow-back" size={22} color={colors.text} />
               </Pressable>
-              <Text style={[styles.modalTitle, { color: colors.text, flex: 1, marginLeft: 12 }]}>{txt.manageCompanions}</Text>
+              <Text style={[invStyles.headerTitle, { color: colors.text, flex: 1, marginLeft: 12 }]}>{txt.manageCompanions}</Text>
+              <Pressable onPress={() => setCompanionModal(false)} hitSlop={10} style={[invStyles.closeBtn, { backgroundColor: colors.inputBg }]}>
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
             </View>
 
-            <Text style={[styles.compCount, { color: colors.textSecondary }]}>
-              {companions.length} {txt.companions.toLowerCase()}
-            </Text>
+            <View style={[invStyles.compSummary, { backgroundColor: colors.inputBg }]}>
+              <View style={[invStyles.compSummaryIcon, { backgroundColor: colors.primary + "15" }]}>
+                <Ionicons name="people" size={18} color={colors.primary} />
+              </View>
+              <Text style={[invStyles.compSummaryText, { color: colors.text }]}>
+                {txt.companionsJoined(companions.length)}
+              </Text>
+            </View>
 
-            <ScrollView style={styles.compList} showsVerticalScrollIndicator={false}>
-              {companions.map((c) => (
-                <View key={c.userId} style={[styles.compRow, { borderColor: colors.cardBorder }]}>
-                  <View style={[styles.compAvatar, { backgroundColor: colors.primary }]}>
-                    <Text style={styles.compAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 8 }}>
+              {companions.map((c, i) => {
+                const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+                const bg = avatarColors[i % avatarColors.length];
+                return (
+                  <View key={c.userId} style={[invStyles.compRow, i < companions.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.cardBorder }]}>
+                    <View style={[invStyles.compAvatar, { backgroundColor: bg }]}>
+                      <Text style={invStyles.compAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={[invStyles.compName, { color: colors.text }]}>{c.userName}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Ionicons name={c.role === "editor" ? "create-outline" : "eye-outline"} size={12} color={colors.textSecondary} />
+                        <Text style={[invStyles.compRole, { color: colors.textSecondary }]}>
+                          {c.role === "editor" ? txt.editor : txt.viewer}
+                        </Text>
+                      </View>
+                    </View>
+                    {isOwner && (
+                      <Pressable
+                        onPress={() => handleRemoveCompanion(c)}
+                        hitSlop={8}
+                        style={[invStyles.removeBtn, { backgroundColor: colors.error + "12" }]}
+                      >
+                        <Ionicons name="person-remove-outline" size={16} color={colors.error} />
+                      </Pressable>
+                    )}
                   </View>
-                  <View style={styles.compInfo}>
-                    <Text style={[styles.compName, { color: colors.text }]}>{c.userName}</Text>
-                    <Text style={[styles.compRole, { color: colors.textSecondary }]}>
-                      {c.role === "editor" ? txt.editor : txt.viewer}
-                    </Text>
-                  </View>
-                  {isOwner && (
-                    <Pressable onPress={() => handleRemoveCompanion(c)} hitSlop={8}>
-                      <Ionicons name="close" size={22} color={colors.error} />
-                    </Pressable>
-                  )}
-                </View>
-              ))}
+                );
+              })}
             </ScrollView>
           </View>
         </View>
@@ -2318,80 +2386,36 @@ const travelStyles = StyleSheet.create({
   companionBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
     borderRadius: 16,
     borderWidth: 1,
     padding: 14,
+    gap: 12,
   },
-  companionBarText: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 },
-  companionAvatars: { flexDirection: "row" },
+  companionBarLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  companionAvatars: { flexDirection: "row", alignItems: "center" },
   companionAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
+    borderWidth: 2.5,
     borderColor: "#fff",
   },
-  companionAvatarText: { color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" },
-  permToggle: {
-    flexDirection: "row",
-    gap: 0,
-    borderRadius: 12,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  permBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  permBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  shareLinkBtn: {
+  companionAvatarText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
+  companionBarInfo: { flex: 1, gap: 1 },
+  companionBarTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  companionBarCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  companionBarAction: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 14,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
-  shareLinkBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  manageCompBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  manageCompBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  cancelBtn: { alignItems: "center", paddingVertical: 10 },
-  cancelBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
-  compModalHeader: { flexDirection: "row", alignItems: "center" },
-  compCount: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 8 },
-  compList: { gap: 0 },
-  compRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  compAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  compAvatarText: { color: "#fff", fontSize: 16, fontFamily: "Inter_700Bold" },
-  compInfo: { flex: 1, gap: 2 },
-  compName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  compRole: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  companionBarActionText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 });
 
 const actDetailStyles = StyleSheet.create({
@@ -2421,4 +2445,146 @@ const actDetailStyles = StyleSheet.create({
   deepLinkRow: { flexDirection: "row", gap: 10 },
   deepLinkBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 12 },
   deepLinkText: { color: "#fff", fontSize: 13, fontFamily: "Inter_600SemiBold" },
+});
+
+const invStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  sheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+    paddingTop: 8,
+    gap: 16,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#D1D5DB",
+    alignSelf: "center",
+    marginBottom: 4,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  headerSub: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 2 },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  section: { gap: 8 },
+  sectionLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.5 },
+  permToggle: {
+    flexDirection: "row",
+    borderRadius: 14,
+    padding: 4,
+    gap: 4,
+  },
+  permBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 11,
+  },
+  permBtnActive: {
+    elevation: 3,
+  },
+  permBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  copyLinkBtn: {
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  copyLinkInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  copyLinkIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  copyLinkTitle: { color: "#fff", fontSize: 15, fontFamily: "Inter_700Bold" },
+  copyLinkSub: { color: "rgba(255,255,255,0.75)", fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1 },
+  manageBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+  },
+  manageBtnLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  manageBtnAvatars: { flexDirection: "row" },
+  manageBtnAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  manageBtnAvatarText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
+  manageBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  compSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+  },
+  compSummaryIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compSummaryText: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  compRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+  },
+  compAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compAvatarText: { color: "#fff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  compName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  compRole: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  removeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
