@@ -62,7 +62,7 @@ server/
 - **Status Permissions**: Draft=full edit (no checkboxes), Active=checkboxes + notes + review completed activities (uncheck blocked if review exists), Completed=read-only except review edit/delete, Reset (completed→draft)=clear completions/actualCost/expenses/spentAmount
 - **Expense Splitting**: Expense modal with paid-by dropdown (trip members), split type (none/equal/custom), member checklist with auto-equal-divide or custom per-person amounts, settlement calculation showing who owes whom
 - **Budget Tracking**: Real-time budget progress, warnings when exceeding budget, cost per activity
-- **Reviews**: Rate & review destinations (star rating), sample reviews from Google/TripAdvisor displayed with badges, activity-linked reviews via review modal (star rating + comment)
+- **Reviews**: Rate & review destinations (star rating), sample reviews from Google/TripAdvisor displayed with badges, activity-linked reviews via review modal (star rating + comment), user review detail section in activity detail modal (all destination reviews with avatar, date, rating label, edit/delete for own reviews)
 - **Notifications**: Trip created/started/completed, budget warnings, activity completion — bell icon with unread badge, mark read/clear all
 - **Deep Links**: Google Maps directions, Grab booking for destinations and itinerary activities
 - **GPS**: Location tracking with expo-location

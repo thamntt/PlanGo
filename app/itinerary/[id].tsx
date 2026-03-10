@@ -513,7 +513,7 @@ export default function ItineraryDetailScreen() {
 
   const submitActivityReview = async () => {
     if (!reviewModal || !reviewComment.trim()) return;
-    const taggedComment = `${reviewComment.trim()} [activity:${reviewModal.activityId}]`;
+    const taggedComment = reviewModal.activityId ? `${reviewComment.trim()} [activity:${reviewModal.activityId}]` : reviewComment.trim();
     if (reviewModal.editReviewId) {
       await updateReview(reviewModal.editReviewId, { rating: reviewRating, comment: taggedComment });
     } else if (reviewModal.destinationId) {
@@ -2041,6 +2041,120 @@ export default function ItineraryDetailScreen() {
                       </>
                     )}
 
+                    {(() => {
+                      if (!linkedDest) return null;
+                      const destUserReviews = reviews
+                        .filter((r) => r.destinationId === linkedDest.id)
+                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                      const formatReviewDate = (dateStr: string) => {
+                        const d = new Date(dateStr);
+                        return `${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getFullYear()}`;
+                      };
+
+                      const cleanComment = (comment: string) => comment.replace(/\[activity:[^\]]+\]/g, "").trim();
+
+                      return (
+                        <>
+                          <View style={userRevStyles.sectionHeader}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>{txt.userReviewsForDest}</Text>
+                            </View>
+                            {destUserReviews.length > 0 && (
+                              <View style={[userRevStyles.countBadge, { backgroundColor: colors.primary + "15" }]}>
+                                <Text style={[userRevStyles.countText, { color: colors.primary }]}>{destUserReviews.length}</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          {destUserReviews.length === 0 ? (
+                            <View style={[userRevStyles.emptyState, { backgroundColor: colors.inputBg }]}>
+                              <Ionicons name="chatbubbles-outline" size={28} color={colors.textTertiary} />
+                              <Text style={[userRevStyles.emptyTitle, { color: colors.textSecondary }]}>{txt.noUserReviewsYet}</Text>
+                              <Text style={[userRevStyles.emptyHint, { color: colors.textTertiary }]}>{txt.beFirstToReview}</Text>
+                            </View>
+                          ) : (
+                            destUserReviews.map((review) => {
+                              const reviewColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+                              let hash = 0;
+                              for (let ci = 0; ci < review.userName.length; ci++) hash = ((hash << 5) - hash + review.userName.charCodeAt(ci)) | 0;
+                              const avatarBg = reviewColors[Math.abs(hash) % reviewColors.length];
+                              const commentText = cleanComment(review.comment);
+                              const isCurrentUser = review.userId === user?.id;
+                              return (
+                                <View key={review.id} style={[userRevStyles.card, { backgroundColor: colors.inputBg, borderColor: isCurrentUser ? colors.primary + "30" : "transparent" }]}>
+                                  <View style={userRevStyles.cardHeader}>
+                                    <View style={[userRevStyles.avatar, { backgroundColor: avatarBg }]}>
+                                      <Text style={userRevStyles.avatarText}>{review.userName.charAt(0).toUpperCase()}</Text>
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <View style={userRevStyles.nameRow}>
+                                        <Text style={[userRevStyles.name, { color: colors.text }]}>{review.userName}</Text>
+                                        {isCurrentUser && (
+                                          <View style={[userRevStyles.youBadge, { backgroundColor: colors.primary + "15" }]}>
+                                            <Text style={[userRevStyles.youBadgeText, { color: colors.primary }]}>{txt.you}</Text>
+                                          </View>
+                                        )}
+                                      </View>
+                                      <Text style={[userRevStyles.date, { color: colors.textTertiary }]}>{formatReviewDate(review.createdAt)}</Text>
+                                    </View>
+                                  </View>
+
+                                  <View style={userRevStyles.ratingRow}>
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={14} color="#F59E0B" />
+                                    ))}
+                                    <Text style={[userRevStyles.ratingLabel, { color: colors.textSecondary }]}>
+                                      {review.rating === 5 ? txt.ratingExcellent : review.rating === 4 ? txt.ratingVeryGood : review.rating === 3 ? txt.ratingGood : review.rating === 2 ? txt.ratingFair : txt.ratingPoor}
+                                    </Text>
+                                  </View>
+
+                                  {commentText.length > 0 && (
+                                    <Text style={[userRevStyles.comment, { color: colors.textSecondary }]}>{commentText}</Text>
+                                  )}
+
+                                  {isCurrentUser && (
+                                    <View style={userRevStyles.actionRow}>
+                                      <Pressable
+                                        onPress={() => {
+                                          setActivityDetailModal(null);
+                                          setReviewRating(review.rating);
+                                          setReviewComment(cleanComment(review.comment));
+                                          const activityTag = review.comment.match(/\[activity:([^\]]+)\]/);
+                                          setReviewModal({ activityId: activityTag ? activityTag[1] : "", dayIdx: 0, destinationId: review.destinationId, editReviewId: review.id });
+                                        }}
+                                        style={[userRevStyles.actionBtn, { backgroundColor: colors.primary + "10" }]}
+                                      >
+                                        <Ionicons name="create-outline" size={14} color={colors.primary} />
+                                        <Text style={[userRevStyles.actionBtnText, { color: colors.primary }]}>{txt.editReview}</Text>
+                                      </Pressable>
+                                      <Pressable
+                                        onPress={() => {
+                                          const doDelete = () => deleteReview(review.id);
+                                          if (typeof window !== "undefined" && window.confirm) {
+                                            if (window.confirm(txt.deleteReviewConfirm)) doDelete();
+                                          } else {
+                                            Alert.alert(txt.deleteReview, txt.deleteReviewConfirm, [
+                                              { text: t().common.cancel, style: "cancel" },
+                                              { text: txt.deleteReview, style: "destructive", onPress: doDelete },
+                                            ]);
+                                          }
+                                        }}
+                                        style={[userRevStyles.actionBtn, { backgroundColor: colors.error + "10" }]}
+                                      >
+                                        <Ionicons name="trash-outline" size={14} color={colors.error} />
+                                        <Text style={[userRevStyles.actionBtnText, { color: colors.error }]}>{txt.deleteReview}</Text>
+                                      </Pressable>
+                                    </View>
+                                  )}
+                                </View>
+                              );
+                            })
+                          )}
+                        </>
+                      );
+                    })()}
+
                     {(act.latitude != null && act.longitude != null) && (
                       <Pressable
                         onPress={() => {
@@ -2587,4 +2701,79 @@ const invStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+});
+
+const userRevStyles = StyleSheet.create({
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  countBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  countText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  emptyState: {
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 24,
+    borderRadius: 14,
+  },
+  emptyTitle: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  emptyHint: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  card: {
+    borderRadius: 14,
+    padding: 14,
+    gap: 10,
+    borderWidth: 1,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  name: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  youBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  youBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  date: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 1 },
+  ratingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  ratingLabel: { fontSize: 12, fontFamily: "Inter_500Medium", marginLeft: 4 },
+  comment: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  actionRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 2,
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  actionBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 });
