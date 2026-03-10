@@ -210,6 +210,8 @@ export default function ItineraryDetailScreen() {
   const [companionModal, setCompanionModal] = useState(false);
   const [sharePermission, setSharePermission] = useState<"editor" | "viewer">("viewer");
   const [activityDetailModal, setActivityDetailModal] = useState<ItineraryActivity | null>(null);
+  const [expandedReviewIds, setExpandedReviewIds] = useState<Set<string>>(new Set());
+  const [showAllUserReviews, setShowAllUserReviews] = useState(false);
   const [reviewModal, setReviewModal] = useState<{ activityId: string; dayIdx: number; destinationId?: string; editReviewId?: string } | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
@@ -1167,7 +1169,7 @@ export default function ItineraryDetailScreen() {
                                   <Text style={[styles.typeText, { color: colors.tagText }]}>{getActivityTypeLabel(activity.activityType)}</Text>
                                 </View>
                               </View>
-                              <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActivityDetailModal(activity); }}>
+                              <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setExpandedReviewIds(new Set()); setShowAllUserReviews(false); setActivityDetailModal(activity); }}>
                                 <Text style={[styles.activityTitle, { color: activity.isCompleted ? colors.textSecondary : colors.primary, textDecorationLine: activity.isCompleted ? "line-through" : "none" }]}>
                                   {activity.title}
                                   <Text style={{ fontSize: 12, color: activity.isCompleted ? colors.textTertiary : colors.primary }}> ›</Text>
@@ -2074,82 +2076,121 @@ export default function ItineraryDetailScreen() {
                               <Text style={[userRevStyles.emptyHint, { color: colors.textTertiary }]}>{txt.beFirstToReview}</Text>
                             </View>
                           ) : (
-                            destUserReviews.map((review) => {
-                              const reviewColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
-                              let hash = 0;
-                              for (let ci = 0; ci < review.userName.length; ci++) hash = ((hash << 5) - hash + review.userName.charCodeAt(ci)) | 0;
-                              const avatarBg = reviewColors[Math.abs(hash) % reviewColors.length];
-                              const commentText = cleanComment(review.comment);
-                              const isCurrentUser = review.userId === user?.id;
-                              return (
-                                <View key={review.id} style={[userRevStyles.card, { backgroundColor: colors.inputBg, borderColor: isCurrentUser ? colors.primary + "30" : "transparent" }]}>
-                                  <View style={userRevStyles.cardHeader}>
-                                    <View style={[userRevStyles.avatar, { backgroundColor: avatarBg }]}>
-                                      <Text style={userRevStyles.avatarText}>{review.userName.charAt(0).toUpperCase()}</Text>
+                            <>
+                              {(showAllUserReviews ? destUserReviews : destUserReviews.slice(0, 5)).map((review) => {
+                                const reviewColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+                                let hash = 0;
+                                for (let ci = 0; ci < review.userName.length; ci++) hash = ((hash << 5) - hash + review.userName.charCodeAt(ci)) | 0;
+                                const avatarBg = reviewColors[Math.abs(hash) % reviewColors.length];
+                                const commentText = cleanComment(review.comment);
+                                const isCurrentUser = review.userId === user?.id;
+                                const isExpanded = expandedReviewIds.has(review.id);
+                                const COMMENT_LIMIT = 100;
+                                const isLong = commentText.length > COMMENT_LIMIT;
+                                const displayComment = isLong && !isExpanded ? commentText.slice(0, COMMENT_LIMIT).trimEnd() + "..." : commentText;
+
+                                return (
+                                  <View key={review.id} style={[userRevStyles.card, { backgroundColor: colors.inputBg, borderColor: isCurrentUser ? colors.primary + "30" : "transparent" }]}>
+                                    <View style={userRevStyles.cardHeader}>
+                                      <View style={[userRevStyles.avatar, { backgroundColor: avatarBg }]}>
+                                        <Text style={userRevStyles.avatarText}>{review.userName.charAt(0).toUpperCase()}</Text>
+                                      </View>
+                                      <View style={{ flex: 1 }}>
+                                        <View style={userRevStyles.nameRow}>
+                                          <Text style={[userRevStyles.name, { color: colors.text }]}>{review.userName}</Text>
+                                          {isCurrentUser && (
+                                            <View style={[userRevStyles.youBadge, { backgroundColor: colors.primary + "15" }]}>
+                                              <Text style={[userRevStyles.youBadgeText, { color: colors.primary }]}>{txt.you}</Text>
+                                            </View>
+                                          )}
+                                        </View>
+                                        <Text style={[userRevStyles.date, { color: colors.textTertiary }]}>{formatReviewDate(review.createdAt)}</Text>
+                                      </View>
                                     </View>
-                                    <View style={{ flex: 1 }}>
-                                      <View style={userRevStyles.nameRow}>
-                                        <Text style={[userRevStyles.name, { color: colors.text }]}>{review.userName}</Text>
-                                        {isCurrentUser && (
-                                          <View style={[userRevStyles.youBadge, { backgroundColor: colors.primary + "15" }]}>
-                                            <Text style={[userRevStyles.youBadgeText, { color: colors.primary }]}>{txt.you}</Text>
-                                          </View>
+
+                                    <View style={userRevStyles.ratingRow}>
+                                      {[1, 2, 3, 4, 5].map((star) => (
+                                        <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={14} color="#F59E0B" />
+                                      ))}
+                                      <Text style={[userRevStyles.ratingLabel, { color: colors.textSecondary }]}>
+                                        {review.rating === 5 ? txt.ratingExcellent : review.rating === 4 ? txt.ratingVeryGood : review.rating === 3 ? txt.ratingGood : review.rating === 2 ? txt.ratingFair : txt.ratingPoor}
+                                      </Text>
+                                    </View>
+
+                                    {commentText.length > 0 && (
+                                      <View>
+                                        <Text style={[userRevStyles.comment, { color: colors.textSecondary }]}>{displayComment}</Text>
+                                        {isLong && (
+                                          <Pressable
+                                            onPress={() => {
+                                              setExpandedReviewIds((prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(review.id)) next.delete(review.id);
+                                                else next.add(review.id);
+                                                return next;
+                                              });
+                                            }}
+                                            hitSlop={6}
+                                          >
+                                            <Text style={[userRevStyles.seeMoreText, { color: colors.primary }]}>
+                                              {isExpanded ? txt.seeLess : txt.seeMore}
+                                            </Text>
+                                          </Pressable>
                                         )}
                                       </View>
-                                      <Text style={[userRevStyles.date, { color: colors.textTertiary }]}>{formatReviewDate(review.createdAt)}</Text>
-                                    </View>
+                                    )}
+
+                                    {isCurrentUser && (
+                                      <View style={userRevStyles.actionRow}>
+                                        <Pressable
+                                          onPress={() => {
+                                            setActivityDetailModal(null);
+                                            setReviewRating(review.rating);
+                                            setReviewComment(cleanComment(review.comment));
+                                            const activityTag = review.comment.match(/\[activity:([^\]]+)\]/);
+                                            setReviewModal({ activityId: activityTag ? activityTag[1] : "", dayIdx: 0, destinationId: review.destinationId, editReviewId: review.id });
+                                          }}
+                                          style={[userRevStyles.actionBtn, { backgroundColor: colors.primary + "10" }]}
+                                        >
+                                          <Ionicons name="create-outline" size={14} color={colors.primary} />
+                                          <Text style={[userRevStyles.actionBtnText, { color: colors.primary }]}>{txt.editReview}</Text>
+                                        </Pressable>
+                                        <Pressable
+                                          onPress={() => {
+                                            const doDelete = () => deleteReview(review.id);
+                                            if (typeof window !== "undefined" && window.confirm) {
+                                              if (window.confirm(txt.deleteReviewConfirm)) doDelete();
+                                            } else {
+                                              Alert.alert(txt.deleteReview, txt.deleteReviewConfirm, [
+                                                { text: t().common.cancel, style: "cancel" },
+                                                { text: txt.deleteReview, style: "destructive", onPress: doDelete },
+                                              ]);
+                                            }
+                                          }}
+                                          style={[userRevStyles.actionBtn, { backgroundColor: colors.error + "10" }]}
+                                        >
+                                          <Ionicons name="trash-outline" size={14} color={colors.error} />
+                                          <Text style={[userRevStyles.actionBtnText, { color: colors.error }]}>{txt.deleteReview}</Text>
+                                        </Pressable>
+                                      </View>
+                                    )}
                                   </View>
+                                );
+                              })}
 
-                                  <View style={userRevStyles.ratingRow}>
-                                    {[1, 2, 3, 4, 5].map((star) => (
-                                      <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={14} color="#F59E0B" />
-                                    ))}
-                                    <Text style={[userRevStyles.ratingLabel, { color: colors.textSecondary }]}>
-                                      {review.rating === 5 ? txt.ratingExcellent : review.rating === 4 ? txt.ratingVeryGood : review.rating === 3 ? txt.ratingGood : review.rating === 2 ? txt.ratingFair : txt.ratingPoor}
-                                    </Text>
-                                  </View>
-
-                                  {commentText.length > 0 && (
-                                    <Text style={[userRevStyles.comment, { color: colors.textSecondary }]}>{commentText}</Text>
-                                  )}
-
-                                  {isCurrentUser && (
-                                    <View style={userRevStyles.actionRow}>
-                                      <Pressable
-                                        onPress={() => {
-                                          setActivityDetailModal(null);
-                                          setReviewRating(review.rating);
-                                          setReviewComment(cleanComment(review.comment));
-                                          const activityTag = review.comment.match(/\[activity:([^\]]+)\]/);
-                                          setReviewModal({ activityId: activityTag ? activityTag[1] : "", dayIdx: 0, destinationId: review.destinationId, editReviewId: review.id });
-                                        }}
-                                        style={[userRevStyles.actionBtn, { backgroundColor: colors.primary + "10" }]}
-                                      >
-                                        <Ionicons name="create-outline" size={14} color={colors.primary} />
-                                        <Text style={[userRevStyles.actionBtnText, { color: colors.primary }]}>{txt.editReview}</Text>
-                                      </Pressable>
-                                      <Pressable
-                                        onPress={() => {
-                                          const doDelete = () => deleteReview(review.id);
-                                          if (typeof window !== "undefined" && window.confirm) {
-                                            if (window.confirm(txt.deleteReviewConfirm)) doDelete();
-                                          } else {
-                                            Alert.alert(txt.deleteReview, txt.deleteReviewConfirm, [
-                                              { text: t().common.cancel, style: "cancel" },
-                                              { text: txt.deleteReview, style: "destructive", onPress: doDelete },
-                                            ]);
-                                          }
-                                        }}
-                                        style={[userRevStyles.actionBtn, { backgroundColor: colors.error + "10" }]}
-                                      >
-                                        <Ionicons name="trash-outline" size={14} color={colors.error} />
-                                        <Text style={[userRevStyles.actionBtnText, { color: colors.error }]}>{txt.deleteReview}</Text>
-                                      </Pressable>
-                                    </View>
-                                  )}
-                                </View>
-                              );
-                            })
+                              {!showAllUserReviews && destUserReviews.length > 5 && (
+                                <Pressable
+                                  onPress={() => setShowAllUserReviews(true)}
+                                  style={[userRevStyles.showMoreBtn, { backgroundColor: colors.inputBg }]}
+                                >
+                                  <Ionicons name="chatbubbles-outline" size={16} color={colors.primary} />
+                                  <Text style={[userRevStyles.showMoreText, { color: colors.primary }]}>
+                                    {txt.moreReviews(destUserReviews.length - 5)}
+                                  </Text>
+                                  <Ionicons name="chevron-down" size={16} color={colors.primary} />
+                                </Pressable>
+                              )}
+                            </>
                           )}
                         </>
                       );
@@ -2762,6 +2803,16 @@ const userRevStyles = StyleSheet.create({
   },
   ratingLabel: { fontSize: 12, fontFamily: "Inter_500Medium", marginLeft: 4 },
   comment: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  seeMoreText: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginTop: 4 },
+  showMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  showMoreText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   actionRow: {
     flexDirection: "row",
     gap: 8,
