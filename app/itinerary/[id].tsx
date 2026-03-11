@@ -1616,15 +1616,41 @@ export default function ItineraryDetailScreen() {
       <Modal visible={!!costModal} transparent animationType="fade" onRequestClose={() => setCostModal(null)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.actualCost}</Text>
-            <TextInput
-              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-              value={costModal?.cost || ""}
-              onChangeText={(v) => costModal && setCostModal({ ...costModal, cost: v })}
-              placeholder="VD: 500000"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="numeric"
-            />
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Chi phí</Text>
+            {/* Estimated cost: editable in draft, active unchecked */}
+            {(() => {
+              if (!costModal) return null;
+              const act = itinerary.days[costModal.dayIdx]?.activities.find(a => a.id === costModal.activityId);
+              const canEditEst = itinerary.status === "draft" || (itinerary.status === "active" && act && !act.isCompleted);
+              if (!canEditEst) return null;
+              return (
+                <>
+                  <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.estimatedCost} (VNĐ)</Text>
+                  <TextInput
+                    style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                    value={costModal?.estimatedCost || ""}
+                    onChangeText={(v) => costModal && setCostModal({ ...costModal, estimatedCost: v })}
+                    placeholder="VD: 500000"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="numeric"
+                  />
+                </>
+              );
+            })()}
+            {/* Actual cost: editable in active, completed */}
+            {itinerary.status !== "draft" && (
+              <>
+                <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.actualCost} (VNĐ)</Text>
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                  value={costModal?.cost || ""}
+                  onChangeText={(v) => costModal && setCostModal({ ...costModal, cost: v })}
+                  placeholder="VD: 500000"
+                  placeholderTextColor={colors.textTertiary}
+                  keyboardType="numeric"
+                />
+              </>
+            )}
             <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
