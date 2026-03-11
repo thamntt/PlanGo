@@ -181,7 +181,7 @@ export default function ItineraryDetailScreen() {
   const [activeTab, setActiveTab] = useState<"itinerary" | "expenses">("itinerary");
   const [expandedDay, setExpandedDay] = useState<number | null>(0);
   const [noteModal, setNoteModal] = useState<{ activityId: string; dayIdx: number; note: string; editIndex?: number } | null>(null);
-  const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; paidBy: string } | null>(null);
+  const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; estimatedCost: string; paidBy: string } | null>(null);
   const [timeModal, setTimeModal] = useState<{ activityId: string; dayIdx: number; time: string } | null>(null);
   const [addPlaceModal, setAddPlaceModal] = useState<{ dayIdx: number } | null>(null);
   const [editInfoModal, setEditInfoModal] = useState(false);
@@ -361,6 +361,12 @@ export default function ItineraryDetailScreen() {
     ).join("\n\n");
     const message = `✈️ ${itinerary.title}\n📍 ${itinerary.destination}\n🗓 ${itinerary.startDate} - ${itinerary.endDate}\n👥 ${itinerary.numPeople} người\n💰 ${formatVND(itinerary.totalBudget || 0)}\n${itinerary.startingPoint ? `🚀 Xuất phát: ${itinerary.startingPoint}\n` : ""}\n${daysSummary}`;
     try {
+      if (Platform.OS === "web") {
+        await Clipboard.setStringAsync(message);
+        alert("Đã copy lịch trình vào clipboard!");
+        await updateItinerary(itinerary.id, { isShared: true });
+        return;
+      }
       await Share.share({ message, title: itinerary.title });
       await updateItinerary(itinerary.id, { isShared: true });
     } catch (e) {
@@ -371,9 +377,32 @@ export default function ItineraryDetailScreen() {
   const handleStatusChange = () => {
     const nextStatus = itinerary.status === "draft" ? "active" : itinerary.status === "active" ? "completed" : "draft";
 
+    // Block start if today < startDate
+    if (nextStatus === "active") {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const startParts = itinerary.startDate.split("/");
+      const start = startParts.length === 3 ? new Date(parseInt(startParts[2]), parseInt(startParts[1]) - 1, parseInt(startParts[0])) : new Date(itinerary.startDate);
+      if (today < start) {
+        const msg = `Chỉ có thể bắt đầu chuyến đi từ ngày ${itinerary.startDate}`;
+        if (Platform.OS === "web") { window.alert(msg); } else { Alert.alert("", msg); }
+        return;
+      }
+    }
+
     if (nextStatus === "draft") {
       const msg = txt.resetConfirm;
       const doReset = async () => {
+        const currentResetCount = itinerary.resetCount || 0;
+        const newResetCount = currentResetCount + 1;
+        // Tag existing reviews so they are hidden after restart
+        const allActivityIds = itinerary.days.flatMap((d) => d.activities.map((a) => a.id));
+        for (const actId of allActivityIds) {
+          const review = getActivityReview(actId);
+          if (review) {
+            const taggedComment = review.comment.includes("[resetBefore:") ? review.comment : `${review.comment} [resetBefore:${newResetCount}]`;
+            await updateReview(review.id, { comment: taggedComment });
+          }
+        }
         const newDays = itinerary.days.map((day) => ({
           ...day,
           activities: day.activities.map((a) => ({
@@ -387,6 +416,7 @@ export default function ItineraryDetailScreen() {
           days: newDays,
           expenses: [],
           spentAmount: 0,
+          resetCount: newResetCount,
         });
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       };
@@ -452,7 +482,15 @@ export default function ItineraryDetailScreen() {
       ? destinations.find((d) => d.id === activity.destinationId)
       : destinations.find((d) => d.name === activity.title);
     if (!linkedDest) return null;
-    return reviews.find((r) => r.destinationId === linkedDest.id && r.userId === user?.id && r.comment.includes(`[activity:${activityId}]`));
+    const currentResetCount = itinerary.resetCount || 0;
+    return reviews.find((r) => {
+      if (r.destinationId !== linkedDest.id || r.userId !== user?.id) return false;
+      if (!r.comment.includes(`[activity:${activityId}]`)) return false;
+      // Hide reviews tagged from previous resets
+      const resetMatch = r.comment.match(/\[resetBefore:(\d+)\]/);
+      if (resetMatch && parseInt(resetMatch[1], 10) <= currentResetCount) return false;
+      return true;
+    }) || null;
   };
 
   const getActivityDestinationId = (activity: ItineraryActivity): string | undefined => {
@@ -601,8 +639,17 @@ export default function ItineraryDetailScreen() {
     const newDays = [...itinerary.days];
     const activity = newDays[costModal.dayIdx].activities.find((a) => a.id === costModal.activityId);
     if (activity) {
-      const newCost = parseInt(costModal.cost.replace(/[^0-9]/g, ""), 10) || 0;
-      activity.actualCost = newCost;
+      const newActualCost = parseInt(costModal.cost.replace(/[^0-9]/g, ""), 10) || 0;
+      const newEstimatedCost = parseInt(costModal.estimatedCost.replace(/[^0-9]/g, ""), 10) || 0;
+      // Apply estimated cost only if allowed
+      const canEditEstimated = itinerary.status === "draft" || (itinerary.status === "active" && !activity.isCompleted);
+      if (canEditEstimated) {
+        activity.estimatedCost = newEstimatedCost;
+      }
+      // Apply actual cost only if not draft
+      if (itinerary.status !== "draft") {
+        activity.actualCost = newActualCost;
+      }
       activity.paidBy = costModal.paidBy.trim() || undefined;
       const newSpent = recalcSpent(newDays, expenses);
       await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
@@ -1161,8 +1208,8 @@ export default function ItineraryDetailScreen() {
                             )}
                             <View style={{ flex: 1 }}>
                               <View style={styles.activityTitleRow}>
-                                <Pressable onPress={() => { if (canEdit && itinerary.status === "draft") setTimeModal({ activityId: activity.id, dayIdx, time: activity.time }); }}>
-                                  <Text style={[styles.activityTime, { color: colors.primary, textDecorationLine: (canEdit && itinerary.status === "draft") ? "underline" : "none" }]}>{activity.time}</Text>
+                                <Pressable onPress={() => { const canEditTime = canEdit && (itinerary.status === "draft" || (itinerary.status === "active" && !activity.isCompleted)); if (canEditTime) setTimeModal({ activityId: activity.id, dayIdx, time: activity.time }); }}>
+                                  <Text style={[styles.activityTime, { color: colors.primary, textDecorationLine: (canEdit && (itinerary.status === "draft" || (itinerary.status === "active" && !activity.isCompleted))) ? "underline" : "none" }]}>{activity.time}</Text>
                                 </Pressable>
                                 <View style={[styles.typeBadge, { backgroundColor: colors.tagBg }]}>
                                   <Ionicons name={getActivityTypeIcon(activity.activityType) as any} size={12} color={colors.tagText} />
@@ -1230,7 +1277,7 @@ export default function ItineraryDetailScreen() {
                                 <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
                                   <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
                                   <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
-                                  {canEdit && itinerary.status !== "completed" && (
+                                  {canEdit && (
                                     <>
                                       <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
                                         <Ionicons name="create-outline" size={14} color={colors.primary} />
@@ -1246,17 +1293,25 @@ export default function ItineraryDetailScreen() {
                           )}
 
                           <View style={styles.activityActions}>
-                            {canEdit && itinerary.status !== "completed" && (
+                            {/* Notes: all statuses */}
+                            {canEdit && (
                               <Pressable onPress={() => setNoteModal({ activityId: activity.id, dayIdx, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="document-text-outline" size={14} color={colors.primary} />
                               </Pressable>
                             )}
-                            {canEdit && itinerary.status === "draft" && (
-                              <Pressable onPress={() => setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                            {/* Cost: draft=estimated only, active/completed=both/actual */}
+                            {canEdit && (() => {
+                              if (itinerary.status === "draft") return true;
+                              if (itinerary.status === "active") return true;
+                              if (itinerary.status === "completed") return true;
+                              return false;
+                            })() && (
+                              <Pressable onPress={() => setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || 0).toString(), estimatedCost: (activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="cash-outline" size={14} color={colors.accent} />
                               </Pressable>
                             )}
-                            {canEdit && itinerary.status === "draft" && (
+                            {/* Time: draft or active unchecked */}
+                            {canEdit && (itinerary.status === "draft" || (itinerary.status === "active" && !activity.isCompleted)) && (
                               <Pressable onPress={() => setTimeModal({ activityId: activity.id, dayIdx, time: activity.time })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="time-outline" size={14} color={colors.primary} />
                               </Pressable>
@@ -1271,22 +1326,25 @@ export default function ItineraryDetailScreen() {
                                 </Pressable>
                               </>
                             )}
-                            {canEdit && itinerary.status === "draft" && actIdx > 0 && (
+                            {/* Reorder: draft or active unchecked */}
+                            {canEdit && (itinerary.status === "draft" || (itinerary.status === "active" && !activity.isCompleted)) && actIdx > 0 && (
                               <Pressable onPress={() => moveActivity(dayIdx, actIdx, "up")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="arrow-up" size={14} color={colors.textSecondary} />
                               </Pressable>
                             )}
-                            {canEdit && itinerary.status === "draft" && actIdx < day.activities.length - 1 && (
+                            {canEdit && (itinerary.status === "draft" || (itinerary.status === "active" && !activity.isCompleted)) && actIdx < day.activities.length - 1 && (
                               <Pressable onPress={() => moveActivity(dayIdx, actIdx, "down")} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="arrow-down" size={14} color={colors.textSecondary} />
                               </Pressable>
                             )}
-                            {canEdit && itinerary.status === "draft" && (
+                            {/* Delete: draft or active unchecked */}
+                            {canEdit && (itinerary.status === "draft" || (itinerary.status === "active" && !activity.isCompleted)) && (
                               <Pressable onPress={() => deleteActivity(dayIdx, activity.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
                                 <Ionicons name="trash-outline" size={14} color={colors.error} />
                               </Pressable>
                             )}
-                            {itinerary.status === "active" && activity.isCompleted && getActivityDestinationId(activity) && !getActivityReview(activity.id) && (
+                            {/* Review: active(completed) or completed status */}
+                            {itinerary.status !== "draft" && activity.isCompleted && getActivityDestinationId(activity) && !getActivityReview(activity.id) && (
                               <Pressable onPress={() => openReviewModal(activity.id, dayIdx)} style={[styles.miniBtn, { backgroundColor: colors.primary + "15" }]}>
                                 <Ionicons name="star-outline" size={14} color={colors.primary} />
                               </Pressable>
@@ -1296,7 +1354,8 @@ export default function ItineraryDetailScreen() {
                       </React.Fragment>
                     ))}
 
-                    {canEdit && itinerary.status === "draft" && (
+                    {/* Add place: draft or active */}
+                    {canEdit && (itinerary.status === "draft" || itinerary.status === "active") && (
                       <Pressable
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1306,6 +1365,31 @@ export default function ItineraryDetailScreen() {
                       >
                         <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
                         <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addPlace}</Text>
+                      </Pressable>
+                    )}
+                    {/* Delete day: active, only if no completed activities */}
+                    {canEdit && itinerary.status === "active" && itinerary.days.length > 1 && !day.activities.some(a => a.isCompleted) && (
+                      <Pressable
+                        onPress={() => {
+                          const doDelete = async () => {
+                            const newDays = itinerary.days.filter((_, i) => i !== dayIdx).map((d, i) => ({ ...d, day: i + 1, title: `Ngày ${i + 1}` }));
+                            // Recalculate endDate
+                            const startParts = itinerary.startDate.split("/");
+                            const startDate = startParts.length === 3 ? new Date(parseInt(startParts[2]), parseInt(startParts[1]) - 1, parseInt(startParts[0])) : new Date(itinerary.startDate);
+                            const newEnd = new Date(startDate);
+                            newEnd.setDate(newEnd.getDate() + newDays.length - 1);
+                            const endStr = `${newEnd.getDate().toString().padStart(2, "0")}/${(newEnd.getMonth() + 1).toString().padStart(2, "0")}/${newEnd.getFullYear()}`;
+                            const newSpent = recalcSpent(newDays, expenses);
+                            await updateItinerary(itinerary.id, { days: newDays, endDate: endStr, spentAmount: newSpent });
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                          };
+                          if (Platform.OS === "web") { if (window.confirm(`Xóa ${day.title}?`)) doDelete(); }
+                          else { Alert.alert("Xóa ngày", `Xóa ${day.title}?`, [{ text: t().common.cancel, style: "cancel" }, { text: t().common.delete, style: "destructive", onPress: doDelete }]); }
+                        }}
+                        style={[styles.addExpenseBtn, { borderColor: colors.error + "50" }]}
+                      >
+                        <Ionicons name="remove-circle-outline" size={18} color={colors.error} />
+                        <Text style={[styles.addExpenseText, { color: colors.error }]}>Xóa {day.title}</Text>
                       </Pressable>
                     )}
                   </View>

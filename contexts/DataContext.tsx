@@ -8,6 +8,8 @@ import {
   saveReviews,
   getNotifications,
   saveNotifications,
+  getPOIs,
+  savePOIs,
   generateId,
   formatVND,
   type Destination,
@@ -16,6 +18,7 @@ import {
   type ItineraryActivity,
   type Review,
   type Notification,
+  type POI,
 } from "@/lib/storage";
 import { SEED_DESTINATIONS } from "@/lib/seed-data";
 
@@ -24,6 +27,7 @@ interface DataContextValue {
   itineraries: Itinerary[];
   reviews: Review[];
   notifications: Notification[];
+  pois: POI[];
   isLoading: boolean;
   addDestination: (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive">) => Promise<Destination>;
   updateDestination: (id: string, data: Partial<Destination>) => Promise<void>;
@@ -34,6 +38,9 @@ interface DataContextValue {
   addReview: (review: Omit<Review, "id" | "createdAt">) => Promise<Review>;
   updateReview: (id: string, data: Partial<Review>) => Promise<void>;
   deleteReview: (id: string) => Promise<void>;
+  addPOI: (poi: Omit<POI, "id">) => Promise<POI>;
+  updatePOI: (id: string, data: Partial<POI>) => Promise<void>;
+  deletePOI: (id: string) => Promise<void>;
   generateItinerary: (params: {
     destination: string;
     startDate: string;
@@ -101,7 +108,8 @@ function generateDays(
   preferences: string[],
   allDestinations: Destination[],
   numPeople: number,
-  startingPoint: string
+  startingPoint: string,
+  allPOIs?: POI[]
 ): ItineraryDay[] {
   const start = parseDateInput(startDate);
   const end = parseDateInput(endDate);
@@ -321,6 +329,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [pois, setPois] = useState<POI[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(async () => {
@@ -334,6 +343,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setItineraries(await getItineraries());
     setReviews(await getReviews());
     setNotifications(await getNotifications());
+    setPois(await getPOIs());
     setIsLoading(false);
   }, []);
 
@@ -481,6 +491,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setNotifications(all);
   }, []);
 
+  const addPOI = useCallback(async (poi: Omit<POI, "id">) => {
+    const newPoi: POI = { ...poi, id: generateId() };
+    const updated = [...(await getPOIs()), newPoi];
+    await savePOIs(updated);
+    setPois(updated);
+    return newPoi;
+  }, []);
+
+  const updatePOI = useCallback(async (id: string, data: Partial<POI>) => {
+    const all = await getPOIs();
+    const idx = all.findIndex((p) => p.id === id);
+    if (idx === -1) return;
+    all[idx] = { ...all[idx], ...data };
+    await savePOIs(all);
+    setPois([...all]);
+  }, []);
+
+  const deletePOI = useCallback(async (id: string) => {
+    const all = (await getPOIs()).filter((p) => p.id !== id);
+    await savePOIs(all);
+    setPois(all);
+  }, []);
+
   const generateItinerary = useCallback(async (params: {
     destination: string;
     startDate: string;
@@ -493,7 +526,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     userId: string;
   }) => {
     const allDests = await getDestinations();
-    const days = generateDays(params.startDate, params.endDate, params.destination, params.preferences, allDests, params.numPeople, params.startingPoint);
+    const allPOIs = await getPOIs();
+    const days = generateDays(params.startDate, params.endDate, params.destination, params.preferences, allDests, params.numPeople, params.startingPoint, allPOIs);
     const itin: Omit<Itinerary, "id" | "createdAt"> = {
       userId: params.userId,
       title: `Chuyến đi ${params.destination}`,
@@ -532,6 +566,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       itineraries,
       reviews,
       notifications,
+      pois,
       isLoading,
       addDestination,
       updateDestination,
@@ -542,6 +577,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       addReview,
       updateReview,
       deleteReview,
+      addPOI,
+      updatePOI,
+      deletePOI,
       generateItinerary,
       addNotification,
       markNotificationRead,
@@ -549,7 +587,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       clearNotifications,
       refreshData,
     }),
-    [destinations, itineraries, reviews, notifications, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
+    [destinations, itineraries, reviews, notifications, pois, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, addPOI, updatePOI, deletePOI, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

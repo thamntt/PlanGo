@@ -21,8 +21,10 @@ import { useThemeColors } from "@/constants/colors";
 import { getUsers, saveUsers, formatVND, type UserData } from "@/lib/storage";
 import { validateDestinationName, validateAddress } from "@/lib/validation";
 import { t } from "@/lib/i18n";
+import { searchPlaces, getPlaceDetails, getPhotoUrl, mapGoogleTypeToPOIType, getPOITypeLabel, getPOITypeIcon, type PlaceSearchResult } from "@/lib/google-places";
+import type { POI } from "@/lib/storage";
 
-type Tab = "dashboard" | "users" | "destinations" | "reviews";
+type Tab = "dashboard" | "users" | "destinations" | "reviews" | "pois";
 
 interface DestFormErrors {
   name?: string;
@@ -59,7 +61,7 @@ export default function AdminDashboard() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user: currentUser, isAdmin } = useAuth();
-  const { destinations, itineraries, reviews, deleteDestination, deleteReview, deleteItinerary, updateDestination, addDestination } = useData();
+  const { destinations, itineraries, reviews, pois, deleteDestination, deleteReview, deleteItinerary, updateDestination, addDestination, addPOI, updatePOI, deletePOI } = useData();
 
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [users, setUsers] = useState<UserData[]>([]);
@@ -93,7 +95,167 @@ export default function AdminDashboard() {
   const [reviewSearch, setReviewSearch] = useState("");
   const [reviewStarFilter, setReviewStarFilter] = useState<number>(0);
 
+  // Google Places search state (for destinations)
+  const [googleQuery, setGoogleQuery] = useState("");
+  const [googleResults, setGoogleResults] = useState<PlaceSearchResult[]>([]);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  // POI management state
+  const [poiModalVisible, setPoiModalVisible] = useState(false);
+  const [editingPoiId, setEditingPoiId] = useState<string | null>(null);
+  const [poiName, setPoiName] = useState("");
+  const [poiAddress, setPoiAddress] = useState("");
+  const [poiType, setPoiType] = useState<POI["type"]>("attraction");
+  const [poiDestId, setPoiDestId] = useState("");
+  const [poiLat, setPoiLat] = useState("");
+  const [poiLng, setPoiLng] = useState("");
+  const [poiRating, setPoiRating] = useState("");
+  const [poiReviewCount, setPoiReviewCount] = useState("");
+  const [poiCost, setPoiCost] = useState("");
+  const [poiDuration, setPoiDuration] = useState("");
+  const [poiDesc, setPoiDesc] = useState("");
+  const [poiOpenHours, setPoiOpenHours] = useState("");
+  const [poiGooglePlaceId, setPoiGooglePlaceId] = useState("");
+  const [poiGooglePhotos, setPoiGooglePhotos] = useState<{name:string;attributions:string[]}[]>([]);
+  const [poiGoogleReviews, setPoiGoogleReviews] = useState<{author:string;rating:number;text:string;time:string}[]>([]);
+  const [poiSearch, setPoiSearch] = useState("");
+  const [poiFilterDest, setPoiFilterDest] = useState<string>("all");
+  const [poiGoogleQuery, setPoiGoogleQuery] = useState("");
+  const [poiGoogleResults, setPoiGoogleResults] = useState<PlaceSearchResult[]>([]);
+  const [poiGoogleLoading, setPoiGoogleLoading] = useState(false);
+
   const categories = ["City", "Beach", "Mountain", "Heritage", "Nature", "Island"];
+  const poiTypes: POI["type"][] = ["attraction", "restaurant", "cafe", "hotel", "shopping", "other"];
+
+  // Google search for destinations
+  const handleGoogleSearch = async (query: string) => {
+    if (!query.trim()) { setGoogleResults([]); return; }
+    setGoogleLoading(true);
+    const results = await searchPlaces(query);
+    setGoogleResults(results);
+    setGoogleLoading(false);
+  };
+
+  const fillFromGoogleResult = async (place: PlaceSearchResult) => {
+    setDestName(place.name);
+    setDestAddr(place.address);
+    setDestLat(place.latitude.toString());
+    setDestLng(place.longitude.toString());
+    setDestDesc(place.editorialSummary || "");
+    setGoogleResults([]);
+    setGoogleQuery("");
+    // Load full details for reviews and photos
+    const details = await getPlaceDetails(place.placeId);
+    if (details) {
+      if (details.reviews && details.reviews.length > 0) {
+        setDestDesc(prev => prev || details.editorialSummary || "");
+      }
+    }
+  };
+
+  // Google search for POIs
+  const handlePoiGoogleSearch = async (query: string) => {
+    if (!query.trim()) { setPoiGoogleResults([]); return; }
+    setPoiGoogleLoading(true);
+    const results = await searchPlaces(query);
+    setPoiGoogleResults(results);
+    setPoiGoogleLoading(false);
+  };
+
+  const fillPoiFromGoogle = async (place: PlaceSearchResult) => {
+    setPoiName(place.name);
+    setPoiAddress(place.address);
+    setPoiLat(place.latitude.toString());
+    setPoiLng(place.longitude.toString());
+    setPoiRating(place.rating.toString());
+    setPoiReviewCount(place.reviewCount.toString());
+    setPoiType(mapGoogleTypeToPOIType(place.types, place.primaryType));
+    setPoiGooglePlaceId(place.placeId);
+    setPoiGooglePhotos(place.photos || []);
+    setPoiGoogleResults([]);
+    setPoiGoogleQuery("");
+    // Get full details
+    const details = await getPlaceDetails(place.placeId);
+    if (details) {
+      setPoiDesc(details.editorialSummary || "");
+      if (details.openingHours && details.openingHours.length > 0) {
+        setPoiOpenHours(details.openingHours.join(" | "));
+      }
+      setPoiGoogleReviews(details.reviews || []);
+    }
+  };
+
+  const openAddPoi = () => {
+    setEditingPoiId(null);
+    setPoiName(""); setPoiAddress(""); setPoiType("attraction"); setPoiDestId(destinations[0]?.id || "");
+    setPoiLat(""); setPoiLng(""); setPoiRating(""); setPoiReviewCount("");
+    setPoiCost(""); setPoiDuration(""); setPoiDesc(""); setPoiOpenHours("");
+    setPoiGooglePlaceId(""); setPoiGooglePhotos([]); setPoiGoogleReviews([]);
+    setPoiGoogleQuery(""); setPoiGoogleResults([]);
+    setPoiModalVisible(true);
+  };
+
+  const openEditPoi = (id: string) => {
+    const poi = pois.find(p => p.id === id);
+    if (!poi) return;
+    setEditingPoiId(id);
+    setPoiName(poi.name); setPoiAddress(poi.address); setPoiType(poi.type);
+    setPoiDestId(poi.destinationId); setPoiLat(poi.latitude.toString()); setPoiLng(poi.longitude.toString());
+    setPoiRating(poi.rating.toString()); setPoiReviewCount(poi.reviewCount.toString());
+    setPoiCost(poi.estimatedCost?.toString() || ""); setPoiDuration(poi.estimatedDuration || "");
+    setPoiDesc(poi.description || ""); setPoiOpenHours(poi.openHours || "");
+    setPoiGooglePlaceId(poi.googlePlaceId || ""); setPoiGooglePhotos(poi.googlePhotos || []);
+    setPoiGoogleReviews(poi.googleReviews || []);
+    setPoiGoogleQuery(""); setPoiGoogleResults([]);
+    setPoiModalVisible(true);
+  };
+
+  const handleSavePoi = async () => {
+    if (!poiName.trim()) return;
+    const poiData: Omit<POI, "id"> = {
+      destinationId: poiDestId,
+      name: poiName.trim(),
+      type: poiType,
+      address: poiAddress.trim(),
+      latitude: parseFloat(poiLat) || 0,
+      longitude: parseFloat(poiLng) || 0,
+      rating: parseFloat(poiRating) || 0,
+      reviewCount: parseInt(poiReviewCount) || 0,
+      openHours: poiOpenHours || undefined,
+      estimatedCost: parseInt(poiCost) || undefined,
+      estimatedDuration: poiDuration || undefined,
+      description: poiDesc || undefined,
+      images: poiGooglePhotos.length > 0 ? poiGooglePhotos.slice(0, 3).map(p => getPhotoUrl(p.name)) : [],
+      googlePlaceId: poiGooglePlaceId || undefined,
+      googlePhotos: poiGooglePhotos.length > 0 ? poiGooglePhotos : undefined,
+      googleReviews: poiGoogleReviews.length > 0 ? poiGoogleReviews : undefined,
+      isActive: true,
+    };
+    if (editingPoiId) {
+      await updatePOI(editingPoiId, poiData);
+    } else {
+      await addPOI(poiData);
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setPoiModalVisible(false);
+  };
+
+  const handleDeletePoi = (id: string, name: string) => {
+    confirmAction("Xóa POI", `Bạn có chắc muốn xóa "${name}"?`, () => {
+      deletePOI(id);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    });
+  };
+
+  const filteredPois = useMemo(() => {
+    let result = [...pois];
+    if (poiSearch.trim()) {
+      const q = poiSearch.toLowerCase().trim();
+      result = result.filter(p => p.name.toLowerCase().includes(q) || p.address.toLowerCase().includes(q));
+    }
+    if (poiFilterDest !== "all") result = result.filter(p => p.destinationId === poiFilterDest);
+    return result;
+  }, [pois, poiSearch, poiFilterDest]);
 
   const loadUsers = useCallback(async () => {
     const u = await getUsers();
@@ -345,6 +507,7 @@ export default function AdminDashboard() {
     { key: "users", icon: "people-outline", label: txt.users },
     { key: "destinations", icon: "location-outline", label: txt.places },
     { key: "reviews", icon: "chatbubbles-outline", label: txt.reviewsTab },
+    { key: "pois", icon: "pin-outline", label: "POI" },
   ];
 
   const selectedUser = userDetailId ? users.find((u) => u.id === userDetailId) : null;
@@ -840,6 +1003,85 @@ export default function AdminDashboard() {
           </>
         )}
 
+        {!userDetailId && !destDetailId && !reviewDetailId && activeTab === "pois" && (
+          <>
+            <Pressable
+              onPress={openAddPoi}
+              style={({ pressed }) => [s.addBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 }]}
+            >
+              <Ionicons name="add" size={20} color="#fff" />
+              <Text style={s.addBtnText}>Thêm POI</Text>
+            </Pressable>
+            <View style={[s.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+              <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
+              <TextInput
+                style={[s.searchInput, { color: colors.text }]}
+                placeholder="Tìm POI theo tên, địa chỉ..."
+                placeholderTextColor={colors.textTertiary}
+                value={poiSearch}
+                onChangeText={setPoiSearch}
+              />
+              {poiSearch.length > 0 && (
+                <Pressable onPress={() => setPoiSearch("")} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                </Pressable>
+              )}
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+              <Pressable
+                onPress={() => setPoiFilterDest("all")}
+                style={[s.filterChip, { backgroundColor: poiFilterDest === "all" ? colors.primary : colors.inputBg, borderColor: poiFilterDest === "all" ? colors.primary : colors.inputBorder }]}
+              >
+                <Text style={[s.filterChipText, { color: poiFilterDest === "all" ? "#fff" : colors.textSecondary }]}>{t().common.all}</Text>
+              </Pressable>
+              {destinations.map(d => (
+                <Pressable
+                  key={d.id}
+                  onPress={() => setPoiFilterDest(d.id)}
+                  style={[s.filterChip, { backgroundColor: poiFilterDest === d.id ? colors.primary : colors.inputBg, borderColor: poiFilterDest === d.id ? colors.primary : colors.inputBorder }]}
+                >
+                  <Text style={[s.filterChipText, { color: poiFilterDest === d.id ? "#fff" : colors.textSecondary }]}>{d.name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {filteredPois.length === 0 ? (
+              <View style={s.emptyState}>
+                <Ionicons name="pin-outline" size={48} color={colors.textTertiary} />
+                <Text style={[s.noData, { color: colors.textTertiary }]}>Chưa có POI nào</Text>
+              </View>
+            ) : (
+              filteredPois.map(poi => {
+                const parentDest = destinations.find(d => d.id === poi.destinationId);
+                return (
+                  <Pressable
+                    key={poi.id}
+                    onPress={() => openEditPoi(poi.id)}
+                    style={[s.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+                  >
+                    <View style={[s.statIcon, { backgroundColor: colors.tagBg, width: 36, height: 36 }]}>
+                      <Ionicons name={getPOITypeIcon(poi.type) as any} size={18} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.itemTitle, { color: colors.text }]}>{poi.name}</Text>
+                      <Text style={[s.itemSub, { color: colors.textSecondary }]}>
+                        {getPOITypeLabel(poi.type)} • {parentDest?.name || "—"}
+                      </Text>
+                      <View style={s.ratingRow}>
+                        <Ionicons name="star" size={12} color="#F59E0B" />
+                        <Text style={[s.ratingText, { color: colors.textTertiary }]}>{poi.rating.toFixed(1)} ({poi.reviewCount})</Text>
+                        {poi.estimatedCost ? <Text style={[s.ratingText, { color: colors.textTertiary }]}> • {formatVND(poi.estimatedCost)}</Text> : null}
+                      </View>
+                    </View>
+                    <Pressable onPress={(e) => { e.stopPropagation(); handleDeletePoi(poi.id, poi.name); }} hitSlop={8}>
+                      <Ionicons name="trash-outline" size={20} color={colors.error} />
+                    </Pressable>
+                  </Pressable>
+                );
+              })
+            )}
+          </>
+        )}
+
         {!userDetailId && !destDetailId && !reviewDetailId && activeTab === "reviews" && (
           <>
             <View style={[s.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
@@ -922,6 +1164,53 @@ export default function AdminDashboard() {
               </Pressable>
             </View>
             <ScrollView contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
+              {/* Google Places Search */}
+              <View>
+                <Text style={[s.categoryLabel, { color: colors.primary, marginBottom: 6 }]}>🔍 Tìm trên Google Maps</Text>
+                <View style={[s.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                  <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
+                  <TextInput
+                    style={[s.searchInput, { color: colors.text }]}
+                    placeholder="Nhập tên địa điểm để tìm từ Google..."
+                    placeholderTextColor={colors.textTertiary}
+                    value={googleQuery}
+                    onChangeText={setGoogleQuery}
+                    onSubmitEditing={() => handleGoogleSearch(googleQuery)}
+                    returnKeyType="search"
+                  />
+                  {googleLoading ? (
+                    <Text style={{ color: colors.primary, fontSize: 12 }}>...</Text>
+                  ) : (
+                    <Pressable onPress={() => handleGoogleSearch(googleQuery)}>
+                      <Ionicons name="search" size={20} color={colors.primary} />
+                    </Pressable>
+                  )}
+                </View>
+                {googleResults.length > 0 && (
+                  <View style={{ backgroundColor: colors.inputBg, borderRadius: 12, marginTop: 6, borderWidth: 1, borderColor: colors.inputBorder, maxHeight: 200 }}>
+                    <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {googleResults.map((place) => (
+                        <Pressable
+                          key={place.placeId}
+                          onPress={() => fillFromGoogleResult(place)}
+                          style={{ padding: 12, borderBottomWidth: 0.5, borderColor: colors.divider }}
+                        >
+                          <Text style={{ color: colors.text, fontFamily: "Inter_600SemiBold", fontSize: 14 }}>{place.name}</Text>
+                          <Text style={{ color: colors.textSecondary, fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 }}>{place.address}</Text>
+                          <View style={{ flexDirection: "row", gap: 8, marginTop: 4, alignItems: "center" }}>
+                            <Ionicons name="star" size={12} color="#F59E0B" />
+                            <Text style={{ color: colors.textTertiary, fontSize: 11 }}>{place.rating} ({place.reviewCount})</Text>
+                            {place.primaryTypeDisplay ? <Text style={{ color: colors.textTertiary, fontSize: 11 }}>• {place.primaryTypeDisplay}</Text> : null}
+                          </View>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              <View style={{ height: 1, backgroundColor: colors.divider, marginVertical: 4 }} />
+
               <View>
                 <TextInput
                   style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: destErrors.name ? colors.error : colors.inputBorder }]}
@@ -994,6 +1283,208 @@ export default function AdminDashboard() {
                 style={({ pressed }) => [s.modalSaveBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 }]}
               >
                 <Text style={s.modalSaveBtnText}>{editingDestId ? t().common.update : t().common.save}</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* POI Modal */}
+      <Modal visible={poiModalVisible} animationType="slide" transparent>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalContent, { backgroundColor: colors.card }]}>
+            <View style={s.modalHeader}>
+              <Text style={[s.modalTitle, { color: colors.text }]}>
+                {editingPoiId ? "Sửa POI" : "Thêm POI"}
+              </Text>
+              <Pressable onPress={() => setPoiModalVisible(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
+              {/* Google Search for POI */}
+              <View>
+                <Text style={[s.categoryLabel, { color: colors.primary, marginBottom: 6 }]}>🔍 Tìm trên Google Maps</Text>
+                <View style={[s.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                  <Ionicons name="search-outline" size={18} color={colors.textTertiary} />
+                  <TextInput
+                    style={[s.searchInput, { color: colors.text }]}
+                    placeholder="Nhập tên quán ăn, điểm tham quan..."
+                    placeholderTextColor={colors.textTertiary}
+                    value={poiGoogleQuery}
+                    onChangeText={setPoiGoogleQuery}
+                    onSubmitEditing={() => handlePoiGoogleSearch(poiGoogleQuery)}
+                    returnKeyType="search"
+                  />
+                  {poiGoogleLoading ? (
+                    <Text style={{ color: colors.primary, fontSize: 12 }}>...</Text>
+                  ) : (
+                    <Pressable onPress={() => handlePoiGoogleSearch(poiGoogleQuery)}>
+                      <Ionicons name="search" size={20} color={colors.primary} />
+                    </Pressable>
+                  )}
+                </View>
+                {poiGoogleResults.length > 0 && (
+                  <View style={{ backgroundColor: colors.inputBg, borderRadius: 12, marginTop: 6, borderWidth: 1, borderColor: colors.inputBorder, maxHeight: 180 }}>
+                    <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {poiGoogleResults.map((place) => (
+                        <Pressable
+                          key={place.placeId}
+                          onPress={() => fillPoiFromGoogle(place)}
+                          style={{ padding: 12, borderBottomWidth: 0.5, borderColor: colors.divider }}
+                        >
+                          <Text style={{ color: colors.text, fontFamily: "Inter_600SemiBold", fontSize: 14 }}>{place.name}</Text>
+                          <Text style={{ color: colors.textSecondary, fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 }}>{place.address}</Text>
+                          <View style={{ flexDirection: "row", gap: 8, marginTop: 4, alignItems: "center" }}>
+                            <Ionicons name="star" size={12} color="#F59E0B" />
+                            <Text style={{ color: colors.textTertiary, fontSize: 11 }}>{place.rating} ({place.reviewCount})</Text>
+                            {place.primaryTypeDisplay ? <Text style={{ color: colors.textTertiary, fontSize: 11 }}>• {place.primaryTypeDisplay}</Text> : null}
+                          </View>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              <View style={{ height: 1, backgroundColor: colors.divider, marginVertical: 4 }} />
+
+              {/* POI Name */}
+              <TextInput
+                style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                placeholder="Tên POI *"
+                placeholderTextColor={colors.textTertiary}
+                value={poiName}
+                onChangeText={setPoiName}
+              />
+
+              {/* Destination Picker */}
+              <Text style={[s.categoryLabel, { color: colors.text }]}>Thuộc điểm đến:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                {destinations.map(d => (
+                  <Pressable
+                    key={d.id}
+                    onPress={() => setPoiDestId(d.id)}
+                    style={[s.categoryChip, { backgroundColor: poiDestId === d.id ? colors.primary : colors.inputBg, borderColor: poiDestId === d.id ? colors.primary : colors.inputBorder }]}
+                  >
+                    <Text style={[s.categoryChipText, { color: poiDestId === d.id ? "#fff" : colors.textSecondary }]}>{d.name}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              {/* POI Type */}
+              <Text style={[s.categoryLabel, { color: colors.text }]}>Loại:</Text>
+              <View style={s.categoryGrid}>
+                {poiTypes.map(type => (
+                  <Pressable
+                    key={type}
+                    onPress={() => setPoiType(type)}
+                    style={[s.categoryChip, { backgroundColor: poiType === type ? colors.primary : colors.inputBg, borderColor: poiType === type ? colors.primary : colors.inputBorder }]}
+                  >
+                    <Text style={[s.categoryChipText, { color: poiType === type ? "#fff" : colors.textSecondary }]}>{getPOITypeLabel(type)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Address */}
+              <TextInput
+                style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                placeholder="Địa chỉ"
+                placeholderTextColor={colors.textTertiary}
+                value={poiAddress}
+                onChangeText={setPoiAddress}
+              />
+
+              {/* Lat/Lng */}
+              <View style={s.coordRow}>
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                    placeholder="Vĩ độ"
+                    placeholderTextColor={colors.textTertiary}
+                    value={poiLat}
+                    onChangeText={setPoiLat}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                    placeholder="Kinh độ"
+                    placeholderTextColor={colors.textTertiary}
+                    value={poiLng}
+                    onChangeText={setPoiLng}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              </View>
+
+              {/* Cost & Duration */}
+              <View style={s.coordRow}>
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                    placeholder="Chi phí ước tính (VNĐ)"
+                    placeholderTextColor={colors.textTertiary}
+                    value={poiCost}
+                    onChangeText={setPoiCost}
+                    keyboardType="number-pad"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                    placeholder="Thời gian (VD: 1.5 giờ)"
+                    placeholderTextColor={colors.textTertiary}
+                    value={poiDuration}
+                    onChangeText={setPoiDuration}
+                  />
+                </View>
+              </View>
+
+              {/* Open Hours */}
+              <TextInput
+                style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                placeholder="Giờ mở cửa"
+                placeholderTextColor={colors.textTertiary}
+                value={poiOpenHours}
+                onChangeText={setPoiOpenHours}
+              />
+
+              {/* Description */}
+              <TextInput
+                style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder, minHeight: 80 }]}
+                placeholder="Mô tả"
+                placeholderTextColor={colors.textTertiary}
+                value={poiDesc}
+                onChangeText={setPoiDesc}
+                multiline
+              />
+
+              {/* Google Reviews preview */}
+              {poiGoogleReviews.length > 0 && (
+                <View>
+                  <Text style={[s.categoryLabel, { color: colors.text }]}>Đánh giá từ Google ({poiGoogleReviews.length}):</Text>
+                  {poiGoogleReviews.slice(0, 2).map((r, i) => (
+                    <View key={i} style={[s.reviewCard, { backgroundColor: colors.inputBg }]}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                          <Text style={[s.reviewerName, { color: colors.text }]}>{r.author}</Text>
+                          <Ionicons name="star" size={10} color="#F59E0B" />
+                          <Text style={{ fontSize: 11, color: colors.textTertiary }}>{r.rating}</Text>
+                        </View>
+                        <Text style={[s.reviewText, { color: colors.textSecondary }]} numberOfLines={2}>{r.text}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <Pressable
+                onPress={handleSavePoi}
+                style={({ pressed }) => [s.modalSaveBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Text style={s.modalSaveBtnText}>{editingPoiId ? "Cập nhật" : "Lưu POI"}</Text>
               </Pressable>
             </ScrollView>
           </View>

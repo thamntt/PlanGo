@@ -7,6 +7,7 @@ const KEYS = {
   ITINERARIES: "@plango_itineraries",
   REVIEWS: "@plango_reviews",
   NOTIFICATIONS: "@plango_notifications",
+  POIS: "@plango_pois",
 };
 
 export function generateId(): string {
@@ -58,6 +59,34 @@ export interface Destination {
   estimatedCostPerPerson?: number;
   sampleReviews?: { author: string; rating: number; comment: string; source: string }[];
   nearbyFood?: { name: string; address: string; latitude: number; longitude: number; costPerPerson: number; cuisine: string }[];
+  // Google Places fields
+  googlePlaceId?: string;
+  googlePhotos?: { name: string; attributions: string[] }[];
+  googleReviews?: { author: string; rating: number; text: string; time: string }[];
+}
+
+export interface POI {
+  id: string;
+  destinationId: string;
+  name: string;
+  type: "attraction" | "restaurant" | "cafe" | "hotel" | "shopping" | "other";
+  address: string;
+  latitude: number;
+  longitude: number;
+  rating: number;
+  reviewCount: number;
+  openHours?: string;
+  openingHours?: string[];
+  priceLevel?: number;
+  estimatedCost?: number;
+  estimatedDuration?: string;
+  description?: string;
+  images: string[];
+  googlePlaceId?: string;
+  googlePhotos?: { name: string; attributions: string[] }[];
+  googleReviews?: { author: string; rating: number; text: string; time: string }[];
+  tags?: string[];
+  isActive: boolean;
 }
 
 export interface ItineraryDay {
@@ -131,6 +160,7 @@ export interface Itinerary {
   shareCode?: string;
   sharePermission?: "editor" | "viewer";
   status: "draft" | "active" | "completed";
+  resetCount?: number;
   isShared: boolean;
   createdAt: string;
 }
@@ -201,6 +231,14 @@ export async function getNotifications(): Promise<Notification[]> {
 
 export async function saveNotifications(notifications: Notification[]): Promise<void> {
   await setJSON(KEYS.NOTIFICATIONS, notifications);
+}
+
+export async function getPOIs(): Promise<POI[]> {
+  return getJSON<POI[]>(KEYS.POIS, []);
+}
+
+export async function savePOIs(pois: POI[]): Promise<void> {
+  await setJSON(KEYS.POIS, pois);
 }
 
 export async function clearAllData(): Promise<void> {
