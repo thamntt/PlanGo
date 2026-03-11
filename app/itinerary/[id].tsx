@@ -1396,6 +1396,27 @@ export default function ItineraryDetailScreen() {
                 )}
               </View>
             ))}
+            {/* Add Day button: active trips */}
+            {canEdit && itinerary.status === "active" && (
+              <Pressable
+                onPress={async () => {
+                  const newDayNum = itinerary.days.length + 1;
+                  const newDays = [...itinerary.days, { day: newDayNum, title: `Ngày ${newDayNum}`, activities: [] }];
+                  // Recalculate endDate
+                  const startParts = itinerary.startDate.split("/");
+                  const startDate = startParts.length === 3 ? new Date(parseInt(startParts[2]), parseInt(startParts[1]) - 1, parseInt(startParts[0])) : new Date(itinerary.startDate);
+                  const newEnd = new Date(startDate);
+                  newEnd.setDate(newEnd.getDate() + newDays.length - 1);
+                  const endStr = `${newEnd.getDate().toString().padStart(2, "0")}/${(newEnd.getMonth() + 1).toString().padStart(2, "0")}/${newEnd.getFullYear()}`;
+                  await updateItinerary(itinerary.id, { days: newDays, endDate: endStr });
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }}
+                style={[styles.addExpenseBtn, { borderColor: colors.primary + "50", marginTop: 8 }]}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+                <Text style={[styles.addExpenseText, { color: colors.primary }]}>Thêm ngày</Text>
+              </Pressable>
+            )}
           </>
         )}
 
@@ -1448,7 +1469,7 @@ export default function ItineraryDetailScreen() {
                         <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
                           <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
                           <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
-                          {canEdit && itinerary.status !== "completed" && (
+                          {canEdit && (
                             <>
                               <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
                                 <Ionicons name="create-outline" size={14} color={colors.primary} />
@@ -1463,7 +1484,7 @@ export default function ItineraryDetailScreen() {
                     </View>
                   )}
 
-                  {canEdit && itinerary.status !== "completed" && (
+                  {canEdit && (
                     <View style={styles.expenseActions}>
                       <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                         <Ionicons name="document-text-outline" size={14} color={colors.primary} />
@@ -1471,9 +1492,11 @@ export default function ItineraryDetailScreen() {
                       <Pressable onPress={() => openEditExpense(expense)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                         <Ionicons name="create-outline" size={14} color={colors.accent} />
                       </Pressable>
-                      <Pressable onPress={() => deleteExpense(expense.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
-                        <Ionicons name="trash-outline" size={14} color={colors.error} />
-                      </Pressable>
+                      {itinerary.status !== "completed" && (
+                        <Pressable onPress={() => deleteExpense(expense.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
+                          <Ionicons name="trash-outline" size={14} color={colors.error} />
+                        </Pressable>
+                      )}
                     </View>
                   )}
                 </View>
