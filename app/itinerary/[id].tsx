@@ -362,7 +362,7 @@ export default function ItineraryDetailScreen() {
     const message = `✈️ ${itinerary.title}\n📍 ${itinerary.destination}\n🗓 ${itinerary.startDate} - ${itinerary.endDate}\n👥 ${itinerary.numPeople} người\n💰 ${formatVND(itinerary.totalBudget || 0)}\n${itinerary.startingPoint ? `🚀 Xuất phát: ${itinerary.startingPoint}\n` : ""}\n${daysSummary}`;
     try {
       if (Platform.OS === "web") {
-        await Clipboard.setStringAsync(message);
+        try { await navigator.clipboard.writeText(message); } catch { /* fallback */ }
         alert("Đã copy lịch trình vào clipboard!");
         await updateItinerary(itinerary.id, { isShared: true });
         return;

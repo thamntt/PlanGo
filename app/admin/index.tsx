@@ -94,6 +94,7 @@ export default function AdminDashboard() {
 
   const [reviewSearch, setReviewSearch] = useState("");
   const [reviewStarFilter, setReviewStarFilter] = useState<number>(0);
+  const [reviewSubTab, setReviewSubTab] = useState<"destinations" | "pois">("destinations");
 
   // Google Places search state (for destinations)
   const [googleQuery, setGoogleQuery] = useState("");
@@ -1101,6 +1102,22 @@ export default function AdminDashboard() {
             </View>
             <View style={s.filterRow}>
               <Pressable
+                onPress={() => setReviewSubTab("destinations")}
+                style={[s.filterChip, { backgroundColor: reviewSubTab === "destinations" ? colors.primary : colors.inputBg, borderColor: reviewSubTab === "destinations" ? colors.primary : colors.inputBorder }]}
+              >
+                <Ionicons name="location-outline" size={12} color={reviewSubTab === "destinations" ? "#fff" : colors.textSecondary} />
+                <Text style={[s.filterChipText, { color: reviewSubTab === "destinations" ? "#fff" : colors.textSecondary }]}>Điểm đến</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setReviewSubTab("pois")}
+                style={[s.filterChip, { backgroundColor: reviewSubTab === "pois" ? colors.primary : colors.inputBg, borderColor: reviewSubTab === "pois" ? colors.primary : colors.inputBorder }]}
+              >
+                <Ionicons name="pin-outline" size={12} color={reviewSubTab === "pois" ? "#fff" : colors.textSecondary} />
+                <Text style={[s.filterChipText, { color: reviewSubTab === "pois" ? "#fff" : colors.textSecondary }]}>Địa điểm</Text>
+              </Pressable>
+            </View>
+            <View style={s.filterRow}>
+              <Pressable
                 onPress={() => setReviewStarFilter(0)}
                 style={[s.filterChip, { backgroundColor: reviewStarFilter === 0 ? colors.primary : colors.inputBg, borderColor: reviewStarFilter === 0 ? colors.primary : colors.inputBorder }]}
               >
@@ -1117,13 +1134,17 @@ export default function AdminDashboard() {
                 </Pressable>
               ))}
             </View>
-            {filteredReviews.length === 0 ? (
-              <View style={s.emptyState}>
-                <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} />
-                <Text style={[s.noData, { color: colors.textTertiary }]}>{txt.noReviews}</Text>
-              </View>
-            ) : (
-              filteredReviews.map((r) => {
+            {(() => {
+              const subFiltered = reviewSubTab === "pois"
+                ? filteredReviews.filter((r) => /\[activity:[^\]]+\]/.test(r.comment))
+                : filteredReviews.filter((r) => !/\[activity:[^\]]+\]/.test(r.comment));
+              if (subFiltered.length === 0) return (
+                <View style={s.emptyState}>
+                  <Ionicons name="chatbubble-outline" size={48} color={colors.textTertiary} />
+                  <Text style={[s.noData, { color: colors.textTertiary }]}>{txt.noReviews}</Text>
+                </View>
+              );
+              return subFiltered.map((r) => {
                 const dest = destinations.find((d) => d.id === r.destinationId);
                 return (
                   <Pressable
@@ -1146,8 +1167,8 @@ export default function AdminDashboard() {
                     </Pressable>
                   </Pressable>
                 );
-              })
-            )}
+              });
+            })()}
           </>
         )}
       </ScrollView>
