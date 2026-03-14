@@ -21,7 +21,7 @@ import { useThemeColors } from "@/constants/colors";
 import { getUsers, saveUsers, formatVND, type UserData } from "@/lib/storage";
 import { validateDestinationName, validateAddress } from "@/lib/validation";
 import { t } from "@/lib/i18n";
-import { searchPlaces, getPlaceDetails, getPhotoUrl, mapGoogleTypeToPOIType, getPOITypeLabel, getPOITypeIcon, type PlaceSearchResult } from "@/lib/google-places";
+import { searchPlaces, getPlaceDetails, getPhotoUrl, mapGoogleTypeToPOIType, getPOITypeLabel, getPOITypeIcon, type PlaceSearchResult } from "@/lib/places";
 import type { POI } from "@/lib/storage";
 
 type Tab = "dashboard" | "users" | "destinations" | "reviews" | "pois";

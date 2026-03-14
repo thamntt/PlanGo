@@ -17,6 +17,7 @@ import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { t } from "@/lib/i18n";
+import RouteMap from "@/components/RouteMap";
 import type { Destination } from "@/lib/storage";
 
 export default function MapScreen() {
@@ -28,6 +29,7 @@ export default function MapScreen() {
   const [permission, requestPermission] = Location.useForegroundPermissions();
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
+  const [viewMode, setViewMode] = useState<"map" | "list">("map");
 
   const getLocation = async () => {
     setLoadingLocation(true);
@@ -46,111 +48,161 @@ export default function MapScreen() {
     }
   }, [permission?.granted]);
 
+  const activeDestinations = destinations.filter((d) => d.isActive);
+  const mapPoints = activeDestinations.map((d) => ({
+    lat: d.latitude,
+    lng: d.longitude,
+    name: d.name,
+    type: d.category.toLowerCase(),
+  }));
+
+  const userLoc = location ? { lat: location.coords.latitude, lng: location.coords.longitude } : null;
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
         <Text style={[styles.headerTitle, { color: colors.text }]}>{t().map.title}</Text>
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            if (permission?.granted) {
-              getLocation();
-            } else {
-              requestPermission();
-            }
-          }}
-          style={({ pressed }) => [
-            styles.refreshButton,
-            { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-          ]}
-        >
-          <Ionicons name="refresh" size={20} color="#fff" />
-        </Pressable>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {!permission?.granted ? (
-          <View style={[styles.permissionCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-            <Ionicons name="location-outline" size={48} color={colors.primary} />
-            <Text style={[styles.permissionTitle, { color: colors.text }]}>{t().map.locationAccess}</Text>
-            <Text style={[styles.permissionText, { color: colors.textSecondary }]}>
-              {t().map.locationDesc}
-            </Text>
+        <View style={styles.headerActions}>
+          <View style={[styles.viewToggle, { backgroundColor: colors.inputBg }]}>
             <Pressable
-              onPress={() => requestPermission()}
-              style={({ pressed }) => [
-                styles.permissionButton,
-                { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-              ]}
+              onPress={() => { setViewMode("map"); Haptics.selectionAsync(); }}
+              style={[styles.viewToggleBtn, viewMode === "map" && { backgroundColor: colors.primary }]}
             >
-              <Text style={styles.permissionButtonText}>{t().map.enableLocation}</Text>
+              <Ionicons name="map" size={16} color={viewMode === "map" ? "#fff" : colors.textSecondary} />
+            </Pressable>
+            <Pressable
+              onPress={() => { setViewMode("list"); Haptics.selectionAsync(); }}
+              style={[styles.viewToggleBtn, viewMode === "list" && { backgroundColor: colors.primary }]}
+            >
+              <Ionicons name="list" size={16} color={viewMode === "list" ? "#fff" : colors.textSecondary} />
             </Pressable>
           </View>
-        ) : (
-          <>
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (permission?.granted) {
+                getLocation();
+              } else {
+                requestPermission();
+              }
+            }}
+            style={({ pressed }) => [
+              styles.refreshButton,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            {loadingLocation
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Ionicons name="locate" size={18} color="#fff" />
+            }
+          </Pressable>
+        </View>
+      </View>
+
+      {!permission?.granted ? (
+        <View style={[styles.permissionCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <Ionicons name="location-outline" size={48} color={colors.primary} />
+          <Text style={[styles.permissionTitle, { color: colors.text }]}>{t().map.locationAccess}</Text>
+          <Text style={[styles.permissionText, { color: colors.textSecondary }]}>
+            {t().map.locationDesc}
+          </Text>
+          <Pressable
+            onPress={() => requestPermission()}
+            style={({ pressed }) => [
+              styles.permissionButton,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            <Text style={styles.permissionButtonText}>{t().map.enableLocation}</Text>
+          </Pressable>
+        </View>
+      ) : viewMode === "map" ? (
+        <View style={styles.mapContainer}>
+          <RouteMap
+            points={mapPoints}
+            height={Platform.OS === "web" ? 500 : 400}
+            colors={colors as any}
+            showRoute={false}
+            userLocation={userLoc}
+          />
+          <View style={[styles.mapOverlay, { backgroundColor: colors.card + "E0" }]}>
+            <Ionicons name="navigate" size={16} color={colors.primary} />
+            <Text style={[styles.mapOverlayText, { color: colors.text }]}>
+              {activeDestinations.length} {t().map.totalDestinations}
+            </Text>
+            {userLoc && (
+              <Text style={[styles.mapOverlayCoord, { color: colors.textSecondary }]}>
+                📍 {userLoc.lat.toFixed(4)}, {userLoc.lng.toFixed(4)}
+              </Text>
+            )}
+          </View>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {userLoc && (
             <View style={[styles.locationCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <View style={styles.locationHeader}>
-                <Ionicons name="navigate" size={24} color={colors.primary} />
+                <Ionicons name="navigate" size={20} color={colors.primary} />
                 <Text style={[styles.locationTitle, { color: colors.text }]}>{t().map.yourLocation}</Text>
               </View>
-              {loadingLocation ? (
-                <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
-              ) : location ? (
-                <View style={styles.coordsRow}>
-                  <View style={[styles.coordBox, { backgroundColor: colors.inputBg }]}>
-                    <Text style={[styles.coordLabel, { color: colors.textSecondary }]}>{t().map.latitude}</Text>
-                    <Text style={[styles.coordValue, { color: colors.text }]}>
-                      {location.coords.latitude.toFixed(4)}
-                    </Text>
-                  </View>
-                  <View style={[styles.coordBox, { backgroundColor: colors.inputBg }]}>
-                    <Text style={[styles.coordLabel, { color: colors.textSecondary }]}>{t().map.longitude}</Text>
-                    <Text style={[styles.coordValue, { color: colors.text }]}>
-                      {location.coords.longitude.toFixed(4)}
-                    </Text>
-                  </View>
+              <View style={styles.coordsRow}>
+                <View style={[styles.coordBox, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.coordLabel, { color: colors.textSecondary }]}>{t().map.latitude}</Text>
+                  <Text style={[styles.coordValue, { color: colors.text }]}>
+                    {userLoc.lat.toFixed(4)}
+                  </Text>
                 </View>
-              ) : (
-                <Text style={[styles.noLocation, { color: colors.textSecondary }]}>
-                  {t().map.tapRefresh}
-                </Text>
-              )}
+                <View style={[styles.coordBox, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.coordLabel, { color: colors.textSecondary }]}>{t().map.longitude}</Text>
+                  <Text style={[styles.coordValue, { color: colors.text }]}>
+                    {userLoc.lng.toFixed(4)}
+                  </Text>
+                </View>
+              </View>
             </View>
+          )}
 
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().map.destinations}</Text>
-            {destinations.filter((d) => d.isActive).map((dest) => (
-              <Pressable
-                key={dest.id}
-                style={({ pressed }) => [
-                  styles.destRow,
-                  { backgroundColor: colors.card, borderColor: colors.cardBorder, opacity: pressed ? 0.95 : 1 },
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push({ pathname: "/destination/[id]", params: { id: dest.id } });
-                }}
-              >
-                <View style={[styles.destIcon, { backgroundColor: colors.tagBg }]}>
-                  <Ionicons name="location" size={20} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.destName, { color: colors.text }]}>{dest.name}</Text>
-                  <Text style={[styles.destAddress, { color: colors.textSecondary }]} numberOfLines={1}>
-                    {dest.address}
-                  </Text>
-                </View>
-                <View style={styles.destCoords}>
-                  <Text style={[styles.destCoordText, { color: colors.textTertiary }]}>
-                    {dest.latitude.toFixed(2)}, {dest.longitude.toFixed(2)}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </>
-        )}
-      </ScrollView>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().map.destinations}</Text>
+          {activeDestinations.map((dest) => (
+            <Pressable
+              key={dest.id}
+              style={({ pressed }) => [
+                styles.destRow,
+                { backgroundColor: colors.card, borderColor: colors.cardBorder, opacity: pressed ? 0.95 : 1 },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({ pathname: "/destination/[id]", params: { id: dest.id } });
+              }}
+            >
+              <View style={[styles.destIcon, { backgroundColor: colors.tagBg }]}>
+                <Ionicons name="location" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.destName, { color: colors.text }]}>{dest.name}</Text>
+                <Text style={[styles.destAddress, { color: colors.textSecondary }]} numberOfLines={1}>
+                  {dest.address}
+                </Text>
+                {dest.rating > 0 && (
+                  <View style={styles.ratingRow}>
+                    <Ionicons name="star" size={12} color="#F59E0B" />
+                    <Text style={[styles.ratingText, { color: colors.textSecondary }]}>
+                      {dest.rating.toFixed(1)} ({dest.reviewCount})
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.destCoords}>
+                <Text style={[styles.destCoordText, { color: colors.textTertiary }]}>
+                  {dest.latitude.toFixed(2)}, {dest.longitude.toFixed(2)}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -165,7 +217,33 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   headerTitle: { fontSize: 24, fontFamily: "Inter_700Bold" },
-  refreshButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  viewToggle: {
+    flexDirection: "row",
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  viewToggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  refreshButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  mapContainer: { flex: 1, marginHorizontal: 20, marginBottom: 100, borderRadius: 14, overflow: "hidden" },
+  mapOverlay: {
+    position: "absolute",
+    bottom: 12,
+    left: 12,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  mapOverlayText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  mapOverlayCoord: { fontSize: 11, fontFamily: "Inter_400Regular", marginLeft: 4 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 100, gap: 12 },
   permissionCard: {
     borderRadius: 16,
@@ -174,6 +252,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     marginTop: 40,
+    marginHorizontal: 20,
   },
   permissionTitle: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
   permissionText: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
@@ -186,7 +265,6 @@ const styles = StyleSheet.create({
   coordBox: { flex: 1, borderRadius: 12, padding: 14, alignItems: "center", gap: 4 },
   coordLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
   coordValue: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  noLocation: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", paddingVertical: 12 },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold", marginTop: 8 },
   destRow: {
     flexDirection: "row",
@@ -199,6 +277,8 @@ const styles = StyleSheet.create({
   destIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   destName: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   destAddress: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
+  ratingText: { fontSize: 11, fontFamily: "Inter_500Medium" },
   destCoords: {},
   destCoordText: { fontSize: 11, fontFamily: "Inter_400Regular" },
 });

@@ -23,7 +23,8 @@ import { useThemeColors } from "@/constants/colors";
 import * as Clipboard from "expo-clipboard";
 import { formatVND, generateId, getUsers } from "@/lib/storage";
 import { t } from "@/lib/i18n";
-import type { ItineraryActivity, Expense, ExpenseSplit, TripCompanion } from "@/lib/storage";
+import type { ItineraryActivity, Expense, ExpenseSplit, TripCompanion, POI } from "@/lib/storage";
+import RouteMap from "@/components/RouteMap";
 
 function getStatusLabel(status: string): string {
   const labels = t().trips;
@@ -175,7 +176,7 @@ export default function ItineraryDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview } = useData();
+  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview, pois } = useData();
 
   const itinerary = itineraries.find((i) => i.id === id);
   const [activeTab, setActiveTab] = useState<"itinerary" | "expenses">("itinerary");
@@ -215,6 +216,10 @@ export default function ItineraryDetailScreen() {
   const [reviewModal, setReviewModal] = useState<{ activityId: string; dayIdx: number; destinationId?: string; editReviewId?: string } | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
+  const [routeMapModal, setRouteMapModal] = useState<{ dayIdx: number } | null>(null);
+  const [addPlaceTab, setAddPlaceTab] = useState<"system" | "manual">("system");
+  const [poiSearch, setPoiSearch] = useState("");
+  const [poiDestFilter, setPoiDestFilter] = useState("");
 
   const totalEstimated = useMemo(() => {
     if (!itinerary) return 0;
@@ -288,7 +293,18 @@ export default function ItineraryDetailScreen() {
       sharePermission: sharePermission,
       isShared: true,
     });
-    const domain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:8081";
+    // Sync to server so other browsers can find this trip
+    try {
+      const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
+      const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
+      const updatedItinerary = { ...itinerary, shareCode: code, sharePermission, isShared: true };
+      await fetch(`${serverProtocol}://${serverDomain}/api/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shareCode: code, itinerary: updatedItinerary }),
+      });
+    } catch (e) { console.log("Failed to sync share to server:", e); }
+    const domain = Platform.OS === "web" ? window.location.host : (process.env.EXPO_PUBLIC_DOMAIN || "localhost:8081");
     const protocol = domain.includes("localhost") ? "http" : "https";
     const link = `${protocol}://${domain}/join/${code}`;
     await Clipboard.setStringAsync(link);
@@ -300,10 +316,26 @@ export default function ItineraryDetailScreen() {
     }
   };
 
+  const getServerUrl = () => {
+    const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
+    const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
+    return `${serverProtocol}://${serverDomain}`;
+  };
+
   const handleRemoveCompanion = (companion: TripCompanion) => {
     const doRemove = async () => {
       const updated = companions.filter((c) => c.userId !== companion.userId);
       await updateItinerary(itinerary.id, { companions: updated });
+      // Sync to server
+      if (itinerary.shareCode) {
+        try {
+          await fetch(`${getServerUrl()}/api/share/companion`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ shareCode: itinerary.shareCode, userId: companion.userId }),
+          });
+        } catch (e) { console.log("Failed to sync companion removal:", e); }
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     };
     if (Platform.OS === "web") {
@@ -314,6 +346,24 @@ export default function ItineraryDetailScreen() {
         { text: t().common.delete, style: "destructive", onPress: doRemove },
       ]);
     }
+  };
+
+  const handleChangeCompanionRole = async (companion: TripCompanion, newRole: "editor" | "viewer") => {
+    const updated = companions.map((c) =>
+      c.userId === companion.userId ? { ...c, role: newRole } : c
+    );
+    await updateItinerary(itinerary.id, { companions: updated });
+    // Sync to server
+    if (itinerary.shareCode) {
+      try {
+        await fetch(`${getServerUrl()}/api/share/companion`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shareCode: itinerary.shareCode, userId: companion.userId, role: newRole }),
+        });
+      } catch (e) { console.log("Failed to sync role change:", e); }
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleLeaveTrip = () => {
@@ -756,6 +806,96 @@ export default function ItineraryDetailScreen() {
     Haptics.selectionAsync();
   };
 
+  const autoSortDay = async (dayIdx: number) => {
+    const newDays = [...itinerary.days];
+    const acts = [...newDays[dayIdx].activities];
+    if (acts.length <= 1) return;
+    const timeSlots = ["07:00", "08:30", "10:30", "12:00", "14:00", "16:00", "18:00", "20:00"];
+    // Nearest-neighbor sort
+    const remaining = [...acts];
+    const sorted: ItineraryActivity[] = [remaining.shift()!];
+    while (remaining.length > 0) {
+      const last = sorted[sorted.length - 1];
+      if (last.latitude == null || last.longitude == null) {
+        sorted.push(remaining.shift()!);
+        continue;
+      }
+      let nearestIdx = 0;
+      let nearestDist = Infinity;
+      for (let j = 0; j < remaining.length; j++) {
+        if (remaining[j].latitude != null && remaining[j].longitude != null) {
+          const d = haversineDistance(last.latitude, last.longitude, remaining[j].latitude!, remaining[j].longitude!);
+          if (d < nearestDist) { nearestDist = d; nearestIdx = j; }
+        }
+      }
+      sorted.push(remaining.splice(nearestIdx, 1)[0]);
+    }
+    newDays[dayIdx].activities = sorted.map((act, idx) => ({
+      ...act,
+      time: timeSlots[idx] || act.time,
+    }));
+    await updateItinerary(itinerary.id, { days: newDays });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS === "web") { window.alert(txt.autoSortDone); }
+    else { Alert.alert("", txt.autoSortDone); }
+  };
+
+  const addPlaceFromPOI = async (poi: POI, dayIdx: number) => {
+    const newDays = [...itinerary.days];
+    const activities = newDays[dayIdx].activities;
+    const lastActivity = activities.length > 0 ? activities[activities.length - 1] : null;
+    let nextTime = "09:00";
+    if (lastActivity) {
+      const lastMins = parseTimeToMinutes(lastActivity.time);
+      if (lastMins >= 0) {
+        nextTime = minutesToTime(lastMins + parseDurationToMinutes(lastActivity.duration || "1 giờ"));
+      }
+    }
+    const typeMap: Record<string, "sightseeing" | "food" | "transport" | "shopping" | "other"> = {
+      attraction: "sightseeing",
+      restaurant: "food",
+      cafe: "food",
+      hotel: "other",
+      shopping: "shopping",
+      other: "other",
+    };
+    const newActivity: ItineraryActivity = {
+      id: generateId(),
+      time: nextTime,
+      title: poi.name,
+      description: poi.description || "",
+      duration: poi.estimatedDuration || "1 giờ",
+      estimatedCost: poi.estimatedCost || 0,
+      isCompleted: false,
+      activityType: typeMap[poi.type] || "sightseeing",
+      address: poi.address,
+      latitude: poi.latitude,
+      longitude: poi.longitude,
+      poiId: poi.id,
+      destinationId: poi.destinationId,
+    };
+    activities.push(newActivity);
+    await updateItinerary(itinerary.id, { days: newDays });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setAddPlaceModal(null);
+    setPoiSearch("");
+    setPoiDestFilter("");
+  };
+
+  const filteredPOIs = useMemo(() => {
+    let filtered = pois.filter((p) => p.isActive);
+    if (poiDestFilter) {
+      filtered = filtered.filter((p) => p.destinationId === poiDestFilter);
+    }
+    if (poiSearch.trim()) {
+      const q = poiSearch.toLowerCase().trim();
+      filtered = filtered.filter((p) =>
+        p.name.toLowerCase().includes(q) || p.address.toLowerCase().includes(q)
+      );
+    }
+    return filtered.slice(0, 20);
+  }, [pois, poiSearch, poiDestFilter]);
+
   const saveEditInfo = async () => {
     const newBudget = parseInt(editBudget.replace(/[^0-9]/g, ""), 10) || itinerary.totalBudget;
     const newPeople = parseInt(editNumPeople, 10) || itinerary.numPeople;
@@ -1183,6 +1323,27 @@ export default function ItineraryDetailScreen() {
                     </View>
                   </View>
                 </Pressable>
+
+                {expandedDay === dayIdx && canEdit && (itinerary.status === "draft" || itinerary.status === "active") && (
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 6, marginBottom: 2, flexWrap: "wrap" }}>
+                    <Pressable
+                      onPress={() => autoSortDay(dayIdx)}
+                      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.primary + "12", opacity: pressed ? 0.8 : 1 }]}
+                    >
+                      <Ionicons name="swap-vertical" size={14} color={colors.primary} />
+                      <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: colors.primary }}>{txt.autoSort}</Text>
+                    </Pressable>
+                    {day.activities.some((a) => a.latitude != null && a.longitude != null) && (
+                      <Pressable
+                        onPress={() => setRouteMapModal({ dayIdx })}
+                        style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.accent + "12", opacity: pressed ? 0.8 : 1 }]}
+                      >
+                        <Ionicons name="map-outline" size={14} color={colors.accent} />
+                        <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: colors.accent }}>{txt.viewRouteMap}</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
 
                 {expandedDay === dayIdx && (
                   <View style={styles.activitiesList}>
@@ -1697,43 +1858,137 @@ export default function ItineraryDetailScreen() {
 
       <Modal visible={!!addPlaceModal} transparent animationType="fade" onRequestClose={() => setAddPlaceModal(null)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: "80%" }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.addPlace}</Text>
-            <TextInput
-              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-              value={placeTitle}
-              onChangeText={setPlaceTitle}
-              placeholder={txt.addPlacePlaceholder}
-              placeholderTextColor={colors.textTertiary}
-            />
-            <View style={styles.typeRow}>
-              {(["sightseeing", "food", "transport", "shopping", "other"] as const).map((tp) => (
-                <Pressable
-                  key={tp}
-                  onPress={() => setPlaceType(tp)}
-                  style={[styles.typeChip, { backgroundColor: placeType === tp ? colors.primary : colors.inputBg, borderColor: placeType === tp ? colors.primary : colors.inputBorder }]}
-                >
-                  <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={placeType === tp ? "#fff" : colors.textSecondary} />
-                  <Text style={[styles.typeChipText, { color: placeType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <TextInput
-              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-              value={placeCost}
-              onChangeText={setPlaceCost}
-              placeholder={txt.expenseAmount + " (VNĐ)"}
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="numeric"
-            />
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setAddPlaceModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
-                <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
+            <View style={{ flexDirection: "row", gap: 0, marginBottom: 12 }}>
+              <Pressable
+                onPress={() => setAddPlaceTab("system")}
+                style={[styles.tabBtn, { flex: 1, paddingVertical: 8 }, addPlaceTab === "system" && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
+              >
+                <Ionicons name="business-outline" size={14} color={addPlaceTab === "system" ? colors.primary : colors.textTertiary} />
+                <Text style={[styles.tabBtnText, { fontSize: 12, color: addPlaceTab === "system" ? colors.primary : colors.textTertiary }]}>{txt.fromSystem}</Text>
               </Pressable>
-              <Pressable onPress={addPlaceToDay} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.add}</Text>
+              <Pressable
+                onPress={() => setAddPlaceTab("manual")}
+                style={[styles.tabBtn, { flex: 1, paddingVertical: 8 }, addPlaceTab === "manual" && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
+              >
+                <Ionicons name="create-outline" size={14} color={addPlaceTab === "manual" ? colors.primary : colors.textTertiary} />
+                <Text style={[styles.tabBtnText, { fontSize: 12, color: addPlaceTab === "manual" ? colors.primary : colors.textTertiary }]}>{txt.manual}</Text>
               </Pressable>
             </View>
+
+            {addPlaceTab === "system" ? (
+              <>
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                  value={poiSearch}
+                  onChangeText={setPoiSearch}
+                  placeholder={txt.searchPOI}
+                  placeholderTextColor={colors.textTertiary}
+                />
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8, maxHeight: 36 }}>
+                  <Pressable
+                    onPress={() => setPoiDestFilter("")}
+                    style={[styles.typeChip, { backgroundColor: !poiDestFilter ? colors.primary : colors.inputBg, borderColor: !poiDestFilter ? colors.primary : colors.inputBorder }]}
+                  >
+                    <Text style={[styles.typeChipText, { color: !poiDestFilter ? "#fff" : colors.textSecondary }]}>{txt.allDestinations}</Text>
+                  </Pressable>
+                  {destinations.filter((d) => d.isActive).map((d) => (
+                    <Pressable
+                      key={d.id}
+                      onPress={() => setPoiDestFilter(poiDestFilter === d.id ? "" : d.id)}
+                      style={[styles.typeChip, { backgroundColor: poiDestFilter === d.id ? colors.primary : colors.inputBg, borderColor: poiDestFilter === d.id ? colors.primary : colors.inputBorder }]}
+                    >
+                      <Text style={[styles.typeChipText, { color: poiDestFilter === d.id ? "#fff" : colors.textSecondary }]} numberOfLines={1}>{d.name}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <ScrollView style={{ maxHeight: 250 }} showsVerticalScrollIndicator={false}>
+                  {filteredPOIs.length === 0 ? (
+                    <View style={{ alignItems: "center", paddingVertical: 20 }}>
+                      <Ionicons name="search-outline" size={28} color={colors.textTertiary} />
+                      <Text style={{ color: colors.textSecondary, fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 8 }}>{txt.noPOIsFound}</Text>
+                    </View>
+                  ) : (
+                    filteredPOIs.map((poi) => {
+                      const parentDest = destinations.find((d) => d.id === poi.destinationId);
+                      return (
+                        <Pressable
+                          key={poi.id}
+                          onPress={() => addPlaceModal && addPlaceFromPOI(poi, addPlaceModal.dayIdx)}
+                          style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, backgroundColor: pressed ? colors.primary + "08" : "transparent", borderBottomWidth: 1, borderBottomColor: colors.inputBorder }]}
+                        >
+                          <View style={[styles.typeBadge, { backgroundColor: colors.primary + "12" }]}>
+                            <Ionicons name={getActivityTypeIcon(poi.type === "attraction" ? "sightseeing" : poi.type === "restaurant" ? "food" : poi.type === "cafe" ? "food" : poi.type) as any} size={16} color={colors.primary} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.text }} numberOfLines={1}>{poi.name}</Text>
+                            <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textSecondary }} numberOfLines={1}>{poi.address}</Text>
+                            {parentDest && (
+                              <Text style={{ fontSize: 10, fontFamily: "Inter_400Regular", color: colors.textTertiary }}>{parentDest.name}</Text>
+                            )}
+                          </View>
+                          <View style={{ alignItems: "flex-end", gap: 2 }}>
+                            {poi.rating > 0 && (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                                <Ionicons name="star" size={10} color="#F59E0B" />
+                                <Text style={{ fontSize: 11, fontFamily: "Inter_500Medium", color: colors.textSecondary }}>{poi.rating.toFixed(1)}</Text>
+                              </View>
+                            )}
+                            {poi.estimatedCost ? (
+                              <Text style={{ fontSize: 10, fontFamily: "Inter_400Regular", color: colors.accent }}>{formatVND(poi.estimatedCost)}</Text>
+                            ) : null}
+                          </View>
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </ScrollView>
+                <View style={[styles.modalActions, { marginTop: 10 }]}>
+                  <Pressable onPress={() => setAddPlaceModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                    <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                  value={placeTitle}
+                  onChangeText={setPlaceTitle}
+                  placeholder={txt.addPlacePlaceholder}
+                  placeholderTextColor={colors.textTertiary}
+                />
+                <View style={styles.typeRow}>
+                  {(["sightseeing", "food", "transport", "shopping", "other"] as const).map((tp) => (
+                    <Pressable
+                      key={tp}
+                      onPress={() => setPlaceType(tp)}
+                      style={[styles.typeChip, { backgroundColor: placeType === tp ? colors.primary : colors.inputBg, borderColor: placeType === tp ? colors.primary : colors.inputBorder }]}
+                    >
+                      <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={placeType === tp ? "#fff" : colors.textSecondary} />
+                      <Text style={[styles.typeChipText, { color: placeType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                  value={placeCost}
+                  onChangeText={setPlaceCost}
+                  placeholder={txt.expenseAmount + " (VNĐ)"}
+                  placeholderTextColor={colors.textTertiary}
+                  keyboardType="numeric"
+                />
+                <View style={styles.modalActions}>
+                  <Pressable onPress={() => setAddPlaceModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                    <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
+                  </Pressable>
+                  <Pressable onPress={addPlaceToDay} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                    <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.add}</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -2003,27 +2258,48 @@ export default function ItineraryDetailScreen() {
             </Pressable>
 
             {companions.length > 0 && (
-              <Pressable
-                style={[invStyles.manageBtn, { backgroundColor: colors.inputBg }]}
-                onPress={() => { setShareModal(false); setCompanionModal(true); }}
-              >
-                <View style={invStyles.manageBtnLeft}>
-                  <View style={invStyles.manageBtnAvatars}>
-                    {companions.slice(0, 3).map((c, i) => {
-                      const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981"];
-                      return (
-                        <View key={c.userId} style={[invStyles.manageBtnAvatar, { backgroundColor: avatarColors[i], marginLeft: i > 0 ? -8 : 0, zIndex: 3 - i }]}>
+              <>
+                <View style={{ gap: 8 }}>
+                  <Text style={[invStyles.sectionLabel, { color: colors.textSecondary }]}>{txt.memberList}</Text>
+                  {companions.slice(0, 3).map((c, i) => {
+                    const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+                    const bg = avatarColors[i % avatarColors.length];
+                    return (
+                      <View key={c.userId} style={[invStyles.memberRow, { backgroundColor: colors.inputBg }]}>
+                        <View style={[invStyles.memberAvatar, { backgroundColor: bg }]}>
                           <Text style={invStyles.manageBtnAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
                         </View>
-                      );
-                    })}
-                  </View>
-                  <Text style={[invStyles.manageBtnText, { color: colors.text }]}>
-                    {companions.length} {txt.companions.toLowerCase()}
-                  </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[invStyles.manageBtnText, { color: colors.text }]}>{c.userName}</Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            <Ionicons name={c.role === "editor" ? "create-outline" : "eye-outline"} size={12} color={colors.textSecondary} />
+                            <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary }}>
+                              {c.role === "editor" ? txt.canEdit : txt.viewOnly}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                  {companions.length > 3 && (
+                    <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, textAlign: "center" }}>
+                      +{companions.length - 3} {txt.companions.toLowerCase()}
+                    </Text>
+                  )}
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-              </Pressable>
+                <Pressable
+                  style={[invStyles.manageBtn, { backgroundColor: colors.inputBg }]}
+                  onPress={() => { setShareModal(false); setCompanionModal(true); }}
+                >
+                  <View style={invStyles.manageBtnLeft}>
+                    <Ionicons name="settings-outline" size={18} color={colors.primary} />
+                    <Text style={[invStyles.manageBtnText, { color: colors.primary }]}>
+                      {txt.manageCompanions}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                </Pressable>
+              </>
             )}
           </View>
         </View>
@@ -2073,18 +2349,80 @@ export default function ItineraryDetailScreen() {
                       </View>
                     </View>
                     {isOwner && (
-                      <Pressable
-                        onPress={() => handleRemoveCompanion(c)}
-                        hitSlop={8}
-                        style={[invStyles.removeBtn, { backgroundColor: colors.error + "12" }]}
-                      >
-                        <Ionicons name="person-remove-outline" size={16} color={colors.error} />
-                      </Pressable>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Pressable
+                          onPress={() => handleChangeCompanionRole(c, c.role === "editor" ? "viewer" : "editor")}
+                          hitSlop={6}
+                          style={[invStyles.roleToggleBtn, { backgroundColor: c.role === "editor" ? colors.primary + "18" : colors.accent + "18" }]}
+                        >
+                          <Ionicons
+                            name={c.role === "editor" ? "eye-outline" : "create-outline"}
+                            size={14}
+                            color={c.role === "editor" ? colors.primary : colors.accent}
+                          />
+                          <Text style={[invStyles.roleToggleText, { color: c.role === "editor" ? colors.primary : colors.accent }]}>
+                            {c.role === "editor" ? txt.viewOnly : txt.canEdit}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleRemoveCompanion(c)}
+                          hitSlop={6}
+                          style={[invStyles.removeBtn, { backgroundColor: colors.error + "12" }]}
+                        >
+                          <Ionicons name="person-remove-outline" size={16} color={colors.error} />
+                        </Pressable>
+                      </View>
                     )}
                   </View>
                 );
               })}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!routeMapModal} transparent animationType="slide" onRequestClose={() => setRouteMapModal(null)}>
+        <View style={actDetailStyles.overlay}>
+          <View style={[actDetailStyles.content, { backgroundColor: colors.card }]}>
+            <View style={actDetailStyles.header}>
+              <Text style={[actDetailStyles.title, { color: colors.text }]}>{txt.routeMapTitle}</Text>
+              <Pressable onPress={() => setRouteMapModal(null)} hitSlop={8}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </Pressable>
+            </View>
+            {routeMapModal && (() => {
+              const day = itinerary.days[routeMapModal.dayIdx];
+              if (!day) return null;
+              const mapPoints = day.activities
+                .filter((a) => a.latitude != null && a.longitude != null)
+                .map((a, i) => ({
+                  lat: a.latitude!,
+                  lng: a.longitude!,
+                  name: a.title,
+                  type: a.activityType,
+                  index: i,
+                }));
+              return (
+                <View style={{ flex: 1 }}>
+                  <RouteMap
+                    points={mapPoints}
+                    height={400}
+                    colors={colors as any}
+                    showRoute={true}
+                  />
+                  <ScrollView style={{ maxHeight: 150, marginTop: 10 }} showsVerticalScrollIndicator={false}>
+                    {day.activities.filter((a) => a.latitude != null).map((a, i) => (
+                      <View key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 }}>
+                        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }}>
+                          <Text style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" }}>{i + 1}</Text>
+                        </View>
+                        <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.text, flex: 1 }} numberOfLines={1}>{a.time} - {a.title}</Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              );
+            })()}
           </View>
         </View>
       </Modal>
@@ -2148,6 +2486,40 @@ export default function ItineraryDetailScreen() {
                         )}
                       </View>
                     )}
+
+                    {(() => {
+                      const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
+                      if (!linkedPOI) return null;
+                      return (
+                        <View style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg, flexDirection: "column", alignItems: "flex-start", gap: 6 }]}>
+                          <Text style={[actDetailStyles.sectionTitle, { color: colors.text, marginBottom: 2 }]}>{txt.poiInfo}</Text>
+                          {linkedPOI.openHours && (
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Ionicons name="time-outline" size={14} color={colors.primary} />
+                              <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.openHours}: {linkedPOI.openHours}</Text>
+                            </View>
+                          )}
+                          {linkedPOI.estimatedDuration && (
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Ionicons name="hourglass-outline" size={14} color={colors.primary} />
+                              <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.estDuration}: {linkedPOI.estimatedDuration}</Text>
+                            </View>
+                          )}
+                          {linkedPOI.estimatedCost != null && linkedPOI.estimatedCost > 0 && (
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Ionicons name="cash-outline" size={14} color={colors.primary} />
+                              <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.estCost}: {formatVND(linkedPOI.estimatedCost)}</Text>
+                            </View>
+                          )}
+                          {linkedPOI.rating > 0 && (
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Ionicons name="star" size={14} color="#F59E0B" />
+                              <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{linkedPOI.rating.toFixed(1)} ({linkedPOI.reviewCount} {txt.activityReviewCount})</Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })()}
 
                     {sampleReviews.length > 0 && (
                       <>
@@ -2874,6 +3246,32 @@ const invStyles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
+  },
+  memberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: 12,
+  },
+  memberAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roleToggleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  roleToggleText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
   },
 });
 

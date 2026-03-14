@@ -112,6 +112,7 @@ export interface ItineraryActivity {
   latitude?: number;
   longitude?: number;
   activityType: "sightseeing" | "food" | "transport" | "shopping" | "other";
+  poiId?: string;
 }
 
 export interface ExpenseSplit {

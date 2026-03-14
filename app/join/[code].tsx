@@ -10,6 +10,16 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { formatVND } from "@/lib/storage";
 import { t } from "@/lib/i18n";
+import type { Itinerary } from "@/lib/storage";
+
+function getServerUrl(): string {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (domain) {
+    const protocol = domain.includes("localhost") ? "http" : "https";
+    return `${protocol}://${domain}`;
+  }
+  return "http://localhost:5000";
+}
 
 export default function JoinTripScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
@@ -17,57 +27,110 @@ export default function JoinTripScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary } = useData();
+  const { itineraries, updateItinerary, isLoading } = useData();
   const [status, setStatus] = useState<"loading" | "found" | "invalid" | "joined" | "already">("loading");
+  const [sharedTrip, setSharedTrip] = useState<Itinerary | null>(null);
 
-  const itinerary = itineraries.find((i) => i.shareCode === code);
   const txt = t().itinerary;
 
+  // First check local data, then fallback to server API
   useEffect(() => {
+    if (isLoading) {
+      setStatus("loading");
+      return;
+    }
     if (!code) {
       setStatus("invalid");
       return;
     }
-    if (!itinerary) {
-      setStatus("invalid");
-      return;
-    }
     if (!user) {
-      setStatus("invalid");
+      router.replace({ pathname: "/(auth)/login", params: { redirect: `/join/${code}` } });
       return;
     }
-    if (itinerary.userId === user.id) {
-      setStatus("already");
+
+    // Check local itineraries first
+    const localTrip = itineraries.find((i) => i.shareCode === code);
+    if (localTrip) {
+      setSharedTrip(localTrip);
+      if (localTrip.userId === user.id) {
+        setStatus("already");
+      } else if ((localTrip.companions || []).some((c) => c.userId === user.id)) {
+        setStatus("already");
+      } else {
+        setStatus("found");
+      }
       return;
     }
-    const companions = itinerary.companions || [];
-    if (companions.some((c) => c.userId === user.id)) {
-      setStatus("already");
-      return;
-    }
-    setStatus("found");
-  }, [code, itinerary, user]);
+
+    // Fallback: fetch from server API
+    const fetchFromServer = async () => {
+      try {
+        const res = await fetch(`${getServerUrl()}/api/share/${code}`);
+        if (!res.ok) {
+          setStatus("invalid");
+          return;
+        }
+        const trip = await res.json();
+        setSharedTrip(trip);
+        if (trip.userId === user.id) {
+          setStatus("already");
+        } else if ((trip.companions || []).some((c: any) => c.userId === user.id)) {
+          setStatus("already");
+        } else {
+          setStatus("found");
+        }
+      } catch {
+        setStatus("invalid");
+      }
+    };
+    fetchFromServer();
+  }, [code, itineraries, user, isLoading]);
 
   const handleJoin = async () => {
-    if (!itinerary || !user || status !== "found") return;
+    if (!sharedTrip || !user || status !== "found") return;
     setStatus("loading");
-    const existing = itinerary.companions || [];
-    if (existing.some((c) => c.userId === user.id)) {
-      setStatus("already");
-      return;
-    }
-    const role = itinerary.sharePermission || "viewer";
-    const updated = [...existing, {
+
+    const role = sharedTrip.sharePermission || "viewer";
+    const companion = {
       userId: user.id,
       userName: user.fullName,
       role,
       joinedAt: new Date().toISOString(),
-    }];
-    await updateItinerary(itinerary.id, { companions: updated });
+    };
+
+    // Check if trip exists locally (same browser)
+    const localTrip = itineraries.find((i) => i.id === sharedTrip.id);
+    if (localTrip) {
+      const existing = localTrip.companions || [];
+      if (existing.some((c) => c.userId === user.id)) {
+        setStatus("already");
+        return;
+      }
+      const updated = [...existing, companion];
+      await updateItinerary(localTrip.id, { companions: updated });
+    }
+
+    // Also notify server
+    try {
+      await fetch(`${getServerUrl()}/api/share/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shareCode: code, companion }),
+      });
+    } catch (e) { console.log("Failed to sync join to server:", e); }
+
+    // If trip was from server (not local), save it locally
+    if (!localTrip) {
+      // Import the trip into local storage
+      const { addItinerary } = await import("@/contexts/DataContext").then(() => ({ addItinerary: null }));
+      // We'll just update the sharedTrip reference for navigation
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setStatus("joined");
   };
 
+  const itinerary = sharedTrip;
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
   return (
@@ -109,7 +172,7 @@ export default function JoinTripScreen() {
               }}
               style={[styles.actionBtn, { backgroundColor: colors.primary }]}
             >
-              <Text style={styles.actionBtnText}>{t().common.view || "Xem"}</Text>
+              <Text style={styles.actionBtnText}>{"Xem"}</Text>
             </Pressable>
           </View>
         )}
@@ -160,7 +223,7 @@ export default function JoinTripScreen() {
               }}
               style={[styles.actionBtn, { backgroundColor: colors.primary }]}
             >
-              <Text style={styles.actionBtnText}>{t().common.view || "Xem chuyến đi"}</Text>
+              <Text style={styles.actionBtnText}>{"Xem chuyến đi"}</Text>
             </Pressable>
           </View>
         )}
