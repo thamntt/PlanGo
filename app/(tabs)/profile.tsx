@@ -8,6 +8,7 @@ import {
   TextInput,
   ScrollView,
   Switch,
+  Modal,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -49,6 +50,7 @@ export default function ProfileScreen() {
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
   const [pwdError, setPwdError] = useState("");
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const myTripsCount = useMemo(() => itineraries.filter((i) => i.userId === user?.id).length, [itineraries, user]);
   const myReviewsCount = useMemo(() => reviews.filter((r) => r.userId === user?.id).length, [reviews, user]);
@@ -91,10 +93,7 @@ export default function ProfileScreen() {
 
   const handleLogout = () => {
     if (Platform.OS === "web") {
-      const confirmed = window.confirm(txt.profile.logoutConfirm);
-      if (confirmed) {
-        logout();
-      }
+      setShowLogoutModal(true);
     } else {
       const Alert = require("react-native").Alert;
       Alert.alert(txt.profile.logout, txt.profile.logoutConfirm, [
@@ -106,6 +105,11 @@ export default function ProfileScreen() {
         },
       ]);
     }
+  };
+
+  const confirmLogout = () => {
+    setShowLogoutModal(false);
+    logout();
   };
 
   const togglePref = (pref: string) => {
@@ -415,6 +419,43 @@ export default function ProfileScreen() {
           <Text style={[pStyles.logoutButtonText, { color: colors.error }]}>{txt.profile.logout}</Text>
         </Pressable>
       </View>
+
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <Pressable style={pStyles.modalOverlay} onPress={() => setShowLogoutModal(false)}>
+          <Pressable style={[pStyles.modalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
+            <View style={[pStyles.modalIconCircle, { backgroundColor: colors.error + '15' }]}>
+              <Ionicons name="log-out-outline" size={28} color={colors.error} />
+            </View>
+            <Text style={[pStyles.modalTitle, { color: colors.text }]}>{txt.profile.logout}</Text>
+            <Text style={[pStyles.modalMessage, { color: colors.textSecondary }]}>{txt.profile.logoutConfirm}</Text>
+            <View style={pStyles.modalActions}>
+              <Pressable
+                onPress={() => setShowLogoutModal(false)}
+                style={({ pressed }) => [
+                  pStyles.modalBtn,
+                  { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, borderWidth: 1, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[pStyles.modalBtnText, { color: colors.text }]}>{txt.common.cancel}</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmLogout}
+                style={({ pressed }) => [
+                  pStyles.modalBtn,
+                  { backgroundColor: colors.error, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[pStyles.modalBtnText, { color: '#fff' }]}>{txt.profile.logout}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -543,4 +584,25 @@ const pStyles = StyleSheet.create({
   pwdError: { fontSize: 12, fontFamily: "Inter_400Regular" },
   pwdSaveBtn: { borderRadius: 12, paddingVertical: 12, alignItems: "center" as const },
   pwdSaveBtnText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  modalOverlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center", alignItems: "center", padding: 32,
+  },
+  modalContent: {
+    width: "100%", maxWidth: 360, borderRadius: 20, padding: 28,
+    alignItems: "center", gap: 12,
+    ...Platform.select({ web: { boxShadow: '0 20px 60px rgba(0,0,0,0.3)' } as any, default: { elevation: 10 } }),
+  },
+  modalIconCircle: {
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: "center", justifyContent: "center", marginBottom: 4,
+  },
+  modalTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  modalMessage: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center" as const, lineHeight: 20 },
+  modalActions: { flexDirection: "row" as const, gap: 12, marginTop: 8, width: "100%" as any },
+  modalBtn: {
+    flex: 1, paddingVertical: 13, borderRadius: 12,
+    alignItems: "center" as const, justifyContent: "center" as const,
+  },
+  modalBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
 });
