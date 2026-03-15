@@ -260,16 +260,35 @@ export default function ItineraryDetailScreen() {
       try {
         const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
         const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
-        const res = await fetch(`${serverProtocol}://${serverDomain}/api/share/${itinerary.shareCode}`);
-        if (!res.ok) return;
+        const baseUrl = `${serverProtocol}://${serverDomain}`;
+        const res = await fetch(`${baseUrl}/api/share/${itinerary.shareCode}`);
+        if (!res.ok) {
+          // Server lost data (e.g. restart) — re-push if we are the owner
+          if (res.status === 404 && isOwner) {
+            await fetch(`${baseUrl}/api/share`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ shareCode: itinerary.shareCode, itinerary }),
+            });
+          }
+          return;
+        }
         const serverTrip = await res.json();
         const serverCompanions = serverTrip.companions || [];
         const localCompanions = itinerary.companions || [];
-        // Check if server has companions that local doesn't
-        const hasNew = serverCompanions.some(
-          (sc: any) => !localCompanions.some((lc) => lc.userId === sc.userId)
-        );
-        if (hasNew) {
+        // Check if server has different companions (new, removed, or role changed)
+        const hasChanges =
+          serverCompanions.length !== localCompanions.length ||
+          serverCompanions.some(
+            (sc: any) => {
+              const lc = localCompanions.find((l) => l.userId === sc.userId);
+              return !lc || lc.role !== sc.role;
+            }
+          ) ||
+          localCompanions.some(
+            (lc) => !serverCompanions.some((sc: any) => sc.userId === lc.userId)
+          );
+        if (hasChanges) {
           await updateItinerary(itinerary.id, { companions: serverCompanions });
         }
       } catch (e) { /* silent fail */ }
@@ -1820,69 +1839,64 @@ export default function ItineraryDetailScreen() {
                   <View>
                     <Text style={{ fontSize: 15, fontFamily: "Inter_700Bold", color: colors.text }}>{txt.companions}</Text>
                     <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 1 }}>
-                      {companions.length > 0 ? txt.companionsJoined(companions.length) : "Chưa có bạn đồng hành"}
+                      {tripMembers.length} thành viên
                     </Text>
                   </View>
                 </View>
               </View>
 
-              {companions.length === 0 ? (
-                <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
-                  <Ionicons name="people-outline" size={40} color={colors.textTertiary} />
-                  <Text style={{ fontSize: 14, fontFamily: "Inter_500Medium", color: colors.textSecondary }}>Chưa có ai tham gia</Text>
-                  {isOwner && (
-                    <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textTertiary, textAlign: "center" }}>
-                      Tạo link chia sẻ ở trên để mời bạn bè tham gia
-                    </Text>
-                  )}
-                </View>
-              ) : (
-                companions.map((c, i) => {
-                  const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
-                  const bg = avatarColors[i % avatarColors.length];
-                  return (
-                    <View key={c.userId} style={[invStyles.compRow, i < companions.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.cardBorder }]}>
-                      <View style={[invStyles.compAvatar, { backgroundColor: bg }]}>
-                        <Text style={invStyles.compAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
-                      </View>
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <Text style={[invStyles.compName, { color: colors.text }]}>{c.userName}</Text>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                          <Ionicons name={c.role === "editor" ? "create-outline" : "eye-outline"} size={12} color={colors.textSecondary} />
-                          <Text style={[invStyles.compRole, { color: colors.textSecondary }]}>
-                            {c.role === "editor" ? txt.editor : txt.viewer}
-                          </Text>
-                        </View>
-                      </View>
-                      {isOwner && (
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                          <Pressable
-                            onPress={() => handleChangeCompanionRole(c, c.role === "editor" ? "viewer" : "editor")}
-                            hitSlop={6}
-                            style={[invStyles.roleToggleBtn, { backgroundColor: c.role === "editor" ? colors.primary + "18" : colors.accent + "18" }]}
-                          >
-                            <Ionicons
-                              name={c.role === "editor" ? "eye-outline" : "create-outline"}
-                              size={14}
-                              color={c.role === "editor" ? colors.primary : colors.accent}
-                            />
-                            <Text style={[invStyles.roleToggleText, { color: c.role === "editor" ? colors.primary : colors.accent }]}>
-                              {c.role === "editor" ? txt.viewOnly : txt.canEdit}
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => handleRemoveCompanion(c)}
-                            hitSlop={6}
-                            style={[invStyles.removeBtn, { backgroundColor: colors.error + "12" }]}
-                          >
-                            <Ionicons name="person-remove-outline" size={16} color={colors.error} />
-                          </Pressable>
-                        </View>
-                      )}
+              {tripMembers.map((m, i) => {
+                const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+                const bg = avatarColors[i % avatarColors.length];
+                const companion = companions.find((c) => c.userId === m.userId);
+                return (
+                  <View key={m.userId} style={[invStyles.compRow, i < tripMembers.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.cardBorder }]}>
+                    <View style={[invStyles.compAvatar, { backgroundColor: bg }]}>
+                      <Text style={invStyles.compAvatarText}>{m.userName.charAt(0).toUpperCase()}</Text>
                     </View>
-                  );
-                })
-              )}
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={[invStyles.compName, { color: colors.text }]}>
+                        {m.userName}{m.isOwner ? " 👑" : ""}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Ionicons
+                          name={m.isOwner ? "shield-checkmark-outline" : (companion?.role === "editor" ? "create-outline" : "eye-outline")}
+                          size={12}
+                          color={colors.textSecondary}
+                        />
+                        <Text style={[invStyles.compRole, { color: colors.textSecondary }]}>
+                          {m.isOwner ? "Chủ chuyến đi" : (companion?.role === "editor" ? txt.editor : txt.viewer)}
+                        </Text>
+                      </View>
+                    </View>
+                    {isOwner && !m.isOwner && companion && (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Pressable
+                          onPress={() => handleChangeCompanionRole(companion, companion.role === "editor" ? "viewer" : "editor")}
+                          hitSlop={6}
+                          style={[invStyles.roleToggleBtn, { backgroundColor: companion.role === "editor" ? colors.primary + "18" : colors.accent + "18" }]}
+                        >
+                          <Ionicons
+                            name={companion.role === "editor" ? "eye-outline" : "create-outline"}
+                            size={14}
+                            color={companion.role === "editor" ? colors.primary : colors.accent}
+                          />
+                          <Text style={[invStyles.roleToggleText, { color: companion.role === "editor" ? colors.primary : colors.accent }]}>
+                            {companion.role === "editor" ? txt.viewOnly : txt.canEdit}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleRemoveCompanion(companion)}
+                          hitSlop={6}
+                          style={[invStyles.removeBtn, { backgroundColor: colors.error + "12" }]}
+                        >
+                          <Ionicons name="person-remove-outline" size={16} color={colors.error} />
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
             </View>
 
             {/* Leave trip button for companions */}
@@ -2226,7 +2240,7 @@ export default function ItineraryDetailScreen() {
                       style={[styles.dropdownItem, expensePaidByUserId === m.userId && { backgroundColor: colors.primary + "15" }]}
                     >
                       <Text style={[styles.dropdownItemText, { color: colors.text }]}>
-                        {m.userName}{m.isOwner ? ` (${txt.tripOwnerLabel})` : ""}
+                        {m.userName}{m.isOwner ? " 👑" : ""}
                       </Text>
                       {expensePaidByUserId === m.userId && <Ionicons name="checkmark" size={16} color={colors.primary} />}
                     </Pressable>
