@@ -179,7 +179,7 @@ export default function ItineraryDetailScreen() {
   const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview, pois } = useData();
 
   const itinerary = itineraries.find((i) => i.id === id);
-  const [activeTab, setActiveTab] = useState<"itinerary" | "expenses">("itinerary");
+  const [activeTab, setActiveTab] = useState<"itinerary" | "expenses" | "companions">("itinerary");
   const [expandedDay, setExpandedDay] = useState<number | null>(0);
   const [noteModal, setNoteModal] = useState<{ activityId: string; dayIdx: number; note: string; editIndex?: number } | null>(null);
   const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; estimatedCost: string; paidBy: string } | null>(null);
@@ -233,31 +233,48 @@ export default function ItineraryDetailScreen() {
     return activitySpent + expenseSpent;
   }, [itinerary?.days, itinerary?.expenses]);
 
-  if (!itinerary) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
-        <Text style={{ color: colors.textSecondary, fontFamily: "Inter_500Medium" }}>{t().itinerary.notFound}</Text>
-      </View>
-    );
-  }
-
-  const isOwner = user?.id === itinerary.userId;
-  const companions = itinerary.companions || [];
+  const isOwner = user?.id === (itinerary?.userId ?? "");
+  const companions = itinerary?.companions || [];
   const myCompanion = companions.find((c) => c.userId === user?.id);
   const isCompanion = !!myCompanion;
   const canEdit = isOwner || (myCompanion?.role === "editor");
 
   const [ownerName, setOwnerName] = useState("");
   useEffect(() => {
+    if (!itinerary) return;
     if (isOwner && user) {
       setOwnerName(user.fullName);
-    } else if (itinerary) {
+    } else {
       getUsers().then((users) => {
         const owner = users.find((u) => u.id === itinerary.userId);
         if (owner) setOwnerName(owner.fullName);
       });
     }
   }, [isOwner, user, itinerary?.userId]);
+
+  // Sync companions from server for shared trips
+  useEffect(() => {
+    if (!itinerary?.shareCode || !itinerary?.isShared) return;
+    const syncCompanions = async () => {
+      try {
+        const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
+        const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
+        const res = await fetch(`${serverProtocol}://${serverDomain}/api/share/${itinerary.shareCode}`);
+        if (!res.ok) return;
+        const serverTrip = await res.json();
+        const serverCompanions = serverTrip.companions || [];
+        const localCompanions = itinerary.companions || [];
+        // Check if server has companions that local doesn't
+        const hasNew = serverCompanions.some(
+          (sc: any) => !localCompanions.some((lc) => lc.userId === sc.userId)
+        );
+        if (hasNew) {
+          await updateItinerary(itinerary.id, { companions: serverCompanions });
+        }
+      } catch (e) { /* silent fail */ }
+    };
+    syncCompanions();
+  }, [itinerary?.shareCode, itinerary?.isShared]);
 
   const tripMembers = useMemo(() => {
     const members: { userId: string; userName: string; isOwner: boolean }[] = [];
@@ -271,6 +288,14 @@ export default function ItineraryDetailScreen() {
     }
     return members;
   }, [ownerName, itinerary?.userId, companions]);
+
+  if (!itinerary) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
+        <Text style={{ color: colors.textSecondary, fontFamily: "Inter_500Medium" }}>{t().itinerary.notFound}</Text>
+      </View>
+    );
+  }
 
   const initSplitChecked = () => {
     const checked: Record<string, boolean> = {};
@@ -1093,7 +1118,7 @@ export default function ItineraryDetailScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/trips")}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
@@ -1152,41 +1177,7 @@ export default function ItineraryDetailScreen() {
           </View>
         </View>
 
-        {companions.length > 0 && (
-          <Pressable
-            style={[styles.companionBar, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-            onPress={() => setCompanionModal(true)}
-          >
-            <View style={styles.companionBarLeft}>
-              <View style={styles.companionAvatars}>
-                {companions.slice(0, 5).map((c, i) => {
-                  const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
-                  const bg = avatarColors[i % avatarColors.length];
-                  return (
-                    <View key={c.userId} style={[styles.companionAvatar, { backgroundColor: bg, marginLeft: i > 0 ? -10 : 0, zIndex: 5 - i }]}>
-                      <Text style={styles.companionAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
-                    </View>
-                  );
-                })}
-                {companions.length > 5 && (
-                  <View style={[styles.companionAvatar, { backgroundColor: colors.textSecondary, marginLeft: -10, zIndex: 0 }]}>
-                    <Text style={styles.companionAvatarText}>+{companions.length - 5}</Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.companionBarInfo}>
-                <Text style={[styles.companionBarTitle, { color: colors.text }]}>{txt.companions}</Text>
-                <Text style={[styles.companionBarCount, { color: colors.textSecondary }]}>
-                  {companions.length} {txt.companions.toLowerCase()}
-                </Text>
-              </View>
-            </View>
-            <View style={[styles.companionBarAction, { backgroundColor: colors.primary + "15" }]}>
-              <Ionicons name="people-outline" size={16} color={colors.primary} />
-              <Text style={[styles.companionBarActionText, { color: colors.primary }]}>{txt.manageShort}</Text>
-            </View>
-          </Pressable>
-        )}
+
 
         {itinerary.totalBudget > 0 && (
           <View style={[styles.budgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
@@ -1294,6 +1285,18 @@ export default function ItineraryDetailScreen() {
             {expenses.length > 0 && (
               <View style={[styles.tabBadge, { backgroundColor: colors.accent }]}>
                 <Text style={styles.tabBadgeText}>{expenses.length}</Text>
+              </View>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={() => setActiveTab("companions")}
+            style={[styles.tabBtn, activeTab === "companions" && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
+          >
+            <Ionicons name="people-outline" size={16} color={activeTab === "companions" ? colors.primary : colors.textTertiary} />
+            <Text style={[styles.tabBtnText, { color: activeTab === "companions" ? colors.primary : colors.textTertiary }]}>{txt.companions}</Text>
+            {companions.length > 0 && (
+              <View style={[styles.tabBadge, { backgroundColor: colors.primary }]}>
+                <Text style={styles.tabBadgeText}>{companions.length}</Text>
               </View>
             )}
           </Pressable>
@@ -1743,6 +1746,145 @@ export default function ItineraryDetailScreen() {
               >
                 <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
                 <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addExpense}</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {activeTab === "companions" && (
+          <View style={{ gap: 14 }}>
+            {/* Share link section for owner */}
+            {isOwner && (
+              <View style={[styles.budgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primary + "18", alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="link-outline" size={18} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontFamily: "Inter_700Bold", color: colors.text }}>{txt.shareTrip}</Text>
+                    <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 1 }}>{txt.copyLinkHint}</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <View style={[invStyles.permToggle, { backgroundColor: colors.inputBg, flex: 1 }]}>
+                    <Pressable
+                      onPress={() => setSharePermission("viewer")}
+                      style={[invStyles.permBtn, sharePermission === "viewer" && { backgroundColor: colors.card, ...invStyles.permBtnActive }]}
+                    >
+                      <Ionicons name="eye-outline" size={14} color={sharePermission === "viewer" ? colors.primary : colors.textSecondary} />
+                      <Text style={[invStyles.permBtnText, { color: sharePermission === "viewer" ? colors.primary : colors.textSecondary, fontSize: 12 }]}>{txt.viewOnly}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setSharePermission("editor")}
+                      style={[invStyles.permBtn, sharePermission === "editor" && { backgroundColor: colors.card, ...invStyles.permBtnActive }]}
+                    >
+                      <Ionicons name="create-outline" size={14} color={sharePermission === "editor" ? colors.primary : colors.textSecondary} />
+                      <Text style={[invStyles.permBtnText, { color: sharePermission === "editor" ? colors.primary : colors.textSecondary, fontSize: 12 }]}>{txt.canEdit}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <Pressable
+                  onPress={handleGenerateLink}
+                  style={({ pressed }) => [{
+                    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                    paddingVertical: 12, borderRadius: 12, backgroundColor: colors.primary, marginTop: 4,
+                    opacity: pressed ? 0.9 : 1,
+                  }]}
+                >
+                  <Ionicons name="copy-outline" size={16} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" }}>{txt.copyLink}</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Companion list */}
+            <View style={[styles.budgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primary + "18", alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="people" size={18} color={colors.primary} />
+                  </View>
+                  <View>
+                    <Text style={{ fontSize: 15, fontFamily: "Inter_700Bold", color: colors.text }}>{txt.companions}</Text>
+                    <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 1 }}>
+                      {companions.length > 0 ? txt.companionsJoined(companions.length) : "Chưa có bạn đồng hành"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {companions.length === 0 ? (
+                <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
+                  <Ionicons name="people-outline" size={40} color={colors.textTertiary} />
+                  <Text style={{ fontSize: 14, fontFamily: "Inter_500Medium", color: colors.textSecondary }}>Chưa có ai tham gia</Text>
+                  {isOwner && (
+                    <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textTertiary, textAlign: "center" }}>
+                      Tạo link chia sẻ ở trên để mời bạn bè tham gia
+                    </Text>
+                  )}
+                </View>
+              ) : (
+                companions.map((c, i) => {
+                  const avatarColors = ["#4F46E5", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+                  const bg = avatarColors[i % avatarColors.length];
+                  return (
+                    <View key={c.userId} style={[invStyles.compRow, i < companions.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.cardBorder }]}>
+                      <View style={[invStyles.compAvatar, { backgroundColor: bg }]}>
+                        <Text style={invStyles.compAvatarText}>{c.userName.charAt(0).toUpperCase()}</Text>
+                      </View>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={[invStyles.compName, { color: colors.text }]}>{c.userName}</Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Ionicons name={c.role === "editor" ? "create-outline" : "eye-outline"} size={12} color={colors.textSecondary} />
+                          <Text style={[invStyles.compRole, { color: colors.textSecondary }]}>
+                            {c.role === "editor" ? txt.editor : txt.viewer}
+                          </Text>
+                        </View>
+                      </View>
+                      {isOwner && (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Pressable
+                            onPress={() => handleChangeCompanionRole(c, c.role === "editor" ? "viewer" : "editor")}
+                            hitSlop={6}
+                            style={[invStyles.roleToggleBtn, { backgroundColor: c.role === "editor" ? colors.primary + "18" : colors.accent + "18" }]}
+                          >
+                            <Ionicons
+                              name={c.role === "editor" ? "eye-outline" : "create-outline"}
+                              size={14}
+                              color={c.role === "editor" ? colors.primary : colors.accent}
+                            />
+                            <Text style={[invStyles.roleToggleText, { color: c.role === "editor" ? colors.primary : colors.accent }]}>
+                              {c.role === "editor" ? txt.viewOnly : txt.canEdit}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => handleRemoveCompanion(c)}
+                            hitSlop={6}
+                            style={[invStyles.removeBtn, { backgroundColor: colors.error + "12" }]}
+                          >
+                            <Ionicons name="person-remove-outline" size={16} color={colors.error} />
+                          </Pressable>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
+              )}
+            </View>
+
+            {/* Leave trip button for companions */}
+            {isCompanion && (
+              <Pressable
+                onPress={handleLeaveTrip}
+                style={({ pressed }) => [{
+                  flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                  paddingVertical: 14, borderRadius: 14, borderWidth: 1,
+                  borderColor: colors.error + "40", backgroundColor: colors.error + "08",
+                  opacity: pressed ? 0.9 : 1,
+                }]}
+              >
+                <Ionicons name="log-out-outline" size={18} color={colors.error} />
+                <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.error }}>{txt.leaveTrip}</Text>
               </Pressable>
             )}
           </View>
@@ -3045,37 +3187,79 @@ const travelStyles = StyleSheet.create({
   },
   companionBar: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     borderRadius: 16,
     borderWidth: 1,
+    overflow: "hidden",
+  },
+  companionBarAccent: {
+    width: 4,
+  },
+  companionBarContent: {
+    flex: 1,
     padding: 14,
     gap: 12,
   },
-  companionBarLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  companionBarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  companionBarTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  companionBarIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  companionBarBody: {
+    gap: 10,
+  },
   companionAvatars: { flexDirection: "row", alignItems: "center" },
   companionAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2.5,
-    borderColor: "#fff",
   },
-  companionAvatarText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
-  companionBarInfo: { flex: 1, gap: 1 },
-  companionBarTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  companionBarCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  companionAvatarText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
+  companionNameChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  companionChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  companionChipDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  companionChipText: { fontSize: 12, fontFamily: "Inter_500Medium", maxWidth: 100 },
+  companionChipRole: { fontSize: 11 },
+  companionBarTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  companionBarCount: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 1 },
   companionBarAction: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 10,
   },
-  companionBarActionText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  companionBarActionText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });
 
 const actDetailStyles = StyleSheet.create({
