@@ -11,6 +11,7 @@ import {
   TextInput,
   Linking,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -289,10 +290,24 @@ export default function ItineraryDetailScreen() {
     return members;
   }, [ownerName, itinerary?.userId, companions]);
 
+  const filteredPOIs = useMemo(() => {
+    let filtered = pois.filter((p) => p.isActive);
+    if (poiDestFilter) {
+      filtered = filtered.filter((p) => p.destinationId === poiDestFilter);
+    }
+    if (poiSearch.trim()) {
+      const q = poiSearch.toLowerCase().trim();
+      filtered = filtered.filter((p) =>
+        p.name.toLowerCase().includes(q) || p.address.toLowerCase().includes(q)
+      );
+    }
+    return filtered.slice(0, 20);
+  }, [pois, poiSearch, poiDestFilter]);
+
   if (!itinerary) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
-        <Text style={{ color: colors.textSecondary, fontFamily: "Inter_500Medium" }}>{t().itinerary.notFound}</Text>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -907,19 +922,7 @@ export default function ItineraryDetailScreen() {
     setPoiDestFilter("");
   };
 
-  const filteredPOIs = useMemo(() => {
-    let filtered = pois.filter((p) => p.isActive);
-    if (poiDestFilter) {
-      filtered = filtered.filter((p) => p.destinationId === poiDestFilter);
-    }
-    if (poiSearch.trim()) {
-      const q = poiSearch.toLowerCase().trim();
-      filtered = filtered.filter((p) =>
-        p.name.toLowerCase().includes(q) || p.address.toLowerCase().includes(q)
-      );
-    }
-    return filtered.slice(0, 20);
-  }, [pois, poiSearch, poiDestFilter]);
+
 
   const saveEditInfo = async () => {
     const newBudget = parseInt(editBudget.replace(/[^0-9]/g, ""), 10) || itinerary.totalBudget;
@@ -1955,13 +1958,35 @@ export default function ItineraryDetailScreen() {
               </>
             )}
             <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
-            <TextInput
-              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-              value={costModal?.paidBy || ""}
-              onChangeText={(v) => costModal && setCostModal({ ...costModal, paidBy: v })}
-              placeholder="VD: Minh"
-              placeholderTextColor={colors.textTertiary}
-            />
+            {tripMembers.length > 1 ? (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                <Pressable
+                  onPress={() => costModal && setCostModal({ ...costModal, paidBy: "" })}
+                  style={[styles.typeChip, { backgroundColor: !costModal?.paidBy ? colors.primary : colors.inputBg, borderColor: !costModal?.paidBy ? colors.primary : colors.inputBorder }]}
+                >
+                  <Text style={[styles.typeChipText, { color: !costModal?.paidBy ? "#fff" : colors.textSecondary }]}>Không chọn</Text>
+                </Pressable>
+                {tripMembers.map((m) => (
+                  <Pressable
+                    key={m.userId}
+                    onPress={() => costModal && setCostModal({ ...costModal, paidBy: m.userName })}
+                    style={[styles.typeChip, { backgroundColor: costModal?.paidBy === m.userName ? colors.primary : colors.inputBg, borderColor: costModal?.paidBy === m.userName ? colors.primary : colors.inputBorder }]}
+                  >
+                    <Text style={[styles.typeChipText, { color: costModal?.paidBy === m.userName ? "#fff" : colors.textSecondary }]}>
+                      {m.userName}{m.isOwner ? " 👑" : ""}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <TextInput
+                style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                value={costModal?.paidBy || ""}
+                onChangeText={(v) => costModal && setCostModal({ ...costModal, paidBy: v })}
+                placeholder="VD: Minh"
+                placeholderTextColor={colors.textTertiary}
+              />
+            )}
             <View style={styles.modalActions}>
               <Pressable onPress={() => setCostModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
                 <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
