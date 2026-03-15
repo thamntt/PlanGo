@@ -410,8 +410,18 @@ export default function ItineraryDetailScreen() {
     const doLeave = async () => {
       const updated = companions.filter((c) => c.userId !== user?.id);
       await updateItinerary(itinerary.id, { companions: updated });
+      // Sync to server
+      if (itinerary.shareCode && user) {
+        try {
+          await fetch(`${getServerUrl()}/api/share/companion`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ shareCode: itinerary.shareCode, userId: user.id }),
+          });
+        } catch (e) { console.log("Failed to sync leave to server:", e); }
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      router.canGoBack() ? router.back() : router.replace("/(tabs)/trips");
     };
     if (Platform.OS === "web") {
       if (window.confirm(txt.leaveTripMsg)) doLeave();
