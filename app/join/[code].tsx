@@ -27,7 +27,7 @@ export default function JoinTripScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary, isLoading } = useData();
+  const { itineraries, updateItinerary, importItinerary, isLoading } = useData();
   const [status, setStatus] = useState<"loading" | "found" | "invalid" | "joined" | "already">("loading");
   const [sharedTrip, setSharedTrip] = useState<Itinerary | null>(null);
 
@@ -119,11 +119,10 @@ export default function JoinTripScreen() {
       });
     } catch (e) { console.log("Failed to sync join to server:", e); }
 
-    // If trip was from server (not local), save it locally
-    if (!localTrip) {
-      // Import the trip into local storage
-      const { addItinerary } = await import("@/contexts/DataContext").then(() => ({ addItinerary: null }));
-      // We'll just update the sharedTrip reference for navigation
+    // If trip was from server (not local), save it locally so it appears in the user's trip list
+    if (!localTrip && sharedTrip) {
+      const tripToSave = { ...sharedTrip, companions: [...(sharedTrip.companions || []), companion] };
+      await importItinerary(tripToSave);
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

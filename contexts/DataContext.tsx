@@ -33,6 +33,7 @@ interface DataContextValue {
   updateDestination: (id: string, data: Partial<Destination>) => Promise<void>;
   deleteDestination: (id: string) => Promise<void>;
   addItinerary: (itin: Omit<Itinerary, "id" | "createdAt">) => Promise<Itinerary>;
+  importItinerary: (itin: Itinerary) => Promise<void>;
   updateItinerary: (id: string, data: Partial<Itinerary>) => Promise<void>;
   deleteItinerary: (id: string) => Promise<void>;
   addReview: (review: Omit<Review, "id" | "createdAt">) => Promise<Review>;
@@ -382,6 +383,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return newItin;
   }, []);
 
+  const importItinerary = useCallback(async (itin: Itinerary) => {
+    const all = await getItineraries();
+    if (all.some((i) => i.id === itin.id)) return; // already exists
+    const updated = [...all, itin];
+    await saveItineraries(updated);
+    setItineraries(updated);
+  }, []);
+
   const updateItinerary = useCallback(async (id: string, data: Partial<Itinerary>) => {
     const all = await getItineraries();
     const idx = all.findIndex((i) => i.id === id);
@@ -572,6 +581,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       updateDestination,
       deleteDestination,
       addItinerary,
+      importItinerary,
       updateItinerary,
       deleteItinerary,
       addReview,
@@ -587,7 +597,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       clearNotifications,
       refreshData,
     }),
-    [destinations, itineraries, reviews, notifications, pois, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, addPOI, updatePOI, deletePOI, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
+    [destinations, itineraries, reviews, notifications, pois, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, importItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, addPOI, updatePOI, deletePOI, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
