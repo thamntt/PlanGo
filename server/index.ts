@@ -34,7 +34,13 @@ function setupCors(app: express.Application) {
       origin?.startsWith("http://localhost:") ||
       origin?.startsWith("http://127.0.0.1:");
 
-    if (origin && (origins.has(origin) || isLocalhost)) {
+    // Allow LAN/private IP origins for Expo phone development
+    const isLanOrigin =
+      origin?.startsWith("http://192.168.") ||
+      origin?.startsWith("http://10.") ||
+      origin?.startsWith("http://172.");
+
+    if (origin && (origins.has(origin) || isLocalhost || isLanOrigin)) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header(
         "Access-Control-Allow-Methods",

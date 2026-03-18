@@ -1419,6 +1419,13 @@ export default function ItineraryDetailScreen() {
                                 </Text>
                               </Pressable>
                               <Text style={[styles.activityDesc, { color: colors.textSecondary }]}>{activity.description}</Text>
+                              {activity.rating ? (
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+                                  <Ionicons name="star" size={12} color="#F5A623" />
+                                  <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#F5A623" }}>{activity.rating.toFixed(1)}</Text>
+                                  <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary }}>Google Maps</Text>
+                                </View>
+                              ) : null}
                               {activity.duration ? <Text style={[styles.activityDuration, { color: colors.textTertiary }]}>{activity.duration}</Text> : null}
                             </View>
                           </View>
@@ -1440,6 +1447,22 @@ export default function ItineraryDetailScreen() {
                               </Text>
                             )}
                           </View>
+
+                          {activity.address ? (
+                            <Pressable
+                              onPress={() => {
+                                const url = activity.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity.title + " " + activity.address)}`;
+                                Linking.openURL(url);
+                              }}
+                              style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingBottom: 8 }}
+                            >
+                              <Ionicons name="location-outline" size={13} color={colors.primary} />
+                              <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.primary, flex: 1, textDecorationLine: "underline" }} numberOfLines={1}>
+                                {activity.address}
+                              </Text>
+                              <Ionicons name="open-outline" size={11} color={colors.primary} />
+                            </Pressable>
+                          ) : null}
 
                           {(() => {
                             const actReview = getActivityReview(activity.id);
@@ -1742,6 +1765,77 @@ export default function ItineraryDetailScreen() {
 
               if (settlements.length === 0) return null;
 
+              // Export report handler
+              const handleExportReport = async () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                const totalExpenseAmount = expenses.reduce((s, e) => s + e.amount, 0);
+
+                // Group expenses by type
+                const byType: Record<string, number> = {};
+                for (const e of expenses) {
+                  const label = getActivityTypeLabel(e.type);
+                  byType[label] = (byType[label] || 0) + e.amount;
+                }
+
+                const report = [
+                  txt.exportReportTitle,
+                  `━━━━━━━━━━━━━━━━━━━━`,
+                  `✈️ ${itinerary.title}`,
+                  `📍 ${itinerary.destination}`,
+                  `🗓 ${itinerary.startDate} → ${itinerary.endDate}`,
+                  `👥 ${itinerary.numPeople} người`,
+                  `💰 ${txt.totalBudget}: ${formatVND(itinerary.totalBudget || 0)}`,
+                  ``,
+                  `📋 ${txt.totalExpenses}: ${formatVND(totalExpenseAmount)}`,
+                  ...Object.entries(byType).map(([type, amount]) => `   • ${type}: ${formatVND(amount)}`),
+                  ``,
+                  `🔄 ${txt.settlement}:`,
+                  ...settlements.map((s) => `   • ${s.fromName} → ${s.toName}: ${formatVND(s.amount)}`),
+                  ``,
+                  `📅 ${txt.reportDate}: ${new Date().toLocaleDateString("vi-VN")}`,
+                ].join("\n");
+
+                try {
+                  if (Platform.OS === "web") {
+                    try { await navigator.clipboard.writeText(report); } catch { /* fallback */ }
+                    window.alert(txt.reportCopied);
+                  } else {
+                    await Share.share({ message: report, title: txt.exportReportTitle });
+                  }
+                } catch (e) {
+                  console.log("Export report error:", e);
+                }
+              };
+
+              // Debt reminder handler
+              const handleDebtReminder = async () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                let sentCount = 0;
+                for (const s of settlements) {
+                  // Send notification to the debtor
+                  await addNotification({
+                    userId: s.from,
+                    title: txt.debtReminderTitle,
+                    message: txt.debtReminderMsg(s.fromName, s.toName, formatVND(s.amount), itinerary.title),
+                    type: "warning",
+                  });
+                  // Also send notification to the creditor
+                  await addNotification({
+                    userId: s.to,
+                    title: txt.debtReminderTitle,
+                    message: `${s.fromName} đã được nhắc nhở thanh toán ${formatVND(s.amount)} cho bạn từ chuyến đi "${itinerary.title}"`,
+                    type: "info",
+                  });
+                  sentCount++;
+                }
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                if (Platform.OS === "web") {
+                  window.alert(`${txt.debtReminderSent} (${sentCount} khoản nợ)`);
+                } else {
+                  Alert.alert("", `${txt.debtReminderSent} (${sentCount} khoản nợ)`);
+                }
+              };
+
               return (
                 <View style={[styles.settlementCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
                   <View style={styles.settlementHeader}>
@@ -1756,6 +1850,24 @@ export default function ItineraryDetailScreen() {
                       <Text style={[styles.settlementAmount, { color: colors.error }]}>{formatVND(s.amount)}</Text>
                     </View>
                   ))}
+
+                  {/* Export & Reminder Buttons */}
+                  <View style={styles.settlementActions}>
+                    <Pressable
+                      onPress={handleExportReport}
+                      style={[styles.settlementBtn, { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" }]}
+                    >
+                      <Ionicons name="document-text-outline" size={16} color={colors.primary} />
+                      <Text style={[styles.settlementBtnText, { color: colors.primary }]}>{txt.exportReport}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleDebtReminder}
+                      style={[styles.settlementBtn, { backgroundColor: colors.accent + "12", borderColor: colors.accent + "30" }]}
+                    >
+                      <Ionicons name="notifications-outline" size={16} color={colors.accent} />
+                      <Text style={[styles.settlementBtnText, { color: colors.accent }]}>{txt.debtReminder}</Text>
+                    </Pressable>
+                  </View>
                 </View>
               );
             })()}
@@ -3170,6 +3282,9 @@ const styles = StyleSheet.create({
   settlementName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   settlementOwes: { fontSize: 12, fontFamily: "Inter_400Regular" },
   settlementAmount: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginLeft: "auto" },
+  settlementActions: { flexDirection: "row", gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#e0e0e030" },
+  settlementBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
+  settlementBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 });
 
 const travelStyles = StyleSheet.create({

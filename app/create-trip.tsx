@@ -23,6 +23,7 @@ import { PREFERENCE_OPTIONS } from "@/lib/seed-data";
 import { validateRequired, validateDate, validateDateRange, validateNumPeople } from "@/lib/validation";
 import { parseDDMMYYYY } from "@/lib/validation";
 import { formatVND } from "@/lib/storage";
+import type { ItineraryDay } from "@/lib/storage";
 import { t } from "@/lib/i18n";
 
 interface FormErrors {
@@ -93,6 +94,11 @@ export default function CreateTripScreen() {
   const [selectedPrefs, setSelectedPrefs] = useState<string[]>(editingItinerary?.preferences || []);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [previewDays, setPreviewDays] = useState<ItineraryDay[] | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewExpandedDay, setPreviewExpandedDay] = useState<number | null>(0);
+  const [aiError, setAiError] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [showStartingSuggestions, setShowStartingSuggestions] = useState(false);
   const [showDestSuggestions, setShowDestSuggestions] = useState(false);
@@ -162,10 +168,87 @@ export default function CreateTripScreen() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const fetchAIDays = async (): Promise<ItineraryDay[] | null> => {
+    try {
+      const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
+      const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
+      const baseUrl = `${serverProtocol}://${serverDomain}`;
+
+      const res = await fetch(`${baseUrl}/api/generate-itinerary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: destination.trim(),
+          startDate,
+          endDate,
+          budget: formatVND(budgetNumber),
+          totalBudget: budgetNumber,
+          startingPoint: startingPoint.trim(),
+          numPeople: parseInt(numPeople) || 2,
+          preferences: selectedPrefs,
+        }),
+      });
+
+      if (!res.ok) {
+        console.log("AI generation failed, status:", res.status);
+        return null;
+      }
+
+      const data = await res.json();
+      if (data.days && Array.isArray(data.days)) {
+        return data.days as ItineraryDay[];
+      }
+      return null;
+    } catch (e) {
+      console.log("AI generation error:", e);
+      return null;
+    }
+  };
+
   const handleGenerate = async () => {
     if (!validate()) return;
 
     setLoading(true);
+    setAiError(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const aiDays = await fetchAIDays();
+
+    if (aiDays && aiDays.length > 0) {
+      setPreviewDays(aiDays);
+      setPreviewExpandedDay(0);
+      setShowPreview(true);
+      setAiError(false);
+    } else {
+      // AI failed — generate locally and save directly (old flow)
+      setAiError(true);
+      try {
+        if (isEditing && editingItinerary) {
+          await deleteItinerary(editingItinerary.id);
+        }
+        const itin = await generateItinerary({
+          destination: destination.trim(),
+          startDate,
+          endDate,
+          budget: formatVND(budgetNumber),
+          totalBudget: budgetNumber,
+          startingPoint: startingPoint.trim(),
+          numPeople: parseInt(numPeople) || 2,
+          preferences: selectedPrefs,
+          userId: user!.id,
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        router.replace({ pathname: "/itinerary/[id]", params: { id: itin.id } });
+      } catch (e) {
+        Alert.alert(t().common.error, t().createTrip.generateFailed);
+      }
+    }
+    setLoading(false);
+  };
+
+  const handleSavePreview = async () => {
+    if (!previewDays) return;
+    setSaving(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       if (isEditing && editingItinerary) {
@@ -181,14 +264,39 @@ export default function CreateTripScreen() {
         numPeople: parseInt(numPeople) || 2,
         preferences: selectedPrefs,
         userId: user!.id,
+        previewDays,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowPreview(false);
       router.replace({ pathname: "/itinerary/[id]", params: { id: itin.id } });
     } catch (e) {
       Alert.alert(t().common.error, t().createTrip.generateFailed);
     }
+    setSaving(false);
+  };
+
+  const handleRegenerate = async () => {
+    setLoading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const aiDays = await fetchAIDays();
+    if (aiDays && aiDays.length > 0) {
+      setPreviewDays(aiDays);
+      setPreviewExpandedDay(0);
+    } else {
+      if (Platform.OS === "web") {
+        window.alert("Không thể tạo lại lịch trình AI. Vui lòng thử lại.");
+      } else {
+        Alert.alert("", "Không thể tạo lại lịch trình AI. Vui lòng thử lại.");
+      }
+    }
     setLoading(false);
   };
+
+  const previewTotalCost = useMemo(() => {
+    if (!previewDays) return 0;
+    return previewDays.reduce((sum, day) =>
+      sum + day.activities.reduce((s, a) => s + (a.estimatedCost || 0), 0), 0);
+  }, [previewDays]);
 
   const openCalendar = useCallback(() => {
     const existingStart = startDate ? parseDDMMYYYY(startDate) : null;
@@ -576,6 +684,170 @@ export default function CreateTripScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* AI Preview Modal */}
+      <Modal visible={showPreview} animationType="slide" onRequestClose={() => { if (!saving) setShowPreview(false); }}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
+          <View style={[styles.header, { paddingTop: insets.top + (Platform.OS === "web" ? 67 : 0) + 8 }]}>
+            <Pressable onPress={() => { if (!saving) setShowPreview(false); }}>
+              <Ionicons name="arrow-back" size={24} color={colors.text} />
+            </Pressable>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Xem trước lịch trình</Text>
+            <View style={{ width: 24 }} />
+          </View>
+
+          {/* AI Badge */}
+          <View style={[styles.previewAiBadge, { backgroundColor: colors.primary + "15" }]}>
+            <Ionicons name="sparkles" size={16} color={colors.primary} />
+            <Text style={[styles.previewAiBadgeText, { color: colors.primary }]}>
+              Lịch trình được tạo bởi AI (Gemini)
+            </Text>
+          </View>
+
+          {/* Summary Bar */}
+          <View style={[styles.previewSummaryBar, { backgroundColor: colors.card, borderColor: colors.cardBorder || colors.inputBorder }]}>
+            <View style={styles.previewSummaryItem}>
+              <Ionicons name="location" size={16} color={colors.primary} />
+              <Text style={[styles.previewSummaryText, { color: colors.text }]} numberOfLines={1}>{destination}</Text>
+            </View>
+            <View style={styles.previewSummaryItem}>
+              <Ionicons name="cash-outline" size={16} color={colors.primary} />
+              <Text style={[styles.previewSummaryText, { color: colors.text }]}>
+                {formatVND(previewTotalCost)}
+              </Text>
+            </View>
+            <View style={styles.previewSummaryItem}>
+              <Ionicons name="calendar-outline" size={16} color={colors.primary} />
+              <Text style={[styles.previewSummaryText, { color: colors.text }]}>{previewDays?.length || 0} ngày</Text>
+            </View>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {previewDays?.map((day, dayIdx) => {
+              const isExpanded = previewExpandedDay === dayIdx;
+              const dayCost = day.activities.reduce((s, a) => s + (a.estimatedCost || 0), 0);
+              return (
+                <View key={dayIdx} style={{ marginBottom: 12 }}>
+                  <Pressable
+                    onPress={() => setPreviewExpandedDay(isExpanded ? null : dayIdx)}
+                    style={[styles.previewDayHeader, { backgroundColor: colors.card, borderColor: colors.cardBorder || colors.inputBorder }]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.previewDayTitle, { color: colors.text }]}>{day.title}</Text>
+                      <Text style={[styles.previewDayCost, { color: colors.textSecondary }]}>
+                        {day.activities.length} hoạt động • {formatVND(dayCost)}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name={isExpanded ? "chevron-up" : "chevron-down"}
+                      size={20}
+                      color={colors.textTertiary}
+                    />
+                  </Pressable>
+
+                  {isExpanded && day.activities.map((act, actIdx) => {
+                    const typeIcons: Record<string, string> = {
+                      food: "restaurant",
+                      sightseeing: "eye",
+                      transport: "car",
+                      shopping: "bag",
+                      other: "ellipse",
+                    };
+                    const iconName = typeIcons[act.activityType || "other"] || "ellipse";
+                    const typeColors: Record<string, string> = {
+                      food: "#FF6B6B",
+                      sightseeing: "#4ECDC4",
+                      transport: "#45B7D1",
+                      shopping: "#FFA07A",
+                      other: "#999",
+                    };
+                    const accentColor = typeColors[act.activityType || "other"] || colors.primary;
+
+                    return (
+                      <View
+                        key={actIdx}
+                        style={[styles.previewActivityCard, { backgroundColor: colors.card, borderColor: colors.cardBorder || colors.inputBorder }]}
+                      >
+                        <View style={[styles.previewActTimeBadge, { backgroundColor: accentColor + "20" }]}>
+                          <Ionicons name={iconName as any} size={14} color={accentColor} />
+                          <Text style={[styles.previewActTime, { color: accentColor }]}>{act.time}</Text>
+                        </View>
+                        <Text style={[styles.previewActTitle, { color: colors.text }]}>{act.title}</Text>
+                        {act.rating ? (
+                          <View style={styles.previewActMetaItem}>
+                            <Ionicons name="star" size={12} color="#F5A623" />
+                            <Text style={[styles.previewActMetaText, { color: "#F5A623", fontFamily: "Inter_600SemiBold" }]}>{act.rating.toFixed(1)}</Text>
+                          </View>
+                        ) : null}
+                        {act.description ? (
+                          <Text style={[styles.previewActDesc, { color: colors.textSecondary }]} numberOfLines={3}>
+                            {act.description}
+                          </Text>
+                        ) : null}
+                        <View style={styles.previewActMeta}>
+                          {act.duration ? (
+                            <View style={styles.previewActMetaItem}>
+                              <Ionicons name="time-outline" size={12} color={colors.textTertiary} />
+                              <Text style={[styles.previewActMetaText, { color: colors.textTertiary }]}>{act.duration}</Text>
+                            </View>
+                          ) : null}
+                          {act.estimatedCost > 0 ? (
+                            <View style={styles.previewActMetaItem}>
+                              <Ionicons name="cash-outline" size={12} color={colors.textTertiary} />
+                              <Text style={[styles.previewActMetaText, { color: colors.textTertiary }]}>{formatVND(act.estimatedCost)}</Text>
+                            </View>
+                          ) : null}
+                          {act.address ? (
+                            <View style={[styles.previewActMetaItem, { flex: 1 }]}>
+                              <Ionicons name="location-outline" size={12} color={colors.textTertiary} />
+                              <Text style={[styles.previewActMetaText, { color: colors.textTertiary }]} numberOfLines={1}>{act.address}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          {/* Bottom Action Buttons */}
+          <View style={[styles.previewBottomBar, { backgroundColor: colors.background, borderTopColor: colors.inputBorder }]}>
+            <Pressable
+              onPress={handleRegenerate}
+              disabled={loading || saving}
+              style={[styles.previewRegenBtn, { borderColor: colors.primary, opacity: (loading || saving) ? 0.5 : 1 }]}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="refresh" size={18} color={colors.primary} />
+                  <Text style={[styles.previewRegenText, { color: colors.primary }]}>Tạo lại</Text>
+                </>
+              )}
+            </Pressable>
+            <Pressable
+              onPress={handleSavePreview}
+              disabled={loading || saving}
+              style={[styles.previewSaveBtn, { backgroundColor: colors.primary, opacity: (loading || saving) ? 0.7 : 1 }]}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                  <Text style={styles.previewSaveText}>Lưu lịch trình</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -717,5 +989,145 @@ const styles = StyleSheet.create({
   calendarBtnText: {
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",
+  },
+  // Preview Modal styles
+  previewAiBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    alignSelf: "flex-start",
+  },
+  previewAiBadgeText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  previewSummaryBar: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+  },
+  previewSummaryItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flex: 1,
+  },
+  previewSummaryText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    flexShrink: 1,
+  },
+  previewDayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  previewDayTitle: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
+  previewDayCost: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    marginTop: 2,
+  },
+  previewActivityCard: {
+    marginLeft: 12,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 4,
+  },
+  previewActTimeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  previewActTime: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  previewActTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
+  previewActDesc: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 17,
+  },
+  previewActMeta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 2,
+  },
+  previewActMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  previewActMetaText: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+  },
+  previewBottomBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingBottom: 28,
+    borderTopWidth: 1,
+  },
+  previewRegenBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    flex: 1,
+  },
+  previewRegenText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
+  previewSaveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
+    flex: 2,
+  },
+  previewSaveText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#fff",
   },
 });

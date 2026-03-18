@@ -113,6 +113,8 @@ export interface ItineraryActivity {
   longitude?: number;
   activityType: "sightseeing" | "food" | "transport" | "shopping" | "other";
   poiId?: string;
+  rating?: number;
+  googleMapsUrl?: string;
 }
 
 export interface ExpenseSplit {

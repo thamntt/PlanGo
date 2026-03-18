@@ -52,6 +52,7 @@ interface DataContextValue {
     numPeople: number;
     preferences: string[];
     userId: string;
+    previewDays?: ItineraryDay[];
   }) => Promise<Itinerary>;
   addNotification: (notif: Omit<Notification, "id" | "createdAt" | "isRead">) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -187,28 +188,47 @@ function generateDays(
 
   function sortActivitiesByProximity(acts: ItineraryActivity[]): ItineraryActivity[] {
     if (acts.length <= 1) return acts;
-    const remaining = [...acts];
-    const sorted: ItineraryActivity[] = [remaining.shift()!];
-    while (remaining.length > 0) {
-      const last = sorted[sorted.length - 1];
-      if (last.latitude == null || last.longitude == null) {
-        sorted.push(remaining.shift()!);
-        continue;
-      }
-      let nearestIdx = 0;
-      let nearestDist = Infinity;
-      for (let j = 0; j < remaining.length; j++) {
-        if (remaining[j].latitude != null && remaining[j].longitude != null) {
-          const d = haversineDistance(last.latitude, last.longitude, remaining[j].latitude!, remaining[j].longitude!);
-          if (d < nearestDist) {
-            nearestDist = d;
-            nearestIdx = j;
+    // Separate food and non-food activities
+    const foodActs = acts.filter(a => a.activityType === "food");
+    const nonFoodActs = acts.filter(a => a.activityType !== "food");
+
+    // Sort only non-food activities by proximity
+    if (nonFoodActs.length > 1) {
+      const remaining = [...nonFoodActs];
+      const sorted: ItineraryActivity[] = [remaining.shift()!];
+      while (remaining.length > 0) {
+        const last = sorted[sorted.length - 1];
+        if (last.latitude == null || last.longitude == null) {
+          sorted.push(remaining.shift()!);
+          continue;
+        }
+        let nearestIdx = 0;
+        let nearestDist = Infinity;
+        for (let j = 0; j < remaining.length; j++) {
+          if (remaining[j].latitude != null && remaining[j].longitude != null) {
+            const d = haversineDistance(last.latitude, last.longitude, remaining[j].latitude!, remaining[j].longitude!);
+            if (d < nearestDist) {
+              nearestDist = d;
+              nearestIdx = j;
+            }
           }
         }
+        sorted.push(remaining.splice(nearestIdx, 1)[0]);
       }
-      sorted.push(remaining.splice(nearestIdx, 1)[0]);
+      nonFoodActs.splice(0, nonFoodActs.length, ...sorted);
     }
-    return sorted.map((act, idx) => ({ ...act, time: timeSlots[idx] || act.time }));
+
+    // Merge back: food stays at slots 0,2,4 (07:00,12:00,18:00), non-food at 1,3,5 (08:30,14:00,20:00)
+    const foodSlots = ["07:00", "12:00", "18:00"];
+    const nonFoodSlots = ["08:30", "14:00", "20:00"];
+    const result: ItineraryActivity[] = [];
+    for (let i = 0; i < Math.max(foodActs.length, nonFoodActs.length); i++) {
+      if (i < foodActs.length) result.push({ ...foodActs[i], time: foodSlots[i] || foodActs[i].time });
+      if (i < nonFoodActs.length) result.push({ ...nonFoodActs[i], time: nonFoodSlots[i] || nonFoodActs[i].time });
+    }
+    // Sort by time to ensure correct order
+    result.sort((a, b) => a.time.localeCompare(b.time));
+    return result;
   }
 
   const days: ItineraryDay[] = [];
@@ -533,10 +553,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
     numPeople: number;
     preferences: string[];
     userId: string;
+    previewDays?: ItineraryDay[];
   }) => {
-    const allDests = await getDestinations();
-    const allPOIs = await getPOIs();
-    const days = generateDays(params.startDate, params.endDate, params.destination, params.preferences, allDests, params.numPeople, params.startingPoint, allPOIs);
+    // If preview days are provided (from AI preview), use them directly
+    let days: ItineraryDay[];
+    if (params.previewDays && params.previewDays.length > 0) {
+      days = params.previewDays;
+    } else {
+      // Fallback to local generation
+      const allDests = await getDestinations();
+      const allPOIs = await getPOIs();
+      days = generateDays(params.startDate, params.endDate, params.destination, params.preferences, allDests, params.numPeople, params.startingPoint, allPOIs);
+    }
+
     const itin: Omit<Itinerary, "id" | "createdAt"> = {
       userId: params.userId,
       title: `Chuyến đi ${params.destination}`,

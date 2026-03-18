@@ -277,11 +277,182 @@ async function removeCompanion(req: Request, res: Response) {
   return res.json({ ok: true });
 }
 
+// POST /api/generate-itinerary — generate itinerary via Gemini AI
+async function generateItineraryAI(req: Request, res: Response) {
+  const { destination, startDate, endDate, budget, totalBudget, numPeople, preferences, startingPoint } = req.body;
+
+  if (!destination || !startDate || !endDate) {
+    return res.status(400).json({ error: "destination, startDate, endDate are required" });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "your_gemini_api_key_here") {
+    return res.status(501).json({ error: "GEMINI_API_KEY not configured" });
+  }
+
+  try {
+    const prefsText = preferences && preferences.length > 0
+      ? preferences.join(", ")
+      : "";
+
+    // Calculate number of days
+    const parseDate = (d: string) => {
+      const parts = d.split("/");
+      if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      return new Date(d);
+    };
+    const start = parseDate(startDate);
+    const end = parseDate(endDate);
+    const numDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    const budgetPerDay = totalBudget ? Math.round(totalBudget / numDays) : 0;
+    const budgetPerDayPerPerson = totalBudget ? Math.round(totalBudget / numDays / (numPeople || 2)) : 0;
+
+    const prompt = `Bạn là chuyên gia du lịch Việt Nam với kiến thức sâu về Google Maps. Tạo lịch trình ${numDays} ngày tại ${destination}.
+
+THÔNG TIN:
+- Điểm đến: ${destination}
+- Ngày: ${startDate} → ${endDate} (${numDays} ngày)
+- Số người: ${numPeople || 2}
+- Tổng ngân sách: ${totalBudget ? totalBudget.toLocaleString("vi-VN") + "đ" : "không giới hạn"} (≈${budgetPerDay > 0 ? budgetPerDay.toLocaleString("vi-VN") + "đ/ngày" : "tùy ý"})
+${prefsText ? `- Sở thích: ${prefsText}` : ""}
+${startingPoint ? `- Xuất phát: ${startingPoint}` : ""}
+
+QUY TẮC BẮT BUỘC:
+1. CHỈ gợi ý những địa điểm, nhà hàng, quán ăn CÓ THẬT và NỔI TIẾNG tại ${destination}. Dùng ĐÚNG TÊN trên Google Maps.
+2. Mỗi ngày có 6 hoạt động xen kẽ: Ăn sáng → Tham quan sáng → Ăn trưa → Tham quan chiều → Ăn tối → Hoạt động tối
+3. NGÂN SÁCH: Tổng estimatedCost tất cả các ngày PHẢI nằm trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + (totalBudget * 1.0).toLocaleString("vi-VN") + "đ" : "hợp lý"}. estimatedCost đã tính cho ${numPeople || 2} người.
+4. "description" phải giới thiệu ngắn gọn về địa điểm: nổi tiếng vì gì, đặc sản gì, nên thử gì.
+5. "rating" là điểm đánh giá Google Maps thực tế (1.0-5.0), ví dụ 4.2, 4.6. PHẢI chính xác.
+6. "address" phải là ĐỊA CHỈ ĐẦY ĐỦ bao gồm số nhà, đường, phường/xã, quận/huyện, tỉnh/thành phố.
+7. "latitude" và "longitude" phải CHÍNH XÁC tọa độ GPS của địa điểm.
+8. Thời gian: 07:00, 08:30, 12:00, 14:00, 18:00, 20:00
+${prefsText ? `9. ƯU TIÊN hoạt động liên quan: ${prefsText}` : ""}
+
+JSON format (KHÔNG markdown):
+{
+  "days": [
+    {
+      "day": 1,
+      "title": "Ngày 1 - Đến nơi & Khám phá",
+      "activities": [
+        {
+          "time": "07:00",
+          "title": "Ăn sáng tại Phở Bát Đàn",
+          "description": "Quán phở nổi tiếng hơn 30 năm, luôn xếp hàng dài. Nước dùng ngọt thanh, thịt bò tươi mềm. Rating 4.4 trên Google Maps.",
+          "duration": "1 giờ",
+          "estimatedCost": 120000,
+          "activityType": "food",
+          "address": "49 Bát Đàn, Cửa Đông, Hoàn Kiếm, Hà Nội",
+          "latitude": 21.0335,
+          "longitude": 105.8468,
+          "rating": 4.4
+        }
+      ]
+    }
+  ]
+}
+
+activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"
+estimatedCost: số nguyên VND, đã tính cho ${numPeople || 2} người.
+rating: số thập phân 1.0-5.0 từ Google Maps.`;
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+    const geminiResponse = await fetch(geminiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+        }
+      })
+    });
+
+    if (!geminiResponse.ok) {
+      const errorText = await geminiResponse.text();
+      console.error("Gemini API error:", geminiResponse.status, errorText);
+      return res.status(502).json({ error: "Gemini API error", details: errorText });
+    }
+
+    const geminiData = await geminiResponse.json();
+    const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!textContent) {
+      console.error("Gemini returned empty response:", JSON.stringify(geminiData));
+      return res.status(502).json({ error: "Gemini returned empty response" });
+    }
+
+    // Parse JSON from response (handle potential markdown code blocks)
+    let parsed;
+    try {
+      const jsonStr = textContent.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+      parsed = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      console.error("Failed to parse Gemini response:", textContent);
+      return res.status(502).json({ error: "Failed to parse AI response", raw: textContent });
+    }
+
+    // Validate structure
+    if (!parsed.days || !Array.isArray(parsed.days)) {
+      return res.status(502).json({ error: "Invalid AI response structure", raw: parsed });
+    }
+
+    // Post-process: add IDs, defaults, Google Maps URLs, and budget scaling
+    let totalEstimated = 0;
+    for (const day of parsed.days) {
+      if (!day.activities) day.activities = [];
+      for (const act of day.activities) {
+        act.id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+        act.isCompleted = false;
+        act.estimatedCost = act.estimatedCost || 0;
+        act.activityType = act.activityType || "sightseeing";
+        act.duration = act.duration || "1 giờ";
+        act.rating = act.rating || undefined;
+        // Generate Google Maps URL from coordinates or address
+        if (act.latitude && act.longitude) {
+          act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
+        } else if (act.address) {
+          act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.title + " " + act.address)}`;
+        }
+        totalEstimated += act.estimatedCost;
+      }
+    }
+
+    // Budget scaling: if total is way off budget, scale proportionally
+    if (totalBudget && totalEstimated > 0) {
+      const ratio = totalBudget / totalEstimated;
+      if (ratio < 0.7 || ratio > 1.3) {
+        // Scale all costs to fit budget (between 85%-100%)
+        const targetTotal = totalBudget * 0.92;
+        const scale = targetTotal / totalEstimated;
+        for (const day of parsed.days) {
+          for (const act of day.activities) {
+            act.estimatedCost = Math.round(act.estimatedCost * scale / 1000) * 1000; // Round to nearest 1000
+          }
+        }
+      }
+    }
+
+    return res.json(parsed);
+  } catch (error) {
+    console.error("Generate itinerary error:", error);
+    return res.status(500).json({ error: "Failed to generate itinerary" });
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Places search routes (Nominatim/OpenStreetMap)
   app.get("/api/places/search", searchPlaces);
   app.get("/api/places/details/:placeId", getPlaceDetails);
   app.get("/api/places/photo", getPlacePhoto);
+
+  // AI Itinerary generation
+  app.post("/api/generate-itinerary", generateItineraryAI);
 
   // Share trip routes
   app.post("/api/share", shareTrip);
@@ -293,3 +464,4 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+

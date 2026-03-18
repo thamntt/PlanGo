@@ -296,6 +296,17 @@ const vi = {
     externalReviews: "Đánh giá từ cộng đồng",
     poiInfo: "Thông tin địa điểm",
     searchNominatim: "Tìm trên bản đồ",
+    exportReport: "Xuất báo cáo",
+    exportReportTitle: "📊 BÁO CÁO CHI TIÊU",
+    debtReminder: "Nhắc nhở nợ",
+    debtReminderSent: "Đã gửi nhắc nhở nợ!",
+    debtReminderTitle: "💸 Nhắc nhở thanh toán",
+    debtReminderMsg: (from: string, to: string, amount: string, trip: string) =>
+      `${from} nợ ${to} ${amount} từ chuyến đi "${trip}". Vui lòng thanh toán sớm!`,
+    reportCopied: "Đã sao chép báo cáo!",
+    noSettlementToExport: "Không có quyết toán để xuất",
+    totalExpenses: "Tổng chi phí",
+    reportDate: "Ngày xuất",
   },
 
   profile: {
