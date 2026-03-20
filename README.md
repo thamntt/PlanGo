@@ -42,96 +42,80 @@ EXPO_PUBLIC_DOMAIN=192.168.x.x:5000
 
 ---
 
-## 📱 Chạy trên điện thoại qua LAN (Expo Go)
+## 📱 Chạy trên điện thoại (Expo Go)
 
-### Bước 1: Tìm IP LAN của máy tính
+### ⭐ Cách 1: Dùng Tunnel (Khuyên dùng — không cần cùng WiFi)
 
-Mở **CMD** (hoặc PowerShell) và chạy:
-
-```bash
-ipconfig
-```
-
-Tìm dòng **IPv4 Address** trong adapter WiFi đang dùng (thường dạng `192.168.x.x`):
-
-```
-Wireless LAN adapter Wi-Fi:
-   IPv4 Address. . . . . . . . . . . : 192.168.1.20   ← IP này
-```
-
-> **💡 Mẹo**: Nếu bạn dùng mạng dây (Ethernet), tìm trong phần `Ethernet adapter`.
-
-### Bước 2: Cập nhật `.env`
-
-Thay IP trong `.env` bằng IP vừa tìm được:
-
-```env
-EXPO_PUBLIC_DOMAIN=192.168.1.20:5000
-```
-
-> ⚠️ **Mỗi lần đổi mạng WiFi, IP có thể thay đổi** → cần kiểm tra lại `ipconfig` và cập nhật `.env`.
-
-### Bước 3: Mở tường lửa Windows (chỉ cần làm 1 lần)
-
-Mở **CMD với quyền Administrator** (chuột phải → "Run as administrator") và chạy **2 lệnh**:
-
-```bash
-netsh advfirewall firewall add rule name="Expo Dev Server Port 5000" dir=in action=allow protocol=TCP localport=5000
-
-netsh advfirewall firewall add rule name="Expo Metro Bundler 8081" dir=in action=allow protocol=TCP localport=8081
-```
-
-Nếu thành công sẽ hiện `Ok.`
-
-> 🔒 **Xóa rule tường lửa** (khi không cần nữa):
-> ```bash
-> netsh advfirewall firewall delete rule name="Expo Dev Server Port 5000"
-> netsh advfirewall firewall delete rule name="Expo Metro Bundler 8081"
-> ```
-
-### Bước 4: Chạy Server + Expo
-
-Mở **2 terminal riêng biệt**:
+Mở **3 terminal riêng biệt**:
 
 **Terminal 1 — Server backend:**
 ```bash
 npm run dev
 ```
-> Server chạy tại `http://0.0.0.0:5000` (lắng nghe trên mọi IP)
 
-**Terminal 2 — Expo app:**
+**Terminal 2 — Tunnel cho backend server:**
 ```bash
-npx expo start --lan
+npm run tunnel
 ```
-> ⚠️ **BẮT BUỘC dùng `npx expo start --lan`**, không dùng `npm run expo:dev` (vì script đó force localhost).
+> Chờ đến khi hiện URL, ví dụ: `https://abc123.ngrok.io`
+>
+> Copy dòng `EXPO_PUBLIC_DOMAIN=abc123.ngrok.io` mà script in ra, dán vào file `.env`
 
-### Bước 5: Kết nối điện thoại
+**Terminal 3 — Expo app:**
+```bash
+npx expo start --tunnel
+```
+> Quét QR code trên điện thoại bằng **Expo Go** app
 
-1. **Đảm bảo** điện thoại và máy tính **cùng mạng WiFi**
-2. Mở app **Expo Go** trên điện thoại
-3. **Quét QR code** hiện trên Terminal 2
-4. Chờ app tải xong (lần đầu có thể mất 1-2 phút)
+⚠️ **Lưu ý**: URL ngrok thay đổi mỗi lần chạy → cần cập nhật `.env` lại mỗi lần.
+
+---
+
+### Cách 2: Dùng LAN (cần cùng WiFi)
+
+<details>
+<summary>Click để xem hướng dẫn LAN</summary>
+
+#### Bước 1: Tìm IP LAN của máy tính
+
+```bash
+ipconfig
+```
+Tìm dòng **IPv4 Address** (thường dạng `192.168.x.x`)
+
+#### Bước 2: Cập nhật `.env`
+
+```env
+EXPO_PUBLIC_DOMAIN=192.168.x.x:5000
+```
+
+#### Bước 3: Mở tường lửa Windows (chạy CMD Admin, chỉ cần làm 1 lần)
+
+```bash
+netsh advfirewall firewall add rule name="Expo Dev Server Port 5000" dir=in action=allow protocol=TCP localport=5000
+netsh advfirewall firewall add rule name="Expo Metro Bundler 8081" dir=in action=allow protocol=TCP localport=8081
+```
+
+#### Bước 4: Chạy
+
+**Terminal 1:** `npm run dev`
+**Terminal 2:** `npx expo start --lan`
+
+> ⚠️ **KHÔNG dùng** `npm run expo:dev` (script đó force localhost)
+
+</details>
+
+---
 
 ### ❌ Khắc phục lỗi kết nối
 
 | Vấn đề | Giải pháp |
 |--------|-----------|
-| Điện thoại không quét được QR | Đảm bảo cùng WiFi, thử tắt/bật WiFi trên điện thoại |
-| `Network request failed` | Kiểm tra IP trong `.env` đã đúng chưa (`ipconfig`) |
+| `Network request failed` | Kiểm tra IP/URL trong `.env` đã đúng chưa |
 | CORS error | Khởi động lại server (`npm run dev`) |
-| Tường lửa chặn | Chạy lại lệnh `netsh` ở Bước 3 với quyền Admin |
-| Bundle load chậm/lỗi | Thử `npx expo start --lan --clear` để xóa cache |
-| `EXPO_PUBLIC_DOMAIN is not set` | Kiểm tra file `.env` có đúng tên biến không |
-
-### 🔄 Cách thay thế: Dùng Tunnel (không cần cùng WiFi)
-
-Nếu LAN không hoạt động, dùng tunnel:
-
-```bash
-npx expo start --tunnel
-```
-
-> Cần cài `@expo/ngrok` (đã có trong devDependencies). Tunnel sẽ tạo URL public, nhưng **server backend vẫn cần accessible qua LAN**.
+| Tường lửa chặn (LAN) | Chạy lệnh `netsh` với quyền Admin |
+| Bundle load chậm/lỗi | Thử `npx expo start --tunnel --clear` |
+| Tunnel URL hết hạn | Chạy lại `npm run tunnel` và cập nhật `.env` |
 
 ---
 

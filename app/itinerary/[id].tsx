@@ -12,6 +12,7 @@ import {
   Linking,
   Modal,
   ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,6 +25,7 @@ import { useThemeColors } from "@/constants/colors";
 import * as Clipboard from "expo-clipboard";
 import { formatVND, generateId, getUsers } from "@/lib/storage";
 import { t } from "@/lib/i18n";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import type { ItineraryActivity, Expense, ExpenseSplit, TripCompanion, POI } from "@/lib/storage";
 import RouteMap from "@/components/RouteMap";
 
@@ -183,7 +185,8 @@ export default function ItineraryDetailScreen() {
   const [activeTab, setActiveTab] = useState<"itinerary" | "expenses" | "companions">("itinerary");
   const [expandedDay, setExpandedDay] = useState<number | null>(0);
   const [noteModal, setNoteModal] = useState<{ activityId: string; dayIdx: number; note: string; editIndex?: number } | null>(null);
-  const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; estimatedCost: string; paidBy: string } | null>(null);
+  const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; estimatedCost: string; paidBy: string; activityTitle: string } | null>(null);
+  const [costPaidByDropdown, setCostPaidByDropdown] = useState(false);
   const [timeModal, setTimeModal] = useState<{ activityId: string; dayIdx: number; time: string } | null>(null);
   const [addPlaceModal, setAddPlaceModal] = useState<{ dayIdx: number } | null>(null);
   const [editInfoModal, setEditInfoModal] = useState(false);
@@ -222,6 +225,10 @@ export default function ItineraryDetailScreen() {
   const [poiSearch, setPoiSearch] = useState("");
   const [poiDestFilter, setPoiDestFilter] = useState("");
 
+  // Inline editing state for expense summary table
+  const [editingSummaryRow, setEditingSummaryRow] = useState<{ dayIdx: number; actId: string; cost: string; paidBy: string } | null>(null);
+  const [summaryCollapsed, setSummaryCollapsed] = useState<Record<string, boolean>>({ budget: false, activities: true, expenses: true, category: false, payer: false });
+
   const totalEstimated = useMemo(() => {
     if (!itinerary) return 0;
     return itinerary.days.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.estimatedCost || 0), 0), 0);
@@ -258,16 +265,14 @@ export default function ItineraryDetailScreen() {
     if (!itinerary?.shareCode || !itinerary?.isShared) return;
     const syncCompanions = async () => {
       try {
-        const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
-        const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
-        const baseUrl = `${serverProtocol}://${serverDomain}`;
-        const res = await fetch(`${baseUrl}/api/share/${itinerary.shareCode}`);
+        const baseUrl = getApiUrl().replace(/\/$/, "");
+        const res = await fetch(`${baseUrl}/api/share/${itinerary.shareCode}`, { headers: getApiHeaders() });
         if (!res.ok) {
           // Server lost data (e.g. restart) — re-push if we are the owner
           if (res.status === 404 && isOwner) {
             await fetch(`${baseUrl}/api/share`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { ...getApiHeaders(), "Content-Type": "application/json" },
               body: JSON.stringify({ shareCode: itinerary.shareCode, itinerary }),
             });
           }
@@ -354,18 +359,16 @@ export default function ItineraryDetailScreen() {
     });
     // Sync to server so other browsers can find this trip
     try {
-      const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
-      const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
+      const baseUrl = getApiUrl().replace(/\/$/, "");
       const updatedItinerary = { ...itinerary, shareCode: code, sharePermission, isShared: true };
-      await fetch(`${serverProtocol}://${serverDomain}/api/share`, {
+      await fetch(`${baseUrl}/api/share`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...getApiHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ shareCode: code, itinerary: updatedItinerary }),
       });
     } catch (e) { console.log("Failed to sync share to server:", e); }
-    const domain = Platform.OS === "web" ? window.location.host : (process.env.EXPO_PUBLIC_DOMAIN || "localhost:8081");
-    const protocol = domain.includes("localhost") ? "http" : "https";
-    const link = `${protocol}://${domain}/join/${code}`;
+    const shareBaseUrl = Platform.OS === "web" ? `${window.location.protocol}//${window.location.host}` : getApiUrl().replace(/\/$/, "");
+    const link = `${shareBaseUrl}/join/${code}`;
     await Clipboard.setStringAsync(link);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (Platform.OS === "web") {
@@ -375,11 +378,7 @@ export default function ItineraryDetailScreen() {
     }
   };
 
-  const getServerUrl = () => {
-    const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
-    const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
-    return `${serverProtocol}://${serverDomain}`;
-  };
+  const getServerUrl = () => getApiUrl().replace(/\/$/, "");
 
   const handleRemoveCompanion = (companion: TripCompanion) => {
     const doRemove = async () => {
@@ -390,7 +389,7 @@ export default function ItineraryDetailScreen() {
         try {
           await fetch(`${getServerUrl()}/api/share/companion`, {
             method: "DELETE",
-            headers: { "Content-Type": "application/json" },
+            headers: { ...getApiHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({ shareCode: itinerary.shareCode, userId: companion.userId }),
           });
         } catch (e) { console.log("Failed to sync companion removal:", e); }
@@ -417,7 +416,7 @@ export default function ItineraryDetailScreen() {
       try {
         await fetch(`${getServerUrl()}/api/share/companion`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { ...getApiHeaders(), "Content-Type": "application/json" },
           body: JSON.stringify({ shareCode: itinerary.shareCode, userId: companion.userId, role: newRole }),
         });
       } catch (e) { console.log("Failed to sync role change:", e); }
@@ -434,7 +433,7 @@ export default function ItineraryDetailScreen() {
         try {
           await fetch(`${getServerUrl()}/api/share/companion`, {
             method: "DELETE",
-            headers: { "Content-Type": "application/json" },
+            headers: { ...getApiHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({ shareCode: itinerary.shareCode, userId: user.id }),
           });
         } catch (e) { console.log("Failed to sync leave to server:", e); }
@@ -590,13 +589,15 @@ export default function ItineraryDetailScreen() {
 
   const recalcSpent = (days: typeof itinerary.days, exps: Expense[]) => {
     const activitySpent = days.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.actualCost || 0), 0), 0);
-    const expenseSpent = exps.reduce((sum, e) => sum + e.amount, 0);
+    // Exclude expenses linked to activities (they are already counted via actualCost)
+    const expenseSpent = exps.filter((e) => !e.activityId).reduce((sum, e) => sum + e.amount, 0);
     return activitySpent + expenseSpent;
   };
 
   const getActivityReview = (activityId: string) => {
     const activity = itinerary.days.flatMap((d) => d.activities).find((a) => a.id === activityId);
     if (!activity) return null;
+
     const linkedDest = activity.destinationId
       ? destinations.find((d) => d.id === activity.destinationId)
       : destinations.find((d) => d.name === activity.title);
@@ -770,8 +771,46 @@ export default function ItineraryDetailScreen() {
         activity.actualCost = newActualCost;
       }
       activity.paidBy = costModal.paidBy.trim() || undefined;
-      const newSpent = recalcSpent(newDays, expenses);
-      await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
+
+      // Auto-create or update linked expense for this activity
+      const newExpenses = [...expenses];
+      if (itinerary.status !== "draft" && newActualCost > 0) {
+        const paidByName = costModal.paidBy.trim() || undefined;
+        const paidByMember = tripMembers.find((m) => m.userName === paidByName);
+        const existingIdx = newExpenses.findIndex((e) => e.activityId === costModal.activityId);
+        if (existingIdx >= 0) {
+          // Update existing linked expense
+          newExpenses[existingIdx] = {
+            ...newExpenses[existingIdx],
+            title: activity.title,
+            amount: newActualCost,
+            type: activity.activityType as Expense["type"],
+            paidBy: paidByName,
+            paidByUserId: paidByMember?.userId,
+            dayIndex: costModal.dayIdx,
+          };
+        } else {
+          // Create new linked expense
+          newExpenses.push({
+            id: generateId(),
+            title: activity.title,
+            amount: newActualCost,
+            type: activity.activityType as Expense["type"],
+            paidBy: paidByName,
+            paidByUserId: paidByMember?.userId,
+            dayIndex: costModal.dayIdx,
+            activityId: costModal.activityId,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } else if (itinerary.status !== "draft") {
+        // If actual cost is 0, remove linked expense if exists
+        const existingIdx = newExpenses.findIndex((e) => e.activityId === costModal.activityId);
+        if (existingIdx >= 0) newExpenses.splice(existingIdx, 1);
+      }
+
+      const newSpent = recalcSpent(newDays, newExpenses);
+      await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
       if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
         if (Platform.OS === "web") {
           window.alert(t().itinerary.budgetWarning);
@@ -781,6 +820,7 @@ export default function ItineraryDetailScreen() {
       }
     }
     setCostModal(null);
+    setCostPaidByDropdown(false);
   };
 
   const saveTime = async () => {
@@ -1525,7 +1565,7 @@ export default function ItineraryDetailScreen() {
                               if (itinerary.status === "completed") return true;
                               return false;
                             })() && (
-                              <Pressable onPress={() => setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || 0).toString(), estimatedCost: (activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                              <Pressable onPress={() => { setCostPaidByDropdown(false); setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || 0).toString(), estimatedCost: (activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || user?.fullName || "", activityTitle: activity.title }); }} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="cash-outline" size={14} color={colors.accent} />
                               </Pressable>
                             )}
@@ -1641,7 +1681,305 @@ export default function ItineraryDetailScreen() {
 
         {activeTab === "expenses" && (
           <View style={styles.expensesTab}>
-            {expenses.length === 0 ? (
+
+            {/* ═══ EXPENSE SUMMARY TABLE (completed only) ═══ */}
+            {itinerary.status === "completed" && (() => {
+              // Calculate stats
+              const allActivities = itinerary.days.flatMap((day, dayIdx) =>
+                day.activities.map((act) => ({ ...act, _dayIdx: dayIdx, _dayTitle: day.title }))
+              );
+              const totalActEstimated = allActivities.reduce((s, a) => s + (a.estimatedCost || 0), 0);
+              const totalActActual = allActivities.reduce((s, a) => s + (a.actualCost || 0), 0);
+              const totalExpAmount = expenses.reduce((s, e) => s + e.amount, 0);
+              const grandTotal = totalActActual + totalExpAmount;
+              const budget = itinerary.totalBudget || 0;
+              const budgetPct = budget > 0 ? Math.min(100, (grandTotal / budget) * 100) : 0;
+              const diff = budget - grandTotal;
+
+              // Stats by category
+              const catMap: Record<string, number> = {};
+              for (const a of allActivities) {
+                const cat = a.activityType || "other";
+                catMap[cat] = (catMap[cat] || 0) + (a.actualCost || 0);
+              }
+              for (const e of expenses) {
+                catMap[e.type] = (catMap[e.type] || 0) + e.amount;
+              }
+              const catEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+
+              // Stats by payer
+              const payerMap: Record<string, number> = {};
+              for (const a of allActivities) {
+                if (a.paidBy && (a.actualCost || 0) > 0) {
+                  payerMap[a.paidBy] = (payerMap[a.paidBy] || 0) + (a.actualCost || 0);
+                }
+              }
+              for (const e of expenses) {
+                if (e.paidBy && e.amount > 0) {
+                  payerMap[e.paidBy] = (payerMap[e.paidBy] || 0) + e.amount;
+                }
+              }
+              const payerEntries = Object.entries(payerMap).sort((a, b) => b[1] - a[1]);
+
+              const catColors: Record<string, string> = {
+                food: "#FF6B6B",
+                sightseeing: "#4ECDC4",
+                transport: "#45B7D1",
+                shopping: "#FFA07A",
+                other: "#9B59B6",
+              };
+              const payerColors = ["#6C5CE7", "#00B894", "#FDCB6E", "#E17055", "#0984E3", "#D63031", "#00CEC9", "#E84393"];
+
+              const toggleSection = (key: string) =>
+                setSummaryCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+
+              const saveInlineEdit = async () => {
+                if (!editingSummaryRow) return;
+                const newDays = [...itinerary.days];
+                const act = newDays[editingSummaryRow.dayIdx].activities.find((a) => a.id === editingSummaryRow.actId);
+                if (act) {
+                  act.actualCost = parseInt(editingSummaryRow.cost.replace(/[^0-9]/g, ""), 10) || 0;
+                  act.paidBy = editingSummaryRow.paidBy.trim() || undefined;
+                  const newSpent = recalcSpent(newDays, expenses);
+                  await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
+                }
+                setEditingSummaryRow(null);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              };
+
+              return (
+                <View style={[sumStyles.container, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                  {/* Header */}
+                  <View style={sumStyles.header}>
+                    <Ionicons name="stats-chart" size={20} color={colors.primary} />
+                    <Text style={[sumStyles.headerTitle, { color: colors.text }]}>{txt.expenseSummary}</Text>
+                  </View>
+
+                  {/* ── 1. Budget Overview ── */}
+                  <Pressable onPress={() => toggleSection("budget")} style={sumStyles.sectionHeader}>
+                    <Ionicons name="wallet-outline" size={16} color={colors.primary} />
+                    <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.budgetOverview}</Text>
+                    <Ionicons name={summaryCollapsed.budget ? "chevron-down" : "chevron-up"} size={16} color={colors.textTertiary} />
+                  </Pressable>
+                  {!summaryCollapsed.budget && (
+                    <View style={sumStyles.sectionBody}>
+                      <View style={sumStyles.budgetRow}>
+                        <Text style={[sumStyles.budgetLabel, { color: colors.textSecondary }]}>{txt.totalBudget}</Text>
+                        <Text style={[sumStyles.budgetValue, { color: colors.text }]}>{formatVND(budget)}</Text>
+                      </View>
+                      <View style={sumStyles.budgetRow}>
+                        <Text style={[sumStyles.budgetLabel, { color: colors.textSecondary }]}>{txt.budgetUsed}</Text>
+                        <Text style={[sumStyles.budgetValue, { color: colors.text }]}>{formatVND(grandTotal)} ({budgetPct.toFixed(0)}%)</Text>
+                      </View>
+                      <View style={[sumStyles.progressBg, { backgroundColor: colors.inputBg }]}>
+                        <View style={[sumStyles.progressFill, { width: `${Math.min(100, budgetPct)}%`, backgroundColor: diff >= 0 ? "#00B894" : colors.error }]} />
+                      </View>
+                      <View style={sumStyles.budgetRow}>
+                        <Text style={[sumStyles.budgetLabel, { color: diff >= 0 ? "#00B894" : colors.error }]}>
+                          {diff >= 0 ? txt.underBudget : txt.overBudget}
+                        </Text>
+                        <Text style={[sumStyles.budgetValue, { color: diff >= 0 ? "#00B894" : colors.error, fontFamily: "Inter_700Bold" }]}>
+                          {diff >= 0 ? "+" : ""}{formatVND(diff)}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* ── 2. Activity Expenses Table ── */}
+                  <Pressable onPress={() => toggleSection("activities")} style={sumStyles.sectionHeader}>
+                    <Ionicons name="list-outline" size={16} color={colors.primary} />
+                    <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.activityExpenses} ({allActivities.length})</Text>
+                    <Ionicons name={summaryCollapsed.activities ? "chevron-down" : "chevron-up"} size={16} color={colors.textTertiary} />
+                  </Pressable>
+                  {!summaryCollapsed.activities && (
+                    <View style={sumStyles.sectionBody}>
+                      {/* Table header */}
+                      <View style={[sumStyles.tableRow, sumStyles.tableHeaderRow, { backgroundColor: colors.primary + "10" }]}>
+                        <Text style={[sumStyles.thCell, sumStyles.cellDay, { color: colors.textSecondary }]}>{txt.dayLabel}</Text>
+                        <Text style={[sumStyles.thCell, sumStyles.cellName, { color: colors.textSecondary }]}>{txt.activityLabel}</Text>
+                        <Text style={[sumStyles.thCell, sumStyles.cellCost, { color: colors.textSecondary }]}>{txt.estimated}</Text>
+                        <Text style={[sumStyles.thCell, sumStyles.cellCost, { color: colors.textSecondary }]}>{txt.actual}</Text>
+                        <Text style={[sumStyles.thCell, sumStyles.cellPayer, { color: colors.textSecondary }]}>{txt.payer}</Text>
+                        <View style={sumStyles.cellAction} />
+                      </View>
+                      {/* Table body */}
+                      {allActivities.map((act, idx) => {
+                        const isEditing = editingSummaryRow?.actId === act.id;
+                        return (
+                          <View key={act.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40" }]}>
+                            <Text style={[sumStyles.tdCell, sumStyles.cellDay, { color: colors.textSecondary }]} numberOfLines={1}>{act._dayIdx + 1}</Text>
+                            <View style={sumStyles.cellName}>
+                              <Text style={[sumStyles.tdCell, { color: colors.text }]} numberOfLines={1}>{act.title}</Text>
+                              <Text style={[sumStyles.tdCellSub, { color: colors.textTertiary }]}>{act.time}</Text>
+                            </View>
+                            <Text style={[sumStyles.tdCell, sumStyles.cellCost, { color: colors.textTertiary }]}>{formatVND(act.estimatedCost || 0)}</Text>
+                            {isEditing ? (
+                              <TextInput
+                                style={[sumStyles.inlineInput, sumStyles.cellCost, { backgroundColor: colors.inputBg, borderColor: colors.primary, color: colors.text }]}
+                                value={editingSummaryRow.cost}
+                                onChangeText={(v) => setEditingSummaryRow({ ...editingSummaryRow, cost: v })}
+                                keyboardType="numeric"
+                                selectTextOnFocus
+                              />
+                            ) : (
+                              <Text style={[sumStyles.tdCell, sumStyles.cellCost, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>{formatVND(act.actualCost || 0)}</Text>
+                            )}
+                            {isEditing ? (
+                              <TextInput
+                                style={[sumStyles.inlineInput, sumStyles.cellPayer, { backgroundColor: colors.inputBg, borderColor: colors.primary, color: colors.text }]}
+                                value={editingSummaryRow.paidBy}
+                                onChangeText={(v) => setEditingSummaryRow({ ...editingSummaryRow, paidBy: v })}
+                                placeholder={txt.payer}
+                                placeholderTextColor={colors.textTertiary}
+                              />
+                            ) : (
+                              <Text style={[sumStyles.tdCell, sumStyles.cellPayer, { color: act.paidBy ? colors.textSecondary : colors.textTertiary }]} numberOfLines={1}>
+                                {act.paidBy || "—"}
+                              </Text>
+                            )}
+                            <View style={sumStyles.cellAction}>
+                              {isEditing ? (
+                                <Pressable onPress={saveInlineEdit} hitSlop={6}>
+                                  <Ionicons name="checkmark-circle" size={20} color={"#00B894"} />
+                                </Pressable>
+                              ) : (
+                                <Pressable onPress={() => setEditingSummaryRow({ dayIdx: act._dayIdx, actId: act.id, cost: (act.actualCost || 0).toString(), paidBy: act.paidBy || "" })} hitSlop={6}>
+                                  <Ionicons name="create-outline" size={16} color={colors.primary} />
+                                </Pressable>
+                              )}
+                            </View>
+                          </View>
+                        );
+                      })}
+                      {/* Total row */}
+                      <View style={[sumStyles.tableRow, sumStyles.totalRow, { borderTopColor: colors.cardBorder }]}>
+                        <Text style={[sumStyles.thCell, sumStyles.cellDay, { color: colors.text }]} />
+                        <Text style={[sumStyles.thCell, sumStyles.cellName, { color: colors.text, fontFamily: "Inter_700Bold" }]}>{txt.totalRow}</Text>
+                        <Text style={[sumStyles.thCell, sumStyles.cellCost, { color: colors.textSecondary, fontFamily: "Inter_600SemiBold" }]}>{formatVND(totalActEstimated)}</Text>
+                        <Text style={[sumStyles.thCell, sumStyles.cellCost, { color: colors.text, fontFamily: "Inter_700Bold" }]}>{formatVND(totalActActual)}</Text>
+                        <Text style={[sumStyles.thCell, sumStyles.cellPayer, { color: colors.text }]} />
+                        <View style={sumStyles.cellAction} />
+                      </View>
+                    </View>
+                  )}
+
+                  {/* ── 3. Additional Expenses Table ── */}
+                  {expenses.length > 0 && (
+                    <>
+                      <Pressable onPress={() => toggleSection("expenses")} style={sumStyles.sectionHeader}>
+                        <Ionicons name="receipt-outline" size={16} color={colors.primary} />
+                        <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.additionalExpenses} ({expenses.length})</Text>
+                        <Ionicons name={summaryCollapsed.expenses ? "chevron-down" : "chevron-up"} size={16} color={colors.textTertiary} />
+                      </Pressable>
+                      {!summaryCollapsed.expenses && (
+                        <View style={sumStyles.sectionBody}>
+                          <View style={[sumStyles.tableRow, sumStyles.tableHeaderRow, { backgroundColor: colors.primary + "10" }]}>
+                            <Text style={[sumStyles.thCell, sumStyles.cellName, { color: colors.textSecondary }]}>{txt.activityLabel}</Text>
+                            <Text style={[sumStyles.thCell, sumStyles.cellType, { color: colors.textSecondary }]}>{txt.expenseType}</Text>
+                            <Text style={[sumStyles.thCell, sumStyles.cellCost, { color: colors.textSecondary }]}>{txt.expenseAmount}</Text>
+                            <Text style={[sumStyles.thCell, sumStyles.cellPayer, { color: colors.textSecondary }]}>{txt.payer}</Text>
+                            <Text style={[sumStyles.thCell, sumStyles.cellSplit, { color: colors.textSecondary }]}>{txt.splitInfo}</Text>
+                            <View style={sumStyles.cellAction} />
+                          </View>
+                          {expenses.map((exp, idx) => (
+                            <View key={exp.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40" }]}>
+                              <Text style={[sumStyles.tdCell, sumStyles.cellName, { color: colors.text }]} numberOfLines={1}>{exp.title}</Text>
+                              <Text style={[sumStyles.tdCell, sumStyles.cellType, { color: colors.textTertiary }]}>{getActivityTypeLabel(exp.type)}</Text>
+                              <Text style={[sumStyles.tdCell, sumStyles.cellCost, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>{formatVND(exp.amount)}</Text>
+                              <Text style={[sumStyles.tdCell, sumStyles.cellPayer, { color: exp.paidBy ? colors.textSecondary : colors.textTertiary }]} numberOfLines={1}>
+                                {exp.paidBy || "—"}
+                              </Text>
+                              <Text style={[sumStyles.tdCell, sumStyles.cellSplit, { color: colors.textTertiary }]}>
+                                {exp.splitType === "equal" ? txt.splitEqual : exp.splitType === "custom" ? txt.splitCustom : txt.noSplit}
+                              </Text>
+                              <View style={sumStyles.cellAction}>
+                                <Pressable onPress={() => openEditExpense(exp)} hitSlop={6}>
+                                  <Ionicons name="create-outline" size={16} color={colors.primary} />
+                                </Pressable>
+                              </View>
+                            </View>
+                          ))}
+                          <View style={[sumStyles.tableRow, sumStyles.totalRow, { borderTopColor: colors.cardBorder }]}>
+                            <Text style={[sumStyles.thCell, sumStyles.cellName, { color: colors.text, fontFamily: "Inter_700Bold" }]}>{txt.totalRow}</Text>
+                            <Text style={[sumStyles.thCell, sumStyles.cellType]} />
+                            <Text style={[sumStyles.thCell, sumStyles.cellCost, { color: colors.text, fontFamily: "Inter_700Bold" }]}>{formatVND(totalExpAmount)}</Text>
+                            <Text style={[sumStyles.thCell, sumStyles.cellPayer]} />
+                            <Text style={[sumStyles.thCell, sumStyles.cellSplit]} />
+                            <View style={sumStyles.cellAction} />
+                          </View>
+                        </View>
+                      )}
+                    </>
+                  )}
+
+                  {/* ── 4. Stats by Category ── */}
+                  {catEntries.length > 0 && (
+                    <>
+                      <Pressable onPress={() => toggleSection("category")} style={sumStyles.sectionHeader}>
+                        <Ionicons name="pie-chart-outline" size={16} color={colors.primary} />
+                        <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.byCategory}</Text>
+                        <Ionicons name={summaryCollapsed.category ? "chevron-down" : "chevron-up"} size={16} color={colors.textTertiary} />
+                      </Pressable>
+                      {!summaryCollapsed.category && (
+                        <View style={sumStyles.sectionBody}>
+                          {catEntries.map(([cat, amount]) => {
+                            const pct = grandTotal > 0 ? (amount / grandTotal) * 100 : 0;
+                            const barColor = catColors[cat] || "#999";
+                            return (
+                              <View key={cat} style={sumStyles.statRow}>
+                                <View style={sumStyles.statLabelRow}>
+                                  <View style={[sumStyles.statDot, { backgroundColor: barColor }]} />
+                                  <Text style={[sumStyles.statLabel, { color: colors.text }]}>{getActivityTypeLabel(cat)}</Text>
+                                  <Text style={[sumStyles.statPct, { color: colors.textTertiary }]}>{pct.toFixed(1)}%</Text>
+                                </View>
+                                <View style={[sumStyles.statBarBg, { backgroundColor: colors.inputBg }]}>
+                                  <View style={[sumStyles.statBarFill, { width: `${pct}%`, backgroundColor: barColor }]} />
+                                </View>
+                                <Text style={[sumStyles.statAmount, { color: colors.text }]}>{formatVND(amount)}</Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </>
+                  )}
+
+                  {/* ── 5. Stats by Payer ── */}
+                  {payerEntries.length > 0 && (
+                    <>
+                      <Pressable onPress={() => toggleSection("payer")} style={sumStyles.sectionHeader}>
+                        <Ionicons name="people-outline" size={16} color={colors.primary} />
+                        <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.byPayer}</Text>
+                        <Ionicons name={summaryCollapsed.payer ? "chevron-down" : "chevron-up"} size={16} color={colors.textTertiary} />
+                      </Pressable>
+                      {!summaryCollapsed.payer && (
+                        <View style={sumStyles.sectionBody}>
+                          {payerEntries.map(([payer, amount], idx) => {
+                            const pct = grandTotal > 0 ? (amount / grandTotal) * 100 : 0;
+                            const barColor = payerColors[idx % payerColors.length];
+                            return (
+                              <View key={payer} style={sumStyles.statRow}>
+                                <View style={sumStyles.statLabelRow}>
+                                  <View style={[sumStyles.statDot, { backgroundColor: barColor }]} />
+                                  <Text style={[sumStyles.statLabel, { color: colors.text }]}>{payer}</Text>
+                                  <Text style={[sumStyles.statPct, { color: colors.textTertiary }]}>{pct.toFixed(1)}%</Text>
+                                </View>
+                                <View style={[sumStyles.statBarBg, { backgroundColor: colors.inputBg }]}>
+                                  <View style={[sumStyles.statBarFill, { width: `${pct}%`, backgroundColor: barColor }]} />
+                                </View>
+                                <Text style={[sumStyles.statAmount, { color: colors.text }]}>{formatVND(amount)}</Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </>
+                  )}
+                </View>
+              );
+            })()}
+
+            {expenses.length === 0 && itinerary.status !== "completed" ? (
               <View style={styles.emptyExpenses}>
                 <Ionicons name="wallet-outline" size={48} color={colors.textTertiary} />
                 <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>{txt.noExpenses}</Text>
@@ -2055,10 +2393,18 @@ export default function ItineraryDetailScreen() {
         </View>
       </Modal>
 
-      <Modal visible={!!costModal} transparent animationType="fade" onRequestClose={() => setCostModal(null)}>
+      <Modal visible={!!costModal} transparent animationType="fade" onRequestClose={() => { setCostModal(null); setCostPaidByDropdown(false); }}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Chi phí</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.activityCosts}</Text>
+            {/* Activity title (read-only) */}
+            {costModal?.activityTitle && (
+              <TextInput
+                style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                value={costModal.activityTitle}
+                editable={false}
+              />
+            )}
             {/* Estimated cost: editable in draft, active unchecked */}
             {(() => {
               if (!costModal) return null;
@@ -2093,38 +2439,38 @@ export default function ItineraryDetailScreen() {
                 />
               </>
             )}
-            <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
-            {tripMembers.length > 1 ? (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                <Pressable
-                  onPress={() => costModal && setCostModal({ ...costModal, paidBy: "" })}
-                  style={[styles.typeChip, { backgroundColor: !costModal?.paidBy ? colors.primary : colors.inputBg, borderColor: !costModal?.paidBy ? colors.primary : colors.inputBorder }]}
-                >
-                  <Text style={[styles.typeChipText, { color: !costModal?.paidBy ? "#fff" : colors.textSecondary }]}>Không chọn</Text>
-                </Pressable>
+            {/* Người trả - Dropdown style like expense modal */}
+            <Text style={[styles.splitLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
+            <Pressable
+              onPress={() => setCostPaidByDropdown(!costPaidByDropdown)}
+              style={[styles.dropdownBtn, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+            >
+              <Text style={[styles.dropdownBtnText, { color: costModal?.paidBy ? colors.text : colors.textTertiary }]}>
+                {costModal?.paidBy || txt.selectPaidBy}
+              </Text>
+              <Ionicons name={costPaidByDropdown ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
+            </Pressable>
+            {costPaidByDropdown && (
+              <View style={[styles.dropdownList, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
                 {tripMembers.map((m) => (
                   <Pressable
                     key={m.userId}
-                    onPress={() => costModal && setCostModal({ ...costModal, paidBy: m.userName })}
-                    style={[styles.typeChip, { backgroundColor: costModal?.paidBy === m.userName ? colors.primary : colors.inputBg, borderColor: costModal?.paidBy === m.userName ? colors.primary : colors.inputBorder }]}
+                    onPress={() => {
+                      if (costModal) setCostModal({ ...costModal, paidBy: m.userName });
+                      setCostPaidByDropdown(false);
+                    }}
+                    style={[styles.dropdownItem, costModal?.paidBy === m.userName && { backgroundColor: colors.primary + "15" }]}
                   >
-                    <Text style={[styles.typeChipText, { color: costModal?.paidBy === m.userName ? "#fff" : colors.textSecondary }]}>
+                    <Text style={[styles.dropdownItemText, { color: colors.text }]}>
                       {m.userName}{m.isOwner ? " 👑" : ""}
                     </Text>
+                    {costModal?.paidBy === m.userName && <Ionicons name="checkmark" size={16} color={colors.primary} />}
                   </Pressable>
                 ))}
               </View>
-            ) : (
-              <TextInput
-                style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                value={costModal?.paidBy || ""}
-                onChangeText={(v) => costModal && setCostModal({ ...costModal, paidBy: v })}
-                placeholder="VD: Minh"
-                placeholderTextColor={colors.textTertiary}
-              />
             )}
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setCostModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+              <Pressable onPress={() => { setCostModal(null); setCostPaidByDropdown(false); }} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
                 <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
               </Pressable>
               <Pressable onPress={saveCost} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
@@ -2685,8 +3031,8 @@ export default function ItineraryDetailScreen() {
       </Modal>
 
       <Modal visible={!!routeMapModal} transparent animationType="slide" onRequestClose={() => setRouteMapModal(null)}>
-        <View style={actDetailStyles.overlay}>
-          <View style={[actDetailStyles.content, { backgroundColor: colors.card }]}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+          <View style={{ backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, height: Dimensions.get("window").height * 0.85 }}>
             <View style={actDetailStyles.header}>
               <Text style={[actDetailStyles.title, { color: colors.text }]}>{txt.routeMapTitle}</Text>
               <Pressable onPress={() => setRouteMapModal(null)} hitSlop={8}>
@@ -2706,24 +3052,24 @@ export default function ItineraryDetailScreen() {
                   index: i,
                 }));
               return (
-                <View style={{ flex: 1 }}>
+                <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                   <RouteMap
                     points={mapPoints}
-                    height={400}
+                    height={Dimensions.get("window").height * 0.5}
                     colors={colors as any}
                     showRoute={true}
                   />
-                  <ScrollView style={{ maxHeight: 150, marginTop: 10 }} showsVerticalScrollIndicator={false}>
+                  <View style={{ marginTop: 12 }}>
                     {day.activities.filter((a) => a.latitude != null).map((a, i) => (
-                      <View key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 }}>
-                        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }}>
+                      <View key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 }}>
+                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }}>
                           <Text style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" }}>{i + 1}</Text>
                         </View>
                         <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.text, flex: 1 }} numberOfLines={1}>{a.time} - {a.title}</Text>
                       </View>
                     ))}
-                  </ScrollView>
-                </View>
+                  </View>
+                </ScrollView>
               );
             })()}
           </View>
@@ -2794,6 +3140,7 @@ export default function ItineraryDetailScreen() {
                       const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
                       if (!linkedPOI) return null;
                       return (
+                        <>
                         <View style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg, flexDirection: "column", alignItems: "flex-start", gap: 6 }]}>
                           <Text style={[actDetailStyles.sectionTitle, { color: colors.text, marginBottom: 2 }]}>{txt.poiInfo}</Text>
                           {linkedPOI.openHours && (
@@ -2821,6 +3168,37 @@ export default function ItineraryDetailScreen() {
                             </View>
                           )}
                         </View>
+
+                        {linkedPOI.googleReviews && linkedPOI.googleReviews.length > 0 && (
+                          <>
+                            <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>Google Reviews ({linkedPOI.googleReviews.length})</Text>
+                            {linkedPOI.googleReviews.map((review, idx) => (
+                              <View key={idx} style={[actDetailStyles.reviewCard, { backgroundColor: colors.inputBg }]}>
+                                <View style={actDetailStyles.reviewHeader}>
+                                  <View style={[actDetailStyles.reviewAvatar, { backgroundColor: "#4285F4" }]}>
+                                    <Text style={actDetailStyles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
+                                  </View>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={[actDetailStyles.reviewName, { color: colors.text }]}>{review.author}</Text>
+                                    <View style={[actDetailStyles.sourceBadge, { backgroundColor: "#4285F420" }]}>
+                                      <Text style={[actDetailStyles.sourceText, { color: "#4285F4" }]}>Google</Text>
+                                    </View>
+                                  </View>
+                                  <View style={{ flexDirection: "row", gap: 2 }}>
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
+                                    ))}
+                                  </View>
+                                </View>
+                                <Text style={[actDetailStyles.reviewComment, { color: colors.textSecondary }]}>{review.text}</Text>
+                                {review.time && (
+                                  <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 4 }}>{review.time}</Text>
+                                )}
+                              </View>
+                            ))}
+                          </>
+                        )}
+                        </>
                       );
                     })()}
 
@@ -3285,6 +3663,115 @@ const styles = StyleSheet.create({
   settlementActions: { flexDirection: "row", gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#e0e0e030" },
   settlementBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   settlementBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+});
+
+const sumStyles = StyleSheet.create({
+  container: {
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+  },
+  headerTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(128,128,128,0.15)",
+  },
+  sectionTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 },
+  sectionBody: { paddingHorizontal: 10, paddingBottom: 10 },
+  // Budget overview
+  budgetRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  budgetLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  budgetValue: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  progressBg: {
+    height: 8,
+    borderRadius: 4,
+    marginVertical: 6,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  // Table styles
+  tableRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    gap: 4,
+  },
+  tableHeaderRow: {
+    borderRadius: 8,
+    marginBottom: 2,
+  },
+  totalRow: {
+    borderTopWidth: 1,
+    marginTop: 4,
+    paddingTop: 10,
+  },
+  thCell: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  tdCell: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  tdCellSub: { fontSize: 10, fontFamily: "Inter_400Regular" },
+  cellDay: { width: 30, textAlign: "center" },
+  cellName: { flex: 1, minWidth: 60 },
+  cellCost: { width: 75, textAlign: "right" },
+  cellPayer: { width: 60, textAlign: "center" },
+  cellType: { width: 60, textAlign: "center" },
+  cellSplit: { width: 60, textAlign: "center" },
+  cellAction: { width: 24, alignItems: "center" },
+  inlineInput: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    textAlign: "right",
+  },
+  // Bar chart stats
+  statRow: {
+    gap: 4,
+    marginBottom: 10,
+  },
+  statLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  statDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  statLabel: { fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
+  statPct: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  statBarBg: {
+    height: 8,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  statBarFill: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  statAmount: { fontSize: 12, fontFamily: "Inter_600SemiBold", textAlign: "right" },
 });
 
 const travelStyles = StyleSheet.create({

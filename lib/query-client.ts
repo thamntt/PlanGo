@@ -1,8 +1,7 @@
-import { fetch } from "expo/fetch";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 /**
- * Gets the base URL for the Express API server (e.g., "http://localhost:3000")
+ * Gets the base URL for the Express API server (e.g., "http://192.168.1.20:5000")
  * @returns {string} The API base URL
  */
 export function getApiUrl(): string {
@@ -12,7 +11,10 @@ export function getApiUrl(): string {
     throw new Error("EXPO_PUBLIC_DOMAIN is not set");
   }
 
-  // Use http:// for local/LAN development, https:// for production
+  // Strip protocol if accidentally included in .env value
+  host = host.replace(/^https?:\/\//, "");
+
+  // Use http:// for local/LAN development, https:// for production/tunnel
   const isLocal =
     host.startsWith("localhost") ||
     host.startsWith("127.0.0.1") ||
@@ -25,6 +27,18 @@ export function getApiUrl(): string {
 
   return url.href;
 }
+
+/**
+ * Returns common headers needed for API requests (e.g. tunnel bypass)
+ */
+export function getApiHeaders(): Record<string, string> {
+  return {
+    "Bypass-Tunnel-Reminder": "true",
+  };
+}
+
+// Log the API URL once at startup for debugging
+console.log("[API] Base URL:", getApiUrl());
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -43,7 +57,10 @@ export async function apiRequest(
 
   const res = await fetch(url.toString(), {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...getApiHeaders(),
+      ...(data ? { "Content-Type": "application/json" } : {}),
+    },
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -62,6 +79,7 @@ export const getQueryFn: <T>(options: {
     const url = new URL(queryKey.join("/") as string, baseUrl);
 
     const res = await fetch(url.toString(), {
+      headers: getApiHeaders(),
       credentials: "include",
     });
 

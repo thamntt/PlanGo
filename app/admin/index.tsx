@@ -175,14 +175,19 @@ export default function AdminDashboard() {
     setPoiGooglePhotos(place.photos || []);
     setPoiGoogleResults([]);
     setPoiGoogleQuery("");
-    // Get full details
+    // Get full details — rating, reviews, opening hours, price level
     const details = await getPlaceDetails(place.placeId);
     if (details) {
+      // Override with more accurate rating from details
+      if (details.rating > 0) setPoiRating(details.rating.toString());
+      if (details.reviewCount > 0) setPoiReviewCount(details.reviewCount.toString());
       setPoiDesc(details.editorialSummary || "");
       if (details.openingHours && details.openingHours.length > 0) {
         setPoiOpenHours(details.openingHours.join(" | "));
       }
+      if (details.website) setPoiDesc(prev => prev ? prev : details.editorialSummary || "");
       setPoiGoogleReviews(details.reviews || []);
+      setPoiGooglePhotos(details.photos && details.photos.length > 0 ? details.photos : place.photos || []);
     }
   };
 

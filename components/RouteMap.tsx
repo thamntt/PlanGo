@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, Platform, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { WebView } from "react-native-webview";
 
 interface MapPoint {
   lat: number;
@@ -70,23 +71,81 @@ function generateLeafletHtml(
       L.marker([${p.lat}, ${p.lng}], {
         icon: L.divIcon({
           className: 'custom-marker',
-          html: '<div style="background:${color};color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3)">${label}</div>',
-          iconSize: [28, 28],
-          iconAnchor: [14, 14]
+          html: '<div style="background:${color};color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35)">${label}</div>',
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
         })
-      }).addTo(map).bindPopup('<b>${p.name.replace(/'/g, "\\'")}</b>');
+      }).addTo(map).bindPopup('<b>${label}. ${p.name.replace(/'/g, "\\'")}</b>');
     `;
     })
     .join("\n");
 
+  // Build OSRM routing JS — fetches real road directions between all points
   const routeJs = showRoute && points.length > 1
     ? `
-      var routeLine = L.polyline([${points.map((p) => `[${p.lat},${p.lng}]`).join(",")}], {
-        color: '#4F46E5',
-        weight: 3,
-        opacity: 0.7,
-        dashArray: '8, 8'
-      }).addTo(map);
+      // Build OSRM waypoints string: lng,lat;lng,lat;...
+      var waypoints = [${points.map((p) => `[${p.lng}, ${p.lat}]`).join(",")}];
+      var waypointStr = waypoints.map(function(w) { return w[0] + ',' + w[1]; }).join(';');
+      var osrmUrl = 'https://router.project-osrm.org/route/v1/driving/' + waypointStr + '?overview=full&geometries=geojson&steps=true';
+
+      fetch(osrmUrl)
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+            var route = data.routes[0];
+            var coords = route.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+
+            // Draw the actual road route
+            L.polyline(coords, {
+              color: '#4F46E5',
+              weight: 4,
+              opacity: 0.85,
+              smoothFactor: 1
+            }).addTo(map);
+
+            // Add distance/duration info between consecutive points
+            var legs = route.legs;
+            for (var i = 0; i < legs.length; i++) {
+              var leg = legs[i];
+              var distKm = (leg.distance / 1000).toFixed(1);
+              var durMin = Math.round(leg.duration / 60);
+              var midIdx = Math.floor(leg.steps.length / 2);
+              var midStep = leg.steps[midIdx];
+              var midCoord = midStep ? midStep.maneuver.location : null;
+
+              if (midCoord) {
+                var label = distKm + ' km • ' + durMin + ' phút';
+                L.marker([midCoord[1], midCoord[0]], {
+                  icon: L.divIcon({
+                    className: 'route-info',
+                    html: '<div style="background:rgba(79,70,229,0.9);color:#fff;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.3)">' + label + '</div>',
+                    iconSize: [80, 20],
+                    iconAnchor: [40, 10]
+                  })
+                }).addTo(map);
+              }
+            }
+          } else {
+            // Fallback: draw straight dashed lines if OSRM fails
+            var fallbackCoords = [${points.map((p) => `[${p.lat},${p.lng}]`).join(",")}];
+            L.polyline(fallbackCoords, {
+              color: '#4F46E5',
+              weight: 3,
+              opacity: 0.7,
+              dashArray: '8, 8'
+            }).addTo(map);
+          }
+        })
+        .catch(function() {
+          // Fallback on error
+          var fallbackCoords = [${points.map((p) => `[${p.lat},${p.lng}]`).join(",")}];
+          L.polyline(fallbackCoords, {
+            color: '#4F46E5',
+            weight: 3,
+            opacity: 0.7,
+            dashArray: '8, 8'
+          }).addTo(map);
+        });
     `
     : "";
 
@@ -115,6 +174,7 @@ function generateLeafletHtml(
     #map { width: 100%; height: 100%; }
     .custom-marker { background: none !important; border: none !important; }
     .user-marker { background: none !important; border: none !important; }
+    .route-info { background: none !important; border: none !important; }
     .leaflet-popup-content-wrapper { border-radius: 10px; }
     .leaflet-popup-content { margin: 10px 14px; font-family: -apple-system, sans-serif; font-size: 13px; }
   </style>
@@ -123,13 +183,34 @@ function generateLeafletHtml(
   <div id="map"></div>
   <script>
     var map = L.map('map', { zoomControl: true, attributionControl: false }).setView([${centerLat}, ${centerLng}], ${zoom});
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19
-    }).addTo(map);
+    // Tile layer with fallback: Goong → OpenStreetMap
+    var goongKey = '';
+    try { goongKey = '${process.env.GOONG_MAPTILES_KEY || process.env.GOONG_API_KEY || ""}'; } catch(e) {}
+
+    if (goongKey) {
+      // Cách 1: Goong Map Tiles (tốt cho Việt Nam)
+      var goongLayer = L.tileLayer('https://tiles.goong.io/assets/goong_map_web/{z}/{x}/{y}.png?api_key=' + goongKey, {
+        maxZoom: 19,
+        attribution: '© Goong'
+      });
+      goongLayer.on('tileerror', function() {
+        // Cách 2: Fallback sang OpenStreetMap nếu Goong lỗi
+        map.removeLayer(goongLayer);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19
+        }).addTo(map);
+      });
+      goongLayer.addTo(map);
+    } else {
+      // Cách 2: OpenStreetMap tiles (miễn phí, luôn khả dụng)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
+      }).addTo(map);
+    }
     ${markersJs}
     ${routeJs}
     ${userMarkerJs}
-    ${points.length > 1 ? `map.fitBounds([${points.map((p) => `[${p.lat},${p.lng}]`).join(",")}], { padding: [40, 40] });` : ""}
+    ${points.length > 1 ? `map.fitBounds([${points.map((p) => `[${p.lat},${p.lng}]`).join(",")}], { padding: [50, 50] });` : ""}
   </script>
 </body>
 </html>`;
@@ -153,8 +234,9 @@ export default function RouteMap({
     );
   }
 
+  const html = generateLeafletHtml(points, showRoute, userLocation);
+
   if (Platform.OS === "web") {
-    const html = generateLeafletHtml(points, showRoute, userLocation);
     return (
       <View style={[mapStyles.container, { height, borderRadius: 14, overflow: "hidden" }]}>
         <iframe
@@ -166,30 +248,18 @@ export default function RouteMap({
     );
   }
 
-  // Native: show a simple visual list with link to open in Google Maps
+  // Native: render actual map using WebView with Leaflet + OSRM routing
   return (
-    <View style={[mapStyles.nativeContainer, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-      <View style={mapStyles.nativeHeader}>
-        <Ionicons name="map" size={20} color={colors.primary} />
-        <Text style={[mapStyles.nativeTitle, { color: colors.text }]}>
-          Bản đồ tuyến đường ({points.length} điểm)
-        </Text>
-      </View>
-      {points.slice(0, 10).map((p, i) => (
-        <View key={i} style={mapStyles.nativePoint}>
-          <View style={[mapStyles.nativeMarker, { backgroundColor: colors.primary }]}>
-            <Text style={mapStyles.nativeMarkerText}>{i + 1}</Text>
-          </View>
-          <Text style={[mapStyles.nativePointName, { color: colors.text }]} numberOfLines={1}>
-            {p.name}
-          </Text>
-          {i < points.length - 1 && (
-            <View style={mapStyles.nativeLine}>
-              <Ionicons name="chevron-down" size={12} color={colors.textSecondary} />
-            </View>
-          )}
-        </View>
-      ))}
+    <View style={[mapStyles.container, { height, borderRadius: 14, overflow: "hidden" }]}>
+      <WebView
+        source={{ html }}
+        style={{ flex: 1, borderRadius: 14 }}
+        scrollEnabled={false}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        originWhitelist={["*"]}
+        mixedContentMode="always"
+      />
     </View>
   );
 }
@@ -203,23 +273,4 @@ const mapStyles = StyleSheet.create({
     gap: 8,
   },
   emptyText: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  nativeContainer: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    gap: 8,
-  },
-  nativeHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  nativeTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  nativePoint: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 },
-  nativeMarker: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  nativeMarkerText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
-  nativePointName: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
-  nativeLine: { position: "absolute", left: 6, bottom: -8 },
 });

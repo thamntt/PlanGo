@@ -11,14 +11,10 @@ import { useThemeColors } from "@/constants/colors";
 import { formatVND } from "@/lib/storage";
 import { t } from "@/lib/i18n";
 import type { Itinerary } from "@/lib/storage";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 function getServerUrl(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) {
-    const protocol = domain.includes("localhost") ? "http" : "https";
-    return `${protocol}://${domain}`;
-  }
-  return "http://localhost:5000";
+  return getApiUrl().replace(/\/$/, "");
 }
 
 export default function JoinTripScreen() {
@@ -65,7 +61,7 @@ export default function JoinTripScreen() {
     // Fallback: fetch from server API
     const fetchFromServer = async () => {
       try {
-        const res = await fetch(`${getServerUrl()}/api/share/${code}`);
+        const res = await fetch(`${getServerUrl()}/api/share/${code}`, { headers: getApiHeaders() });
         if (!res.ok) {
           setStatus("invalid");
           return;
@@ -114,7 +110,7 @@ export default function JoinTripScreen() {
     try {
       await fetch(`${getServerUrl()}/api/share/join`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...getApiHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ shareCode: code, companion }),
       });
     } catch (e) { console.log("Failed to sync join to server:", e); }

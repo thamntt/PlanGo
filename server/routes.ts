@@ -1,37 +1,212 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 
-// Nominatim (OpenStreetMap) — 100% free, NO API key needed
-const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
-const USER_AGENT = "TravelPlannerPro/1.0";
+// ══════════════════════════════════════════════════════════════
+// API Base URLs
+// ══════════════════════════════════════════════════════════════
 
-// Map OSM types to our POI categories
-function mapOsmType(osmType: string, osmClass: string): string {
-  const typeMap: Record<string, string> = {
-    tourism: "attraction",
-    hotel: "hotel",
-    hostel: "hotel",
-    guest_house: "hotel",
-    motel: "hotel",
-    museum: "attraction",
-    attraction: "attraction",
-    viewpoint: "attraction",
-    theme_park: "attraction",
-    zoo: "attraction",
-    aquarium: "attraction",
-    artwork: "attraction",
-    gallery: "attraction",
-    restaurant: "restaurant",
-    fast_food: "restaurant",
-    food_court: "restaurant",
-    cafe: "cafe",
-    coffee: "cafe",
-    marketplace: "shopping",
-    mall: "shopping",
-    supermarket: "shopping",
-    shop: "shopping",
+// Google Maps Platform APIs
+const GOOGLE_PLACES_BASE = "https://places.googleapis.com/v1";
+const GOOGLE_GEOCODE_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
+const GOOGLE_DIRECTIONS_BASE = "https://maps.googleapis.com/maps/api/directions/json";
+
+// Goong Maps APIs
+const GOONG_BASE = "https://rsapi.goong.io";
+
+// Free fallback APIs (no key needed)
+const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
+const OSRM_BASE = "https://router.project-osrm.org";
+
+// ══════════════════════════════════════════════════════════════
+// API Key helpers
+// ══════════════════════════════════════════════════════════════
+
+function getGoogleKey(): string {
+  return process.env.GOOGLE_PLACES_API_KEY || "";
+}
+
+function getGoongKey(): string {
+  return process.env.GOONG_API_KEY || "";
+}
+
+/** Returns which provider is available: "google" | "goong" | "free" */
+function getActiveProvider(): "google" | "goong" | "free" {
+  if (getGoogleKey()) return "google";
+  if (getGoongKey()) return "goong";
+  return "free";
+}
+
+// Google Maps vehicle type mapping
+function mapVehicleToMode(vehicle: string): string {
+  const modeMap: Record<string, string> = {
+    car: "driving",
+    bike: "bicycling",
+    taxi: "driving",
+    walking: "walking",
+    transit: "transit",
   };
-  return typeMap[osmType] || typeMap[osmClass] || "other";
+  return modeMap[vehicle] || "driving";
+}
+
+// ══════════════════════════════════════════════════════════════
+// SEARCH PLACES — Google → Goong → Nominatim
+// ══════════════════════════════════════════════════════════════
+
+async function searchPlacesGoogle(query: string, language: string) {
+  const apiKey = getGoogleKey();
+  if (!apiKey) return null;
+
+  try {
+    const url = `${GOOGLE_PLACES_BASE}/places:searchText`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.types,places.primaryType,places.primaryTypeDisplayName,places.editorialSummary,places.photos",
+      },
+      body: JSON.stringify({
+        textQuery: query,
+        languageCode: language,
+        maxResultCount: 10,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[Google] Search failed (${response.status}), trying fallback...`);
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data.places || data.places.length === 0) {
+      return { places: [] };
+    }
+
+    const places = data.places.map((place: any) => ({
+      placeId: place.id || "",
+      name: place.displayName?.text || "",
+      address: place.formattedAddress || "",
+      latitude: place.location?.latitude || 0,
+      longitude: place.location?.longitude || 0,
+      rating: place.rating || 0,
+      reviewCount: place.userRatingCount || 0,
+      types: place.types || [],
+      primaryType: place.primaryType || "other",
+      primaryTypeDisplay: place.primaryTypeDisplayName?.text || "Địa điểm",
+      editorialSummary: place.editorialSummary?.text || "",
+      photos: (place.photos || []).slice(0, 3).map((p: any) => ({
+        name: p.name || "",
+        attributions: (p.authorAttributions || []).map((a: any) => a.displayName || "Google"),
+      })),
+    }));
+
+    console.log(`[Google] Search "${query}" → ${places.length} results`);
+    return { places };
+  } catch (error) {
+    console.warn(`[Google] Search error:`, error);
+    return null;
+  }
+}
+
+async function searchPlacesGoong(query: string, language: string) {
+  const apiKey = getGoongKey();
+  if (!apiKey) return null;
+
+  try {
+    const url = `${GOONG_BASE}/Place/AutoComplete?api_key=${apiKey}&input=${encodeURIComponent(query)}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      console.warn(`[Goong] Search failed (${response.status}), trying fallback...`);
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data.predictions || data.predictions.length === 0) {
+      return { places: [] };
+    }
+
+    // Get details for each prediction to get coordinates
+    const places = await Promise.all(
+      data.predictions.slice(0, 10).map(async (pred: any) => {
+        let latitude = 0;
+        let longitude = 0;
+
+        // Try to get coordinates via Goong Place Detail
+        if (pred.place_id) {
+          try {
+            const detailUrl = `${GOONG_BASE}/Place/Detail?api_key=${apiKey}&place_id=${pred.place_id}`;
+            const detailRes = await fetch(detailUrl);
+            if (detailRes.ok) {
+              const detailData = await detailRes.json();
+              const loc = detailData.result?.geometry?.location;
+              if (loc) {
+                latitude = loc.lat || 0;
+                longitude = loc.lng || 0;
+              }
+            }
+          } catch {}
+        }
+
+        return {
+          placeId: pred.place_id || "",
+          name: pred.structured_formatting?.main_text || pred.description || "",
+          address: pred.description || "",
+          latitude,
+          longitude,
+          rating: 0,
+          reviewCount: 0,
+          types: pred.types || [],
+          primaryType: (pred.types && pred.types[0]) || "other",
+          primaryTypeDisplay: "Địa điểm",
+          editorialSummary: "",
+          photos: [],
+        };
+      })
+    );
+
+    console.log(`[Goong] Search "${query}" → ${places.length} results`);
+    return { places };
+  } catch (error) {
+    console.warn(`[Goong] Search error:`, error);
+    return null;
+  }
+}
+
+async function searchPlacesNominatim(query: string, language: string) {
+  try {
+    const url = `${NOMINATIM_BASE}/search?format=json&q=${encodeURIComponent(query)}&limit=10&accept-language=${language}&addressdetails=1`;
+    const response = await fetch(url, {
+      headers: { "User-Agent": "TravelPlannerPro/1.0" },
+    });
+
+    if (!response.ok) {
+      console.warn(`[Nominatim] Search failed (${response.status})`);
+      return { places: [] };
+    }
+
+    const data = await response.json();
+    const places = data.map((item: any) => ({
+      placeId: `nominatim_${item.place_id}`,
+      name: item.display_name?.split(",")[0] || item.display_name || "",
+      address: item.display_name || "",
+      latitude: parseFloat(item.lat) || 0,
+      longitude: parseFloat(item.lon) || 0,
+      rating: 0,
+      reviewCount: 0,
+      types: [item.type || "place"],
+      primaryType: item.type || "other",
+      primaryTypeDisplay: item.type || "Địa điểm",
+      editorialSummary: "",
+      photos: [],
+    }));
+
+    console.log(`[Nominatim] Search "${query}" → ${places.length} results`);
+    return { places };
+  } catch (error) {
+    console.warn(`[Nominatim] Search error:`, error);
+    return { places: [] };
+  }
 }
 
 async function searchPlaces(req: Request, res: Response) {
@@ -42,50 +217,213 @@ async function searchPlaces(req: Request, res: Response) {
     return res.status(400).json({ error: "Query parameter is required" });
   }
 
-  try {
-    const url = `${NOMINATIM_BASE}/search?` + new URLSearchParams({
-      q: query,
-      format: "jsonv2",
-      addressdetails: "1",
-      extratags: "1",
-      limit: "10",
-      "accept-language": language,
-    });
+  // Cách 1: Google
+  const googleResult = await searchPlacesGoogle(query, language);
+  if (googleResult) return res.json(googleResult);
 
+  // Cách 2: Goong
+  const goongResult = await searchPlacesGoong(query, language);
+  if (goongResult) return res.json(goongResult);
+
+  // Cách 3: Nominatim (miễn phí)
+  const nominatimResult = await searchPlacesNominatim(query, language);
+  return res.json(nominatimResult);
+}
+
+// ══════════════════════════════════════════════════════════════
+// PLACE DETAILS — Google → Goong → Nominatim
+// ══════════════════════════════════════════════════════════════
+
+async function getPlaceDetailsGoogle(placeId: string, language: string) {
+  const apiKey = getGoogleKey();
+  if (!apiKey) return null;
+
+  try {
+    const url = `${GOOGLE_PLACES_BASE}/places/${placeId}`;
     const response = await fetch(url, {
-      headers: { "User-Agent": USER_AGENT },
+      headers: {
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "id,displayName,formattedAddress,location,rating,userRatingCount,types,primaryType,primaryTypeDisplayName,editorialSummary,photos,websiteUri,nationalPhoneNumber,priceLevel,reviews,regularOpeningHours,currentOpeningHours",
+        "Accept-Language": language,
+      },
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Nominatim search error:", response.status, errorText);
-      return res.status(response.status).json({ error: "Search API error", details: errorText });
+      console.warn(`[Google] Details failed (${response.status}), trying fallback...`);
+      return null;
+    }
+
+    const place = await response.json();
+    if (!place.id) return null;
+
+    const priceLevelMap: Record<string, number> = {
+      PRICE_LEVEL_FREE: 0,
+      PRICE_LEVEL_INEXPENSIVE: 1,
+      PRICE_LEVEL_MODERATE: 2,
+      PRICE_LEVEL_EXPENSIVE: 3,
+      PRICE_LEVEL_VERY_EXPENSIVE: 4,
+    };
+
+    console.log(`[Google] Details for "${place.displayName?.text}"`);
+    return {
+      placeId: place.id,
+      name: place.displayName?.text || "",
+      address: place.formattedAddress || "",
+      latitude: place.location?.latitude || 0,
+      longitude: place.location?.longitude || 0,
+      rating: place.rating || 0,
+      reviewCount: place.userRatingCount || 0,
+      types: place.types || [],
+      primaryType: place.primaryType || "other",
+      primaryTypeDisplay: place.primaryTypeDisplayName?.text || "Địa điểm",
+      editorialSummary: place.editorialSummary?.text || "",
+      website: place.websiteUri || "",
+      phone: place.nationalPhoneNumber || "",
+      priceLevel: place.priceLevel ? (priceLevelMap[place.priceLevel] ?? null) : null,
+      photos: (place.photos || []).slice(0, 5).map((p: any) => ({
+        name: p.name || "",
+        attributions: (p.authorAttributions || []).map((a: any) => a.displayName || "Google"),
+      })),
+      reviews: (place.reviews || []).slice(0, 5).map((r: any) => ({
+        author: r.authorAttribution?.displayName || "",
+        rating: r.rating || 0,
+        text: r.text?.text || "",
+        time: r.relativePublishTimeDescription || "",
+        profilePhoto: r.authorAttribution?.photoUri || "",
+      })),
+      openingHours: place.regularOpeningHours?.weekdayDescriptions || [],
+      openNow: place.currentOpeningHours?.openNow ?? null,
+    };
+  } catch (error) {
+    console.warn(`[Google] Details error:`, error);
+    return null;
+  }
+}
+
+async function getPlaceDetailsGoong(placeId: string, language: string) {
+  const apiKey = getGoongKey();
+  if (!apiKey) return null;
+
+  try {
+    const url = `${GOONG_BASE}/Place/Detail?api_key=${apiKey}&place_id=${placeId}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      console.warn(`[Goong] Details failed (${response.status}), trying fallback...`);
+      return null;
     }
 
     const data = await response.json();
-    const places = data.map((item: any) => {
-      const types = [item.type, item.category, item.class].filter(Boolean);
-      const primaryType = mapOsmType(item.type || "", item.class || "");
+    const place = data.result;
+    if (!place) return null;
+
+    console.log(`[Goong] Details for "${place.name}"`);
+    return {
+      placeId: placeId,
+      name: place.name || "",
+      address: place.formatted_address || "",
+      latitude: place.geometry?.location?.lat || 0,
+      longitude: place.geometry?.location?.lng || 0,
+      rating: place.rating || 0,
+      reviewCount: place.user_ratings_total || 0,
+      types: place.types || [],
+      primaryType: (place.types && place.types[0]) || "other",
+      primaryTypeDisplay: "Địa điểm",
+      editorialSummary: "",
+      website: place.website || place.url || "",
+      phone: place.formatted_phone_number || "",
+      priceLevel: place.price_level ?? null,
+      photos: (place.photos || []).slice(0, 5).map((p: any) => ({
+        name: p.photo_reference || "",
+        attributions: (p.html_attributions || []),
+      })),
+      reviews: (place.reviews || []).slice(0, 5).map((r: any) => ({
+        author: r.author_name || "",
+        rating: r.rating || 0,
+        text: r.text || "",
+        time: r.relative_time_description || "",
+        profilePhoto: r.profile_photo_url || "",
+      })),
+      openingHours: place.opening_hours?.weekday_text || [],
+      openNow: place.opening_hours?.open_now ?? null,
+    };
+  } catch (error) {
+    console.warn(`[Goong] Details error:`, error);
+    return null;
+  }
+}
+
+async function getPlaceDetailsNominatim(placeId: string, language: string) {
+  // For Nominatim place IDs (nominatim_123456)
+  const osmId = placeId.replace("nominatim_", "");
+  try {
+    const url = `${NOMINATIM_BASE}/lookup?osm_ids=N${osmId},W${osmId},R${osmId}&format=json&accept-language=${language}&addressdetails=1`;
+    const response = await fetch(url, {
+      headers: { "User-Agent": "TravelPlannerPro/1.0" },
+    });
+
+    if (!response.ok || !(await response.clone().json()).length) {
+      // If lookup fails, try reverse search with place_id
+      const detailUrl = `${NOMINATIM_BASE}/details?place_id=${osmId}&format=json&accept-language=${language}`;
+      const detailRes = await fetch(detailUrl, {
+        headers: { "User-Agent": "TravelPlannerPro/1.0" },
+      });
+      if (detailRes.ok) {
+        const item = await detailRes.json();
+        console.log(`[Nominatim] Details for "${item.localname}"`);
+        return {
+          placeId,
+          name: item.localname || item.names?.name || "",
+          address: item.localname || "",
+          latitude: parseFloat(item.centroid?.coordinates?.[1]) || 0,
+          longitude: parseFloat(item.centroid?.coordinates?.[0]) || 0,
+          rating: 0,
+          reviewCount: 0,
+          types: [item.category || "place"],
+          primaryType: item.category || "other",
+          primaryTypeDisplay: item.category || "Địa điểm",
+          editorialSummary: "",
+          website: "",
+          phone: "",
+          priceLevel: null,
+          photos: [],
+          reviews: [],
+          openingHours: [],
+          openNow: null,
+        };
+      }
+    }
+
+    const data = await response.json();
+    if (data.length > 0) {
+      const item = data[0];
+      console.log(`[Nominatim] Details for "${item.display_name}"`);
       return {
-        placeId: `osm_${item.osm_type?.[0] || "N"}${item.osm_id}`,
-        name: item.name || item.display_name?.split(",")[0] || "",
+        placeId,
+        name: item.display_name?.split(",")[0] || "",
         address: item.display_name || "",
         latitude: parseFloat(item.lat) || 0,
         longitude: parseFloat(item.lon) || 0,
-        rating: item.extratags?.stars ? parseFloat(item.extratags.stars) : 0,
+        rating: 0,
         reviewCount: 0,
-        types,
-        primaryType,
-        primaryTypeDisplay: primaryType.charAt(0).toUpperCase() + primaryType.slice(1),
-        editorialSummary: item.extratags?.description || "",
-        photos: item.name ? [{ name: item.name, attributions: ["OpenStreetMap"] }] : [],
+        types: [item.type || "place"],
+        primaryType: item.type || "other",
+        primaryTypeDisplay: item.type || "Địa điểm",
+        editorialSummary: "",
+        website: "",
+        phone: "",
+        priceLevel: null,
+        photos: [],
+        reviews: [],
+        openingHours: [],
+        openNow: null,
       };
-    });
+    }
 
-    return res.json({ places });
+    return null;
   } catch (error) {
-    console.error("Places search error:", error);
-    return res.status(500).json({ error: "Failed to search places" });
+    console.warn(`[Nominatim] Details error:`, error);
+    return null;
   }
 }
 
@@ -97,75 +435,266 @@ async function getPlaceDetails(req: Request, res: Response) {
     return res.status(400).json({ error: "placeId parameter is required" });
   }
 
+  // Cách 1: Google
+  const googleResult = await getPlaceDetailsGoogle(placeId, language);
+  if (googleResult) return res.json(googleResult);
+
+  // Cách 2: Goong
+  const goongResult = await getPlaceDetailsGoong(placeId, language);
+  if (goongResult) return res.json(goongResult);
+
+  // Cách 3: Nominatim
+  const nominatimResult = await getPlaceDetailsNominatim(placeId, language);
+  if (nominatimResult) return res.json(nominatimResult);
+
+  return res.status(404).json({ error: "Place not found" });
+}
+
+// ══════════════════════════════════════════════════════════════
+// GEOCODE — Google → Goong → Nominatim
+// ══════════════════════════════════════════════════════════════
+
+async function geocodeGoogle(address: string) {
+  const apiKey = getGoogleKey();
+  if (!apiKey) return null;
+
   try {
-    // Parse osm type and id from our placeId format: osm_N12345
-    const idPart = placeId.replace("osm_", "");
-    const osmTypeChar = idPart[0];
-    const osmId = idPart.slice(1);
-    const osmTypeMap: Record<string, string> = { N: "N", W: "W", R: "R" };
-    const osmType = osmTypeMap[osmTypeChar] || "N";
-
-    const url = `${NOMINATIM_BASE}/lookup?` + new URLSearchParams({
-      osm_ids: `${osmType}${osmId}`,
-      format: "jsonv2",
-      addressdetails: "1",
-      extratags: "1",
-      "accept-language": language,
-    });
-
-    const response = await fetch(url, {
-      headers: { "User-Agent": USER_AGENT },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Nominatim lookup error:", response.status, errorText);
-      return res.status(response.status).json({ error: "Lookup API error", details: errorText });
-    }
+    const url = `${GOOGLE_GEOCODE_BASE}?key=${apiKey}&address=${encodeURIComponent(address)}&language=vi`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
 
     const data = await response.json();
-    if (!data || data.length === 0) {
-      return res.status(404).json({ error: "Place not found" });
-    }
+    if (data.status !== "OK" || !data.results?.length) return null;
 
-    const place = data[0];
-    const types = [place.type, place.category, place.class].filter(Boolean);
-    const primaryType = mapOsmType(place.type || "", place.class || "");
-    const extratags = place.extratags || {};
+    const results = data.results.map((r: any) => ({
+      formattedAddress: r.formatted_address || "",
+      latitude: r.geometry?.location?.lat || 0,
+      longitude: r.geometry?.location?.lng || 0,
+      placeId: r.place_id || "",
+    }));
 
-    // Build opening hours from OSM extratags
-    const openingHours: string[] = [];
-    if (extratags.opening_hours) {
-      openingHours.push(extratags.opening_hours);
-    }
-
-    const result = {
-      placeId,
-      name: place.name || place.display_name?.split(",")[0] || "",
-      address: place.display_name || "",
-      latitude: parseFloat(place.lat) || 0,
-      longitude: parseFloat(place.lon) || 0,
-      rating: extratags.stars ? parseFloat(extratags.stars) : 0,
-      reviewCount: 0,
-      types,
-      primaryType,
-      primaryTypeDisplay: primaryType.charAt(0).toUpperCase() + primaryType.slice(1),
-      editorialSummary: extratags.description || "",
-      website: extratags.website || extratags.url || "",
-      phone: extratags.phone || extratags["contact:phone"] || "",
-      priceLevel: null,
-      photos: place.name ? [{ name: place.name, attributions: ["OpenStreetMap"] }] : [],
-      reviews: [],
-      openingHours,
-      openNow: null,
-    };
-
-    return res.json(result);
+    console.log(`[Google] Geocode "${address}" → ${results.length} results`);
+    return { results };
   } catch (error) {
-    console.error("Place details error:", error);
-    return res.status(500).json({ error: "Failed to get place details" });
+    console.warn(`[Google] Geocode error:`, error);
+    return null;
   }
 }
+
+async function geocodeGoong(address: string) {
+  const apiKey = getGoongKey();
+  if (!apiKey) return null;
+
+  try {
+    const url = `${GOONG_BASE}/Geocode?api_key=${apiKey}&address=${encodeURIComponent(address)}`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (!data.results?.length) return null;
+
+    const results = data.results.map((r: any) => ({
+      formattedAddress: r.formatted_address || "",
+      latitude: r.geometry?.location?.lat || 0,
+      longitude: r.geometry?.location?.lng || 0,
+      placeId: r.place_id || "",
+    }));
+
+    console.log(`[Goong] Geocode "${address}" → ${results.length} results`);
+    return { results };
+  } catch (error) {
+    console.warn(`[Goong] Geocode error:`, error);
+    return null;
+  }
+}
+
+async function geocodeNominatim(address: string) {
+  try {
+    const url = `${NOMINATIM_BASE}/search?format=json&q=${encodeURIComponent(address)}&limit=5&accept-language=vi`;
+    const response = await fetch(url, {
+      headers: { "User-Agent": "TravelPlannerPro/1.0" },
+    });
+    if (!response.ok) return { results: [] };
+
+    const data = await response.json();
+    const results = data.map((item: any) => ({
+      formattedAddress: item.display_name || "",
+      latitude: parseFloat(item.lat) || 0,
+      longitude: parseFloat(item.lon) || 0,
+      placeId: `nominatim_${item.place_id}`,
+    }));
+
+    console.log(`[Nominatim] Geocode "${address}" → ${results.length} results`);
+    return { results };
+  } catch (error) {
+    console.warn(`[Nominatim] Geocode error:`, error);
+    return { results: [] };
+  }
+}
+
+async function geocodeAddress(req: Request, res: Response) {
+  const address = req.query.address as string;
+
+  if (!address) {
+    return res.status(400).json({ error: "address parameter is required" });
+  }
+
+  // Cách 1: Google
+  const googleResult = await geocodeGoogle(address);
+  if (googleResult) return res.json(googleResult);
+
+  // Cách 2: Goong
+  const goongResult = await geocodeGoong(address);
+  if (goongResult) return res.json(goongResult);
+
+  // Cách 3: Nominatim (miễn phí)
+  const nominatimResult = await geocodeNominatim(address);
+  return res.json(nominatimResult);
+}
+
+// ══════════════════════════════════════════════════════════════
+// DIRECTIONS — Google → Goong → OSRM
+// ══════════════════════════════════════════════════════════════
+
+async function directionsGoogle(origin: string, destination: string, vehicle: string) {
+  const apiKey = getGoogleKey();
+  if (!apiKey) return null;
+
+  try {
+    const mode = mapVehicleToMode(vehicle);
+    const url = `${GOOGLE_DIRECTIONS_BASE}?key=${apiKey}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=${mode}&language=vi`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (data.status !== "OK" || !data.routes?.length) return null;
+
+    console.log(`[Google] Directions ${origin} → ${destination}`);
+    return data;
+  } catch (error) {
+    console.warn(`[Google] Directions error:`, error);
+    return null;
+  }
+}
+
+async function directionsGoong(origin: string, destination: string, vehicle: string) {
+  const apiKey = getGoongKey();
+  if (!apiKey) return null;
+
+  try {
+    const goongVehicle = vehicle === "walking" ? "bike" : (vehicle || "car");
+    const url = `${GOONG_BASE}/Direction?api_key=${apiKey}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&vehicle=${goongVehicle}`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (!data.routes?.length) return null;
+
+    console.log(`[Goong] Directions ${origin} → ${destination}`);
+    return data;
+  } catch (error) {
+    console.warn(`[Goong] Directions error:`, error);
+    return null;
+  }
+}
+
+async function directionsOSRM(origin: string, destination: string) {
+  try {
+    // Parse origin/destination — they might be "lat,lng" or address text
+    let originCoords = origin;
+    let destCoords = destination;
+
+    // If it looks like coordinates "lat,lng", convert to "lng,lat" for OSRM
+    const coordRegex = /^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/;
+
+    const origMatch = origin.match(coordRegex);
+    if (origMatch) {
+      originCoords = `${origMatch[2]},${origMatch[1]}`; // OSRM uses lng,lat
+    } else {
+      // Need to geocode the address first
+      const geo = await geocodeNominatim(origin);
+      if (geo.results.length > 0) {
+        originCoords = `${geo.results[0].longitude},${geo.results[0].latitude}`;
+      } else {
+        return null;
+      }
+    }
+
+    const destMatch = destination.match(coordRegex);
+    if (destMatch) {
+      destCoords = `${destMatch[2]},${destMatch[1]}`;
+    } else {
+      const geo = await geocodeNominatim(destination);
+      if (geo.results.length > 0) {
+        destCoords = `${geo.results[0].longitude},${geo.results[0].latitude}`;
+      } else {
+        return null;
+      }
+    }
+
+    const url = `${OSRM_BASE}/route/v1/driving/${originCoords};${destCoords}?overview=full&geometries=geojson&steps=true`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (data.code !== "Ok" || !data.routes?.length) return null;
+
+    // Convert OSRM format to Google-compatible format
+    const route = data.routes[0];
+    const result = {
+      status: "OK",
+      routes: [{
+        legs: route.legs.map((leg: any) => ({
+          distance: { text: `${(leg.distance / 1000).toFixed(1)} km`, value: leg.distance },
+          duration: { text: `${Math.round(leg.duration / 60)} phút`, value: leg.duration },
+          steps: (leg.steps || []).map((step: any) => ({
+            distance: { text: `${Math.round(step.distance)} m`, value: step.distance },
+            duration: { text: `${Math.round(step.duration / 60)} phút`, value: step.duration },
+            html_instructions: step.name || "",
+            maneuver: { location: step.maneuver?.location },
+          })),
+        })),
+        overview_polyline: {
+          points: "", // OSRM uses GeoJSON, not encoded polyline
+        },
+      }],
+    };
+
+    console.log(`[OSRM] Directions ${origin} → ${destination}`);
+    return result;
+  } catch (error) {
+    console.warn(`[OSRM] Directions error:`, error);
+    return null;
+  }
+}
+
+async function getDirections(req: Request, res: Response) {
+  const origin = req.query.origin as string;
+  const destination = req.query.destination as string;
+  const vehicle = (req.query.vehicle as string) || "car";
+
+  if (!origin || !destination) {
+    return res.status(400).json({ error: "origin and destination are required" });
+  }
+
+  // Cách 1: Google
+  const googleResult = await directionsGoogle(origin, destination, vehicle);
+  if (googleResult) return res.json(googleResult);
+
+  // Cách 2: Goong
+  const goongResult = await directionsGoong(origin, destination, vehicle);
+  if (goongResult) return res.json(goongResult);
+
+  // Cách 3: OSRM (miễn phí)
+  const osrmResult = await directionsOSRM(origin, destination);
+  if (osrmResult) return res.json(osrmResult);
+
+  return res.json({ routes: [] });
+}
+
+// ══════════════════════════════════════════════════════════════
+// PLACE PHOTO — Google → Unsplash fallback
+// ══════════════════════════════════════════════════════════════
 
 async function getPlacePhoto(req: Request, res: Response) {
   const photoName = req.query.name as string;
@@ -175,8 +704,26 @@ async function getPlacePhoto(req: Request, res: Response) {
     return res.status(400).json({ error: "Photo name parameter is required" });
   }
 
+  const apiKey = getGoogleKey();
+
   try {
-    // Use Unsplash Source for free stock photos based on place name
+    // If photoName looks like a Google Places photo resource name
+    if (apiKey && photoName.startsWith("places/")) {
+      const url = `${GOOGLE_PLACES_BASE}/${photoName}/media?maxWidthPx=${maxWidth}&key=${apiKey}`;
+      const response = await fetch(url, { redirect: "follow" });
+
+      if (response.ok) {
+        const contentType = response.headers.get("content-type") || "image/jpeg";
+        res.setHeader("Content-Type", contentType);
+        res.setHeader("Cache-Control", "public, max-age=86400");
+
+        const buffer = await response.arrayBuffer();
+        return res.send(Buffer.from(buffer));
+      }
+      console.warn(`[Google] Photo failed, trying Unsplash fallback...`);
+    }
+
+    // Fallback to Unsplash for non-Google photo names or failed Google fetch
     const url = `https://source.unsplash.com/${maxWidth}x${Math.round(maxWidth * 0.66)}/?${encodeURIComponent(photoName + " travel landscape")}`;
     const response = await fetch(url, { redirect: "follow" });
 
@@ -194,6 +741,73 @@ async function getPlacePhoto(req: Request, res: Response) {
     console.error("Place photo error:", error);
     return res.status(500).json({ error: "Failed to fetch photo" });
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Internal geocode helper — Google → Goong → Nominatim
+// Used by generate-itinerary to get accurate coordinates
+// ══════════════════════════════════════════════════════════════
+
+async function internalGeocode(address: string): Promise<{ lat: number; lng: number; formattedAddress: string } | null> {
+  // Cách 1: Google
+  const googleKey = getGoogleKey();
+  if (googleKey) {
+    try {
+      const url = `${GOOGLE_GEOCODE_BASE}?key=${googleKey}&address=${encodeURIComponent(address)}&language=vi`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === "OK" && data.results?.length) {
+          const r = data.results[0];
+          return {
+            lat: r.geometry?.location?.lat || 0,
+            lng: r.geometry?.location?.lng || 0,
+            formattedAddress: r.formatted_address || address,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  // Cách 2: Goong
+  const goongKey = getGoongKey();
+  if (goongKey) {
+    try {
+      const url = `${GOONG_BASE}/Geocode?api_key=${goongKey}&address=${encodeURIComponent(address)}`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.results?.length) {
+          const r = data.results[0];
+          return {
+            lat: r.geometry?.location?.lat || 0,
+            lng: r.geometry?.location?.lng || 0,
+            formattedAddress: r.formatted_address || address,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  // Cách 3: Nominatim (miễn phí)
+  try {
+    const url = `${NOMINATIM_BASE}/search?format=json&q=${encodeURIComponent(address)}&limit=1&accept-language=vi`;
+    const response = await fetch(url, {
+      headers: { "User-Agent": "TravelPlannerPro/1.0" },
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.length > 0) {
+        return {
+          lat: parseFloat(data[0].lat) || 0,
+          lng: parseFloat(data[0].lon) || 0,
+          formattedAddress: data[0].display_name || address,
+        };
+      }
+    }
+  } catch {}
+
+  return null;
 }
 
 // In-memory store for shared trips (keyed by shareCode)
@@ -277,7 +891,10 @@ async function removeCompanion(req: Request, res: Response) {
   return res.json({ ok: true });
 }
 
-// POST /api/generate-itinerary — generate itinerary via Gemini AI
+// ══════════════════════════════════════════════════════════════
+// AI ITINERARY GENERATION (with fallback geocoding)
+// ══════════════════════════════════════════════════════════════
+
 async function generateItineraryAI(req: Request, res: Response) {
   const { destination, startDate, endDate, budget, totalBudget, numPeople, preferences, startingPoint } = req.body;
 
@@ -297,7 +914,7 @@ async function generateItineraryAI(req: Request, res: Response) {
 
     // Calculate number of days
     const parseDate = (d: string) => {
-      const parts = d.split("/");
+      const parts = d.split(/[-/]/);
       if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
       return new Date(d);
     };
@@ -305,12 +922,31 @@ async function generateItineraryAI(req: Request, res: Response) {
     const end = parseDate(endDate);
     const numDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
     const budgetPerDay = totalBudget ? Math.round(totalBudget / numDays) : 0;
-    const budgetPerDayPerPerson = totalBudget ? Math.round(totalBudget / numDays / (numPeople || 2)) : 0;
 
-    const prompt = `Bạn là chuyên gia du lịch Việt Nam với kiến thức sâu về Google Maps. Tạo lịch trình ${numDays} ngày tại ${destination}.
+    // Resolve destination to province for better AI guidance
+    const destProvinceMap: Record<string, string> = {
+      "hạ long": "Quảng Ninh", "vịnh hạ long": "Quảng Ninh", "quảng ninh": "Quảng Ninh",
+      "hội an": "Quảng Nam", "quảng nam": "Quảng Nam",
+      "sa pa": "Lào Cai", "sapa": "Lào Cai", "lào cai": "Lào Cai",
+      "phú quốc": "Kiên Giang", "kiên giang": "Kiên Giang",
+      "đà nẵng": "Đà Nẵng",
+      "ninh bình": "Ninh Bình",
+      "đà lạt": "Lâm Đồng", "lâm đồng": "Lâm Đồng",
+      "huế": "Thừa Thiên Huế", "thừa thiên huế": "Thừa Thiên Huế",
+      "nha trang": "Khánh Hòa", "khánh hòa": "Khánh Hòa",
+      "phong nha": "Quảng Bình", "quảng bình": "Quảng Bình",
+      "hà nội": "Hà Nội", "hồ chí minh": "TP. Hồ Chí Minh", "sài gòn": "TP. Hồ Chí Minh",
+      "vũng tàu": "Bà Rịa - Vũng Tàu", "phan thiết": "Bình Thuận", "mũi né": "Bình Thuận",
+      "cần thơ": "Cần Thơ", "quy nhơn": "Bình Định", "buôn ma thuột": "Đắk Lắk",
+      "hải phòng": "Hải Phòng", "cát bà": "Hải Phòng",
+    };
+    const destKey = destination.toLowerCase().trim();
+    const province = destProvinceMap[destKey] || destination;
+
+    const prompt = `Tạo lịch trình du lịch ${numDays} ngày tại ${destination} (thuộc tỉnh/thành phố: ${province}).
 
 THÔNG TIN:
-- Điểm đến: ${destination}
+- Điểm đến: ${destination} (${province})
 - Ngày: ${startDate} → ${endDate} (${numDays} ngày)
 - Số người: ${numPeople || 2}
 - Tổng ngân sách: ${totalBudget ? totalBudget.toLocaleString("vi-VN") + "đ" : "không giới hạn"} (≈${budgetPerDay > 0 ? budgetPerDay.toLocaleString("vi-VN") + "đ/ngày" : "tùy ý"})
@@ -318,33 +954,34 @@ ${prefsText ? `- Sở thích: ${prefsText}` : ""}
 ${startingPoint ? `- Xuất phát: ${startingPoint}` : ""}
 
 QUY TẮC BẮT BUỘC:
-1. CHỈ gợi ý những địa điểm, nhà hàng, quán ăn CÓ THẬT và NỔI TIẾNG tại ${destination}. Dùng ĐÚNG TÊN trên Google Maps.
-2. Mỗi ngày có 6 hoạt động xen kẽ: Ăn sáng → Tham quan sáng → Ăn trưa → Tham quan chiều → Ăn tối → Hoạt động tối
-3. NGÂN SÁCH: Tổng estimatedCost tất cả các ngày PHẢI nằm trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + (totalBudget * 1.0).toLocaleString("vi-VN") + "đ" : "hợp lý"}. estimatedCost đã tính cho ${numPeople || 2} người.
-4. "description" phải giới thiệu ngắn gọn về địa điểm: nổi tiếng vì gì, đặc sản gì, nên thử gì.
-5. "rating" là điểm đánh giá Google Maps thực tế (1.0-5.0), ví dụ 4.2, 4.6. PHẢI chính xác.
-6. "address" phải là ĐỊA CHỈ ĐẦY ĐỦ bao gồm số nhà, đường, phường/xã, quận/huyện, tỉnh/thành phố.
-7. "latitude" và "longitude" phải CHÍNH XÁC tọa độ GPS của địa điểm.
+1. 100% địa điểm PHẢI nằm trong ${province}. KHÔNG ĐƯỢC có địa điểm ở tỉnh/thành phố khác.
+2. CHỈ gợi ý địa điểm, nhà hàng, quán ăn CÓ THẬT và NỔI TIẾNG tại ${destination}/${province}. Dùng ĐÚNG TÊN trên Google Maps.
+3. Mỗi ngày có 6 hoạt động: Ăn sáng → Tham quan sáng → Ăn trưa → Tham quan chiều → Ăn tối → Hoạt động tối
+4. NGÂN SÁCH: Tổng estimatedCost PHẢI trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + (totalBudget * 1.0).toLocaleString("vi-VN") + "đ" : "hợp lý"}. estimatedCost đã tính cho ${numPeople || 2} người.
+5. "address" PHẢI chứa "${province}" ở cuối. Ví dụ: "Số 1, Đường ABC, ${province}".
+6. "latitude"/"longitude" PHẢI là tọa độ GPS chính xác của địa điểm trong ${province}.
+7. "rating" là điểm Google Maps thực tế (1.0-5.0).
 8. Thời gian: 07:00, 08:30, 12:00, 14:00, 18:00, 20:00
-${prefsText ? `9. ƯU TIÊN hoạt động liên quan: ${prefsText}` : ""}
+9. Nếu thiếu địa điểm, gợi ý ở huyện/thị xã lân cận TRONG CÙNG TỈNH ${province}.
+${prefsText ? `10. ƯU TIÊN: ${prefsText}` : ""}
 
-JSON format (KHÔNG markdown):
+JSON format:
 {
   "days": [
     {
       "day": 1,
-      "title": "Ngày 1 - Đến nơi & Khám phá",
+      "title": "Ngày 1 - Tiêu đề",
       "activities": [
         {
           "time": "07:00",
-          "title": "Ăn sáng tại Phở Bát Đàn",
-          "description": "Quán phở nổi tiếng hơn 30 năm, luôn xếp hàng dài. Nước dùng ngọt thanh, thịt bò tươi mềm. Rating 4.4 trên Google Maps.",
+          "title": "Tên hoạt động",
+          "description": "Mô tả ngắn gọn",
           "duration": "1 giờ",
           "estimatedCost": 120000,
           "activityType": "food",
-          "address": "49 Bát Đàn, Cửa Đông, Hoàn Kiếm, Hà Nội",
-          "latitude": 21.0335,
-          "longitude": 105.8468,
+          "address": "Địa chỉ đầy đủ, ${province}",
+          "latitude": 0.0,
+          "longitude": 0.0,
           "rating": 4.4
         }
       ]
@@ -352,9 +989,7 @@ JSON format (KHÔNG markdown):
   ]
 }
 
-activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"
-estimatedCost: số nguyên VND, đã tính cho ${numPeople || 2} người.
-rating: số thập phân 1.0-5.0 từ Google Maps.`;
+activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
@@ -362,11 +997,14 @@ rating: số thập phân 1.0-5.0 từ Google Maps.`;
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: `Bạn là chuyên gia du lịch Việt Nam. QUAN TRỌNG: Bạn CHỈ ĐƯỢC gợi ý địa điểm tại ${destination} thuộc ${province}. TUYỆT ĐỐI KHÔNG gợi ý bất kỳ địa điểm nào ở tỉnh/thành phố khác. Mọi address PHẢI chứa "${province}".` }]
+        },
         contents: [{
           parts: [{ text: prompt }]
         }],
         generationConfig: {
-          temperature: 0.7,
+          temperature: 0.3,
           maxOutputTokens: 8192,
           responseMimeType: "application/json",
         }
@@ -404,6 +1042,7 @@ rating: số thập phân 1.0-5.0 từ Google Maps.`;
 
     // Post-process: add IDs, defaults, Google Maps URLs, and budget scaling
     let totalEstimated = 0;
+    const allActivities: any[] = [];
     for (const day of parsed.days) {
       if (!day.activities) day.activities = [];
       for (const act of day.activities) {
@@ -413,26 +1052,51 @@ rating: số thập phân 1.0-5.0 từ Google Maps.`;
         act.activityType = act.activityType || "sightseeing";
         act.duration = act.duration || "1 giờ";
         act.rating = act.rating || undefined;
-        // Generate Google Maps URL from coordinates or address
-        if (act.latitude && act.longitude) {
-          act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
-        } else if (act.address) {
-          act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.title + " " + act.address)}`;
-        }
+        allActivities.push(act);
         totalEstimated += act.estimatedCost;
       }
     }
+
+    // Geocoding with fallback: Google → Goong → Nominatim
+    const provider = getActiveProvider();
+    console.log(`[Geocoding] Using provider chain: ${provider} → fallback. Processing ${allActivities.length} activities...`);
+
+    const geocodePromises = allActivities.map(async (act) => {
+      if (act.address) {
+        const geo = await internalGeocode(act.address);
+        if (geo && geo.lat !== 0 && geo.lng !== 0) {
+          act.latitude = geo.lat;
+          act.longitude = geo.lng;
+          act.address = geo.formattedAddress;
+        } else if (act.title) {
+          // Fallback: geocode by title + destination
+          const geo2 = await internalGeocode(`${act.title}, ${destination}`);
+          if (geo2 && geo2.lat !== 0 && geo2.lng !== 0) {
+            act.latitude = geo2.lat;
+            act.longitude = geo2.lng;
+            act.address = geo2.formattedAddress;
+          }
+        }
+      }
+      // Generate Google Maps URL from geocoded coordinates
+      if (act.latitude && act.longitude) {
+        act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
+      } else if (act.address) {
+        act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.title + " " + act.address)}`;
+      }
+    });
+    await Promise.all(geocodePromises);
+    console.log(`[Geocoding] Complete`);
 
     // Budget scaling: if total is way off budget, scale proportionally
     if (totalBudget && totalEstimated > 0) {
       const ratio = totalBudget / totalEstimated;
       if (ratio < 0.7 || ratio > 1.3) {
-        // Scale all costs to fit budget (between 85%-100%)
         const targetTotal = totalBudget * 0.92;
         const scale = targetTotal / totalEstimated;
         for (const day of parsed.days) {
           for (const act of day.activities) {
-            act.estimatedCost = Math.round(act.estimatedCost * scale / 1000) * 1000; // Round to nearest 1000
+            act.estimatedCost = Math.round(act.estimatedCost * scale / 1000) * 1000;
           }
         }
       }
@@ -445,11 +1109,53 @@ rating: số thập phân 1.0-5.0 từ Google Maps.`;
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// API endpoint to check which provider is active
+// ══════════════════════════════════════════════════════════════
+
+async function getProviderStatus(req: Request, res: Response) {
+  const provider = getActiveProvider();
+  const hasGoogle = !!getGoogleKey();
+  const hasGoong = !!getGoongKey();
+
+  return res.json({
+    activeProvider: provider,
+    providers: {
+      google: { available: hasGoogle, name: "Google Maps Platform" },
+      goong: { available: hasGoong, name: "Goong Maps" },
+      free: { available: true, name: "OpenStreetMap + OSRM (miễn phí)" },
+    },
+    fallbackChain: [
+      hasGoogle ? "✅ Google Maps" : "❌ Google Maps (no key)",
+      hasGoong ? "✅ Goong Maps" : "❌ Goong Maps (no key)",
+      "✅ Nominatim + OSRM (always available)",
+    ],
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// Register all routes
+// ══════════════════════════════════════════════════════════════
+
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Places search routes (Nominatim/OpenStreetMap)
+  // Log active provider on startup
+  const provider = getActiveProvider();
+  console.log(`\n🗺️  Map Provider: ${provider.toUpperCase()}`);
+  console.log(`   Google: ${getGoogleKey() ? "✅ configured" : "❌ not configured"}`);
+  console.log(`   Goong:  ${getGoongKey() ? "✅ configured" : "❌ not configured"}`);
+  console.log(`   Free:   ✅ always available (Nominatim + OSRM)\n`);
+
+  // Provider status
+  app.get("/api/places/provider", getProviderStatus);
+
+  // Places search routes (with fallback)
   app.get("/api/places/search", searchPlaces);
   app.get("/api/places/details/:placeId", getPlaceDetails);
   app.get("/api/places/photo", getPlacePhoto);
+
+  // Geocode & directions (with fallback)
+  app.get("/api/places/geocode", geocodeAddress);
+  app.get("/api/places/directions", getDirections);
 
   // AI Itinerary generation
   app.post("/api/generate-itinerary", generateItineraryAI);
@@ -464,4 +1170,3 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
-

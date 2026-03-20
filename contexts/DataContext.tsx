@@ -116,18 +116,44 @@ function generateDays(
   const start = parseDateInput(startDate);
   const end = parseDateInput(endDate);
   const dayCount = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
-
+  // ALWAYS stay within the user's chosen destination — never switch to another place
   let relevantDests = allDestinations.filter((d) => {
-    const matchesDest = d.name.toLowerCase().includes(destination.toLowerCase()) ||
-      d.address.toLowerCase().includes(destination.toLowerCase());
-    const matchesTags = preferences.some((p) =>
-      d.tags.some((t) => t.toLowerCase().includes(p.toLowerCase())) ||
-      d.category.toLowerCase().includes(p.toLowerCase())
-    );
-    return matchesDest || matchesTags;
+    return d.name.toLowerCase().includes(destination.toLowerCase()) ||
+      d.address.toLowerCase().includes(destination.toLowerCase()) ||
+      destination.toLowerCase().includes(d.name.toLowerCase());
   });
 
-  if (relevantDests.length === 0) relevantDests = allDestinations.slice(0, 3);
+  // If no seed data matches, create a placeholder using the user's destination name
+  // This ensures we NEVER fall back to a different city
+  if (relevantDests.length === 0) {
+    relevantDests = [{
+      id: "temp_dest",
+      name: destination,
+      description: `Khám phá ${destination}`,
+      images: [],
+      category: "Khác",
+      address: destination,
+      latitude: 0,
+      longitude: 0,
+      rating: 0,
+      reviewCount: 0,
+      priceRange: "2-5 triệu",
+      tags: [],
+      openHours: "",
+      isActive: true,
+      highlights: [
+        `Tham quan các điểm nổi bật tại ${destination}`,
+        `Khám phá văn hóa địa phương ${destination}`,
+        `Trải nghiệm ẩm thực ${destination}`,
+        `Ngắm cảnh đẹp tại ${destination}`,
+      ],
+      tips: [],
+      bestTimeToVisit: "",
+      estimatedCostPerPerson: 200000,
+      sampleReviews: [],
+      nearbyFood: [],
+    } as Destination];
+  }
 
   const startCoords = getStartingCoords(startingPoint);
   if (startCoords) {
@@ -139,30 +165,30 @@ function generateDays(
   }
 
   const morningActivities = [
-    "Khám phá chợ địa phương và ăn sáng",
-    "Tham quan các di tích lịch sử",
-    "Tập yoga buổi sáng bên bờ biển",
-    "Tham gia tour đi bộ khám phá",
-    "Leo núi ngắm cảnh từ trên cao",
-    "Thăm làng nghề truyền thống",
-    "Đạp xe quanh khu phố cổ",
+    `Khám phá chợ địa phương và ăn sáng tại ${destination}`,
+    `Tham quan các di tích lịch sử tại ${destination}`,
+    `Tham gia tour đi bộ khám phá ${destination}`,
+    `Thăm làng nghề truyền thống tại ${destination}`,
+    `Đạp xe quanh ${destination}`,
+    `Ngắm cảnh buổi sáng tại ${destination}`,
+    `Khám phá điểm tham quan nổi tiếng ${destination}`,
   ];
 
   const afternoonActivities = [
-    "Tham quan bảo tàng và di tích văn hóa",
-    "Các hoạt động thể thao dưới nước",
-    "Chụp ảnh tại các địa điểm nổi tiếng",
-    "Mua sắm đồ thủ công mỹ nghệ",
-    "Thưởng thức đặc sản vùng miền",
-    "Khám phá hang động và khu sinh thái",
+    `Tham quan bảo tàng và di tích văn hóa tại ${destination}`,
+    `Chụp ảnh tại các địa điểm nổi tiếng ${destination}`,
+    `Mua sắm đồ thủ công mỹ nghệ tại ${destination}`,
+    `Thưởng thức đặc sản vùng miền tại ${destination}`,
+    `Khám phá thiên nhiên tại ${destination}`,
+    `Trải nghiệm hoạt động giải trí tại ${destination}`,
   ];
 
   const eveningActivities = [
-    "Ngắm hoàng hôn tại bờ biển",
-    "Khám phá chợ đêm",
-    "Xem biểu diễn nghệ thuật truyền thống",
-    "Dạo phố đêm và thưởng thức cà phê",
-    "Trải nghiệm ẩm thực đường phố",
+    `Ngắm hoàng hôn tại ${destination}`,
+    `Khám phá chợ đêm ${destination}`,
+    `Dạo phố đêm và thưởng thức cà phê tại ${destination}`,
+    `Trải nghiệm ẩm thực đường phố ${destination}`,
+    `Thư giãn buổi tối tại ${destination}`,
   ];
 
   const morningDescriptions = [

@@ -1,17 +1,6 @@
-import Constants from "expo-constants";
+import { getApiUrl, getApiHeaders } from "./query-client";
 
-// Get the server URL for API calls
-function getServerUrl(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) {
-    const protocol = domain.includes("localhost") ? "http" : "https";
-    return `${protocol}://${domain}`;
-  }
-  // Fallback for development
-  return "http://localhost:5000";
-}
-
-const SERVER_URL = getServerUrl();
+const SERVER_URL = getApiUrl().replace(/\/$/, "");
 
 export interface PlaceSearchResult {
   placeId: string;
@@ -126,7 +115,7 @@ export function getPOITypeIcon(type: string): string {
 export async function searchPlaces(query: string, language: string = "vi"): Promise<PlaceSearchResult[]> {
   try {
     const url = `${SERVER_URL}/api/places/search?query=${encodeURIComponent(query)}&language=${language}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: getApiHeaders() });
     
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -145,7 +134,7 @@ export async function searchPlaces(query: string, language: string = "vi"): Prom
 export async function getPlaceDetails(placeId: string, language: string = "vi"): Promise<PlaceDetails | null> {
   try {
     const url = `${SERVER_URL}/api/places/details/${placeId}?language=${language}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: getApiHeaders() });
     
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));

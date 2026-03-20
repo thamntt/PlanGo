@@ -40,13 +40,17 @@ function setupCors(app: express.Application) {
       origin?.startsWith("http://10.") ||
       origin?.startsWith("http://172.");
 
-    if (origin && (origins.has(origin) || isLocalhost || isLanOrigin)) {
+    // Allow tunnel origins (ngrok, localtunnel)
+    const isTunnelOrigin =
+      origin?.includes(".ngrok") || origin?.includes(".loca.lt");
+
+    if (origin && (origins.has(origin) || isLocalhost || isLanOrigin || isTunnelOrigin)) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header(
         "Access-Control-Allow-Methods",
         "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       );
-      res.header("Access-Control-Allow-Headers", "Content-Type");
+      res.header("Access-Control-Allow-Headers", "Content-Type, Bypass-Tunnel-Reminder");
       res.header("Access-Control-Allow-Credentials", "true");
     }
 

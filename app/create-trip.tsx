@@ -25,6 +25,7 @@ import { parseDDMMYYYY } from "@/lib/validation";
 import { formatVND } from "@/lib/storage";
 import type { ItineraryDay } from "@/lib/storage";
 import { t } from "@/lib/i18n";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 interface FormErrors {
   destination?: string;
@@ -170,13 +171,11 @@ export default function CreateTripScreen() {
 
   const fetchAIDays = async (): Promise<ItineraryDay[] | null> => {
     try {
-      const serverDomain = process.env.EXPO_PUBLIC_DOMAIN || "localhost:5000";
-      const serverProtocol = serverDomain.includes("localhost") ? "http" : "https";
-      const baseUrl = `${serverProtocol}://${serverDomain}`;
+      const baseUrl = getApiUrl().replace(/\/$/, "");
 
       const res = await fetch(`${baseUrl}/api/generate-itinerary`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...getApiHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           destination: destination.trim(),
           startDate,

@@ -1,17 +1,6 @@
-import Constants from "expo-constants";
+import { getApiUrl, getApiHeaders } from "./query-client";
 
-// Get the server URL for API calls
-function getServerUrl(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) {
-    const protocol = domain.includes("localhost") ? "http" : "https";
-    return `${protocol}://${domain}`;
-  }
-  // Fallback for development
-  return "http://localhost:5000";
-}
-
-const SERVER_URL = getServerUrl();
+const SERVER_URL = getApiUrl().replace(/\/$/, ""); // Remove trailing slash
 
 export interface PlaceSearchResult {
   placeId: string;
@@ -136,7 +125,7 @@ export function getPOITypeIcon(type: string): string {
 export async function searchPlaces(query: string, language: string = "vi"): Promise<PlaceSearchResult[]> {
   try {
     const url = `${SERVER_URL}/api/places/search?query=${encodeURIComponent(query)}&language=${language}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: getApiHeaders() });
     
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -155,7 +144,7 @@ export async function searchPlaces(query: string, language: string = "vi"): Prom
 export async function getPlaceDetails(placeId: string, language: string = "vi"): Promise<PlaceDetails | null> {
   try {
     const url = `${SERVER_URL}/api/places/details/${placeId}?language=${language}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: getApiHeaders() });
     
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -172,4 +161,55 @@ export async function getPlaceDetails(placeId: string, language: string = "vi"):
 
 export function getPhotoUrl(photoName: string, maxWidth: number = 800): string {
   return `${SERVER_URL}/api/places/photo?name=${encodeURIComponent(photoName)}&maxWidth=${maxWidth}`;
+}
+
+// Goong geocode — address to coordinates
+export interface GeocodeResult {
+  formattedAddress: string;
+  latitude: number;
+  longitude: number;
+  placeId: string;
+}
+
+export async function geocodeAddress(address: string): Promise<GeocodeResult[]> {
+  try {
+    const url = `${SERVER_URL}/api/places/geocode?address=${encodeURIComponent(address)}`;
+    const response = await fetch(url, { headers: getApiHeaders() });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.results || [];
+  } catch (error) {
+    console.error("Geocode error:", error);
+    return [];
+  }
+}
+
+// Goong directions — route between points
+export interface DirectionRoute {
+  legs: {
+    distance: { text: string; value: number };
+    duration: { text: string; value: number };
+    steps: any[];
+  }[];
+  overview_polyline: { points: string };
+}
+
+export async function getDirections(
+  origin: string,
+  destination: string,
+  vehicle: string = "car"
+): Promise<DirectionRoute | null> {
+  try {
+    const url = `${SERVER_URL}/api/places/directions?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&vehicle=${vehicle}`;
+    const response = await fetch(url, { headers: getApiHeaders() });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data.routes && data.routes.length > 0) {
+      return data.routes[0];
+    }
+    return null;
+  } catch (error) {
+    console.error("Directions error:", error);
+    return null;
+  }
 }

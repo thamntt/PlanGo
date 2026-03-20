@@ -134,6 +134,7 @@ export interface Expense {
   splits?: ExpenseSplit[];
   notes?: string[];
   dayIndex?: number;
+  activityId?: string;
   createdAt: string;
 }
 
