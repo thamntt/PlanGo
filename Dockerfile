@@ -25,7 +25,7 @@ COPY . .
 RUN npx -y patch-package || true
 
 # Build Express server with esbuild (this doesn't need domain)
-RUN npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist
+RUN npx -y esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist
 
 # Make start script executable
 RUN chmod +x scripts/start.sh
