@@ -17,6 +17,9 @@ const GOONG_BASE = "https://rsapi.goong.io";
 const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
 const OSRM_BASE = "https://router.project-osrm.org";
 
+// SerpAPI (Google Maps Reviews)
+const SERPAPI_BASE = "https://serpapi.com/search.json";
+
 // ══════════════════════════════════════════════════════════════
 // API Key helpers
 // ══════════════════════════════════════════════════════════════
@@ -27,6 +30,10 @@ function getGoogleKey(): string {
 
 function getGoongKey(): string {
   return process.env.GOONG_API_KEY || "";
+}
+
+function getSerpApiKey(): string {
+  return process.env.SERPAPI_KEY || "";
 }
 
 /** Returns which provider is available: "google" | "goong" | "free" */
@@ -209,6 +216,89 @@ async function searchPlacesNominatim(query: string, language: string) {
   }
 }
 
+// SerpAPI Google Maps search — enrichment for Goong/Nominatim results
+async function searchPlacesSerpApi(query: string) {
+  const apiKey = getSerpApiKey();
+  if (!apiKey) return null;
+
+  try {
+    const params = new URLSearchParams({
+      engine: "google_maps",
+      q: query,
+      hl: "vi",
+      type: "search",
+      api_key: apiKey,
+    });
+
+    const url = `${SERPAPI_BASE}?${params.toString()}`;
+    console.log(`[SerpAPI] Searching places: "${query}"`);
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.warn(`[SerpAPI] Search failed (${response.status})`);
+      return null;
+    }
+
+    const data = await response.json();
+    const results = data.local_results || [];
+
+    const places = results.slice(0, 10).map((r: any) => ({
+      placeId: r.place_id || "",
+      name: r.title || "",
+      address: r.address || "",
+      latitude: r.gps_coordinates?.latitude || 0,
+      longitude: r.gps_coordinates?.longitude || 0,
+      rating: r.rating || 0,
+      reviewCount: r.reviews || 0,
+      types: r.type ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
+      primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
+      primaryTypeDisplay: r.type || "Địa điểm",
+      editorialSummary: r.description || "",
+      photos: r.thumbnail ? [{ name: r.thumbnail, attributions: ["Google Maps"] }] : [],
+    }));
+
+    console.log(`[SerpAPI] Search "${query}" → ${places.length} results`);
+    return { places };
+  } catch (error) {
+    console.warn(`[SerpAPI] Search error:`, error);
+    return null;
+  }
+}
+
+// Helper: enrich Goong/Nominatim results with SerpAPI rating data
+async function enrichWithSerpApiRatings(places: any[], query: string): Promise<any[]> {
+  const hasZeroRating = places.some((p: any) => p.rating === 0);
+  if (!hasZeroRating || places.length === 0) return places;
+
+  const serpResult = await searchPlacesSerpApi(query);
+  if (!serpResult || !serpResult.places || serpResult.places.length === 0) return places;
+
+  const serpPlaces = serpResult.places;
+
+  // Match by normalized name similarity
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F\u1E00-\u1EFF]/gi, "");
+
+  return places.map((place: any) => {
+    if (place.rating > 0) return place; // already has rating
+    const normName = normalize(place.name);
+    // Find best match in SerpAPI results
+    const match = serpPlaces.find((sp: any) => {
+      const spNorm = normalize(sp.name);
+      return spNorm.includes(normName) || normName.includes(spNorm) || spNorm === normName;
+    });
+    if (match) {
+      return {
+        ...place,
+        rating: match.rating || place.rating,
+        reviewCount: match.reviewCount || place.reviewCount,
+        // Also save the Google Place ID for future SerpAPI reviews lookup
+        placeId: match.placeId || place.placeId,
+        primaryTypeDisplay: match.primaryTypeDisplay !== "Địa điểm" ? match.primaryTypeDisplay : place.primaryTypeDisplay,
+      };
+    }
+    return place;
+  });
+}
+
 async function searchPlaces(req: Request, res: Response) {
   const query = req.query.query as string;
   const language = (req.query.language as string) || "vi";
@@ -221,11 +311,20 @@ async function searchPlaces(req: Request, res: Response) {
   const googleResult = await searchPlacesGoogle(query, language);
   if (googleResult) return res.json(googleResult);
 
-  // Cách 2: Goong
+  // Cách 2: Goong (enriched with SerpAPI ratings)
   const goongResult = await searchPlacesGoong(query, language);
-  if (goongResult) return res.json(goongResult);
+  if (goongResult && goongResult.places && goongResult.places.length > 0) {
+    goongResult.places = await enrichWithSerpApiRatings(goongResult.places, query);
+    return res.json(goongResult);
+  }
 
-  // Cách 3: Nominatim (miễn phí)
+  // Cách 3: SerpAPI Google Maps search as standalone fallback
+  const serpResult = await searchPlacesSerpApi(query);
+  if (serpResult && serpResult.places && serpResult.places.length > 0) {
+    return res.json(serpResult);
+  }
+
+  // Cách 4: Nominatim (miễn phí)
   const nominatimResult = await searchPlacesNominatim(query, language);
   return res.json(nominatimResult);
 }
@@ -1134,8 +1233,185 @@ async function getProviderStatus(req: Request, res: Response) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// PLACE REVIEWS via SerpAPI — Google Maps Reviews
+// ══════════════════════════════════════════════════════════════
+
+async function getPlaceReviewsSerpApi(req: Request, res: Response) {
+  const placeId = req.query.place_id as string;
+  const nextPageToken = req.query.next_page_token as string | undefined;
+
+  if (!placeId) {
+    return res.status(400).json({ error: "place_id parameter is required" });
+  }
+
+  const apiKey = getSerpApiKey();
+  if (!apiKey) {
+    return res.status(501).json({ error: "SERPAPI_KEY not configured" });
+  }
+
+  try {
+    const params = new URLSearchParams({
+      engine: "google_maps_reviews",
+      place_id: placeId,
+      hl: "vi",
+      api_key: apiKey,
+    });
+    if (nextPageToken) {
+      params.set("next_page_token", nextPageToken);
+    }
+
+    const url = `${SERPAPI_BASE}?${params.toString()}`;
+    console.log(`[SerpAPI] Fetching reviews for place_id=${placeId}${nextPageToken ? " (next page)" : ""}`);
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn(`[SerpAPI] Reviews failed (${response.status}):`, errorText);
+      return res.status(response.status).json({ error: "SerpAPI request failed", details: errorText });
+    }
+
+    const data = await response.json();
+
+    // Map response to our format
+    const placeInfo = data.place_info ? {
+      title: data.place_info.title || "",
+      address: data.place_info.address || "",
+      rating: data.place_info.rating || 0,
+      totalReviews: data.place_info.reviews || 0,
+      type: data.place_info.type || "",
+    } : null;
+
+    const reviews = (data.reviews || []).map((r: any) => ({
+      reviewId: r.review_id || "",
+      author: r.user?.name || "",
+      authorPhoto: r.user?.thumbnail || "",
+      isLocalGuide: r.user?.local_guide || false,
+      reviewCount: r.user?.reviews || 0,
+      rating: r.rating || 0,
+      snippet: r.snippet || r.extracted_snippet?.original || "",
+      date: r.date || "",
+      isoDate: r.iso_date || "",
+      likes: r.likes || 0,
+      images: r.images || [],
+      response: r.response ? {
+        snippet: r.response.snippet || r.response.extracted_snippet?.original || "",
+        date: r.response.date || "",
+      } : null,
+    }));
+
+    const nextToken = data.serpapi_pagination?.next_page_token || null;
+
+    console.log(`[SerpAPI] Got ${reviews.length} reviews for "${placeInfo?.title || placeId}"`);
+    return res.json({
+      placeInfo,
+      reviews,
+      nextPageToken: nextToken,
+    });
+  } catch (error) {
+    console.error("[SerpAPI] Reviews error:", error);
+    return res.status(500).json({ error: "Failed to fetch reviews" });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // Register all routes
 // ══════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════
+// Auto-discover POIs: find restaurants + attractions near a destination
+// ══════════════════════════════════════════════════════════════
+async function autoDiscoverPOIs(req: Request, res: Response) {
+  const query = req.query.query as string;
+  const lat = parseFloat(req.query.lat as string) || 0;
+  const lng = parseFloat(req.query.lng as string) || 0;
+
+  if (!query) {
+    return res.status(400).json({ error: "Query is required" });
+  }
+
+  const apiKey = getSerpApiKey();
+  if (!apiKey) {
+    return res.json({ restaurants: [], attractions: [] });
+  }
+
+  try {
+    // Search for restaurants
+    const restaurantParams = new URLSearchParams({
+      engine: "google_maps",
+      q: `nhà hàng quán ăn gần ${query}`,
+      hl: "vi",
+      type: "search",
+      api_key: apiKey,
+    });
+    if (lat && lng) {
+      restaurantParams.set("ll", `@${lat},${lng},14z`);
+    }
+
+    // Search for attractions
+    const attractionParams = new URLSearchParams({
+      engine: "google_maps",
+      q: `điểm tham quan du lịch gần ${query}`,
+      hl: "vi",
+      type: "search",
+      api_key: apiKey,
+    });
+    if (lat && lng) {
+      attractionParams.set("ll", `@${lat},${lng},14z`);
+    }
+
+    console.log(`[AutoDiscover] Searching POIs near "${query}"...`);
+
+    const [restRes, attrRes] = await Promise.all([
+      fetch(`${SERPAPI_BASE}?${restaurantParams.toString()}`),
+      fetch(`${SERPAPI_BASE}?${attractionParams.toString()}`),
+    ]);
+
+    const mapResult = (r: any, type: string) => ({
+      name: r.title || "",
+      type,
+      address: r.address || "",
+      latitude: r.gps_coordinates?.latitude || 0,
+      longitude: r.gps_coordinates?.longitude || 0,
+      rating: r.rating || 0,
+      reviewCount: r.reviews || 0,
+      estimatedCost: r.price ? parseInt(r.price.replace(/[^0-9]/g, "")) || 0 : 0,
+      description: r.description || r.type || "",
+      googlePlaceId: r.place_id || "",
+      thumbnail: r.thumbnail || "",
+      openHours: r.hours || "",
+    });
+
+    let restaurants: any[] = [];
+    let attractions: any[] = [];
+
+    if (restRes.ok) {
+      const restData = await restRes.json();
+      restaurants = (restData.local_results || [])
+        .filter((r: any) => r.gps_coordinates?.latitude && r.gps_coordinates?.longitude)
+        .slice(0, 10)
+        .map((r: any) => mapResult(r, "restaurant"));
+    }
+
+    if (attrRes.ok) {
+      const attrData = await attrRes.json();
+      attractions = (attrData.local_results || [])
+        .filter((r: any) => r.gps_coordinates?.latitude && r.gps_coordinates?.longitude)
+        .slice(0, 10)
+        .map((r: any) => mapResult(r, "attraction"));
+    }
+
+    // Sort by rating
+    restaurants.sort((a: any, b: any) => (b.rating || 0) - (a.rating || 0));
+    attractions.sort((a: any, b: any) => (b.rating || 0) - (a.rating || 0));
+
+    console.log(`[AutoDiscover] Found ${restaurants.length} restaurants, ${attractions.length} attractions near "${query}"`);
+
+    return res.json({ restaurants, attractions });
+  } catch (error) {
+    console.warn("[AutoDiscover] Error:", error);
+    return res.json({ restaurants: [], attractions: [] });
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Log active provider on startup
@@ -1156,6 +1432,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Geocode & directions (with fallback)
   app.get("/api/places/geocode", geocodeAddress);
   app.get("/api/places/directions", getDirections);
+
+  // SerpAPI Reviews
+  app.get("/api/places/reviews", getPlaceReviewsSerpApi);
+
+  // Auto-discover nearby POIs
+  app.get("/api/places/auto-discover", autoDiscoverPOIs);
 
   // AI Itinerary generation
   app.post("/api/generate-itinerary", generateItineraryAI);

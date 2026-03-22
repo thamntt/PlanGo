@@ -21,6 +21,7 @@ import {
   type POI,
 } from "@/lib/storage";
 import { SEED_DESTINATIONS } from "@/lib/seed-data";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 interface DataContextValue {
   destinations: Destination[];
@@ -29,7 +30,7 @@ interface DataContextValue {
   notifications: Notification[];
   pois: POI[];
   isLoading: boolean;
-  addDestination: (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive">) => Promise<Destination>;
+  addDestination: (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive"> & { rating?: number; reviewCount?: number }) => Promise<Destination>;
   updateDestination: (id: string, data: Partial<Destination>) => Promise<void>;
   deleteDestination: (id: string) => Promise<void>;
   addItinerary: (itin: Omit<Itinerary, "id" | "createdAt">) => Promise<Itinerary>;
@@ -124,7 +125,6 @@ function generateDays(
   });
 
   // If no seed data matches, create a placeholder using the user's destination name
-  // This ensures we NEVER fall back to a different city
   if (relevantDests.length === 0) {
     relevantDests = [{
       id: "temp_dest",
@@ -164,6 +164,24 @@ function generateDays(
     });
   }
 
+  // ═══════════════════════════════════════════
+  // Collect POIs for this destination
+  // ═══════════════════════════════════════════
+  const destIds = new Set(relevantDests.map((d) => d.id));
+  const destPOIs = (allPOIs || []).filter((p) => p.isActive && destIds.has(p.destinationId));
+
+  // Split POIs by type and sort by rating (best first)
+  const foodPOIs = destPOIs
+    .filter((p) => p.type === "restaurant" || p.type === "cafe")
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  const attractionPOIs = destPOIs
+    .filter((p) => p.type === "attraction" || p.type === "shopping" || p.type === "other")
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  const allSortedPOIs = [...destPOIs].sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
+  const hasPOIs = destPOIs.length > 0;
+
+  // Fallback activities templates
   const morningActivities = [
     `Khám phá chợ địa phương và ăn sáng tại ${destination}`,
     `Tham quan các di tích lịch sử tại ${destination}`,
@@ -173,7 +191,6 @@ function generateDays(
     `Ngắm cảnh buổi sáng tại ${destination}`,
     `Khám phá điểm tham quan nổi tiếng ${destination}`,
   ];
-
   const afternoonActivities = [
     `Tham quan bảo tàng và di tích văn hóa tại ${destination}`,
     `Chụp ảnh tại các địa điểm nổi tiếng ${destination}`,
@@ -182,7 +199,6 @@ function generateDays(
     `Khám phá thiên nhiên tại ${destination}`,
     `Trải nghiệm hoạt động giải trí tại ${destination}`,
   ];
-
   const eveningActivities = [
     `Ngắm hoàng hôn tại ${destination}`,
     `Khám phá chợ đêm ${destination}`,
@@ -191,34 +207,33 @@ function generateDays(
     `Thư giãn buổi tối tại ${destination}`,
   ];
 
-  const morningDescriptions = [
-    (name: string) => `Bắt đầu ngày mới tại ${name} với bữa sáng truyền thống`,
-    (name: string) => `Khám phá vẻ đẹp văn hóa lịch sử tại ${name}`,
-    (name: string) => `Tận hưởng không khí trong lành buổi sáng tại ${name}`,
-    (name: string) => `Tìm hiểu cuộc sống người dân địa phương tại ${name}`,
-  ];
+  // Helpers to pick POIs cyclically without repeating on the same day
+  let foodIdx = 0;
+  let attractionIdx = 0;
 
-  const afternoonDescriptions = [
-    (name: string) => `Tận hưởng buổi chiều khám phá ${name}`,
-    (name: string) => `Trải nghiệm những hoạt động thú vị tại ${name}`,
-    (name: string) => `Dành buổi chiều tham quan các điểm nổi bật tại ${name}`,
-  ];
-
-  const eveningDescriptions = [
-    (name: string) => `Kết thúc ngày với trải nghiệm tuyệt vời tại ${name}`,
-    (name: string) => `Thưởng thức buổi tối thư giãn tại ${name}`,
-    (name: string) => `Tận hưởng không gian đêm tại ${name}`,
-  ];
-
-  const timeSlots = ["07:00", "08:30", "12:00", "14:00", "18:00", "20:00"];
+  function pickFoodPOI(): POI | null {
+    if (foodPOIs.length === 0) return null;
+    const poi = foodPOIs[foodIdx % foodPOIs.length];
+    foodIdx++;
+    return poi;
+  }
+  function pickAttractionPOI(): POI | null {
+    if (attractionPOIs.length === 0) {
+      // Fallback: use any POI
+      if (allSortedPOIs.length === 0) return null;
+      const poi = allSortedPOIs[attractionIdx % allSortedPOIs.length];
+      attractionIdx++;
+      return poi;
+    }
+    const poi = attractionPOIs[attractionIdx % attractionPOIs.length];
+    attractionIdx++;
+    return poi;
+  }
 
   function sortActivitiesByProximity(acts: ItineraryActivity[]): ItineraryActivity[] {
     if (acts.length <= 1) return acts;
-    // Separate food and non-food activities
     const foodActs = acts.filter(a => a.activityType === "food");
     const nonFoodActs = acts.filter(a => a.activityType !== "food");
-
-    // Sort only non-food activities by proximity
     if (nonFoodActs.length > 1) {
       const remaining = [...nonFoodActs];
       const sorted: ItineraryActivity[] = [remaining.shift()!];
@@ -243,8 +258,6 @@ function generateDays(
       }
       nonFoodActs.splice(0, nonFoodActs.length, ...sorted);
     }
-
-    // Merge back: food stays at slots 0,2,4 (07:00,12:00,18:00), non-food at 1,3,5 (08:30,14:00,20:00)
     const foodSlots = ["07:00", "12:00", "18:00"];
     const nonFoodSlots = ["08:30", "14:00", "20:00"];
     const result: ItineraryActivity[] = [];
@@ -252,7 +265,6 @@ function generateDays(
       if (i < foodActs.length) result.push({ ...foodActs[i], time: foodSlots[i] || foodActs[i].time });
       if (i < nonFoodActs.length) result.push({ ...nonFoodActs[i], time: nonFoodSlots[i] || nonFoodActs[i].time });
     }
-    // Sort by time to ensure correct order
     result.sort((a, b) => a.time.localeCompare(b.time));
     return result;
   }
@@ -265,97 +277,148 @@ function generateDays(
     const destCost = dest?.estimatedCostPerPerson || 200000;
     const nearbyFoodList = dest?.nearbyFood || [];
 
+    // Pick POIs for this day
+    const breakfastPOI = pickFoodPOI();
+    const morningPOI = pickAttractionPOI();
+    const lunchPOI = pickFoodPOI();
+    const afternoonPOI = pickAttractionPOI();
+    const dinnerPOI = pickFoodPOI();
+    const eveningPOI = pickAttractionPOI();
+
+    // Fallback to seed data nearbyFood if no POIs
+    const breakfastSpot = !breakfastPOI && nearbyFoodList.length > 0 ? nearbyFoodList[i % nearbyFoodList.length] : null;
+    const lunchSpot = !lunchPOI && nearbyFoodList.length > 1 ? nearbyFoodList[(i + 1) % nearbyFoodList.length] : null;
+    const dinnerSpot = !dinnerPOI && nearbyFoodList.length > 0 ? nearbyFoodList[(i + 2) % nearbyFoodList.length] : null;
+
     const destHighlights = dest?.highlights || [];
     const morningHighlight = destHighlights.length > 0 ? destHighlights[(i * 2) % destHighlights.length] : null;
     const afternoonHighlight = destHighlights.length > 1 ? destHighlights[(i * 2 + 1) % destHighlights.length] : null;
 
-    const breakfastSpot = nearbyFoodList.length > 0 ? nearbyFoodList[i % nearbyFoodList.length] : null;
-    const lunchSpot = nearbyFoodList.length > 1 ? nearbyFoodList[(i + 1) % nearbyFoodList.length] : null;
-    const dinnerSpot = nearbyFoodList.length > 0 ? nearbyFoodList[(i + 2) % nearbyFoodList.length] : null;
-
     const rawActivities: ItineraryActivity[] = [
+      // ── Breakfast ──
       {
         id: generateId(),
         time: "07:00",
-        title: breakfastSpot ? `Ăn sáng tại ${breakfastSpot.name}` : "Ăn sáng tại địa phương",
-        description: breakfastSpot ? `Thưởng thức ${breakfastSpot.cuisine} tại ${breakfastSpot.address}` : `Bữa sáng tại ${destName}`,
+        title: breakfastPOI
+          ? `Ăn sáng tại ${breakfastPOI.name}`
+          : breakfastSpot ? `Ăn sáng tại ${breakfastSpot.name}` : "Ăn sáng tại địa phương",
+        description: breakfastPOI
+          ? `Thưởng thức bữa sáng tại ${breakfastPOI.name} — ⭐ ${breakfastPOI.rating}/5 (${breakfastPOI.reviewCount} đánh giá)`
+          : breakfastSpot ? `Thưởng thức ${breakfastSpot.cuisine} tại ${breakfastSpot.address}` : `Bữa sáng tại ${destName}`,
         destinationId: dest?.id,
         duration: "1 giờ",
-        estimatedCost: (breakfastSpot?.costPerPerson || 50000) * numPeople,
+        estimatedCost: breakfastPOI
+          ? (breakfastPOI.estimatedCost || 50000) * numPeople
+          : (breakfastSpot?.costPerPerson || 50000) * numPeople,
         isCompleted: false,
-        address: breakfastSpot?.address || dest?.address,
-        latitude: breakfastSpot?.latitude || dest?.latitude,
-        longitude: breakfastSpot?.longitude || dest?.longitude,
+        address: breakfastPOI?.address || breakfastSpot?.address || dest?.address,
+        latitude: breakfastPOI?.latitude || breakfastSpot?.latitude || dest?.latitude,
+        longitude: breakfastPOI?.longitude || breakfastSpot?.longitude || dest?.longitude,
         activityType: "food" as const,
       },
+      // ── Morning sightseeing ──
       {
         id: generateId(),
         time: "08:30",
-        title: morningHighlight || morningActivities[i % morningActivities.length],
-        description: morningDescriptions[i % morningDescriptions.length](destName),
+        title: morningPOI
+          ? `Tham quan ${morningPOI.name}`
+          : morningHighlight || morningActivities[i % morningActivities.length],
+        description: morningPOI
+          ? `Khám phá ${morningPOI.name} — ⭐ ${morningPOI.rating}/5 (${morningPOI.reviewCount} đánh giá). ${morningPOI.description || ""}`
+          : `Bắt đầu ngày mới tại ${destName}`,
         destinationId: dest?.id,
-        duration: "2.5 giờ",
-        estimatedCost: Math.round(destCost * 0.4) * numPeople,
+        duration: morningPOI?.estimatedDuration || "2.5 giờ",
+        estimatedCost: morningPOI
+          ? (morningPOI.estimatedCost || Math.round(destCost * 0.4)) * numPeople
+          : Math.round(destCost * 0.4) * numPeople,
         isCompleted: false,
-        address: dest?.address,
-        latitude: dest?.latitude,
-        longitude: dest?.longitude,
+        address: morningPOI?.address || dest?.address,
+        latitude: morningPOI?.latitude || dest?.latitude,
+        longitude: morningPOI?.longitude || dest?.longitude,
         activityType: "sightseeing" as const,
       },
+      // ── Lunch ──
       {
         id: generateId(),
         time: "12:00",
-        title: lunchSpot ? `Ăn trưa tại ${lunchSpot.name}` : "Ăn trưa tại nhà hàng địa phương",
-        description: lunchSpot ? `Thưởng thức ${lunchSpot.cuisine} tại ${lunchSpot.address}` : `Bữa trưa ngon tại ${destName}`,
+        title: lunchPOI
+          ? `Ăn trưa tại ${lunchPOI.name}`
+          : lunchSpot ? `Ăn trưa tại ${lunchSpot.name}` : "Ăn trưa tại nhà hàng địa phương",
+        description: lunchPOI
+          ? `Thưởng thức bữa trưa tại ${lunchPOI.name} — ⭐ ${lunchPOI.rating}/5 (${lunchPOI.reviewCount} đánh giá)`
+          : lunchSpot ? `Thưởng thức ${lunchSpot.cuisine} tại ${lunchSpot.address}` : `Bữa trưa ngon tại ${destName}`,
         destinationId: dest?.id,
         duration: "1.5 giờ",
-        estimatedCost: (lunchSpot?.costPerPerson || 80000) * numPeople,
+        estimatedCost: lunchPOI
+          ? (lunchPOI.estimatedCost || 80000) * numPeople
+          : (lunchSpot?.costPerPerson || 80000) * numPeople,
         isCompleted: false,
-        address: lunchSpot?.address || dest?.address,
-        latitude: lunchSpot?.latitude || dest?.latitude,
-        longitude: lunchSpot?.longitude || dest?.longitude,
+        address: lunchPOI?.address || lunchSpot?.address || dest?.address,
+        latitude: lunchPOI?.latitude || lunchSpot?.latitude || dest?.latitude,
+        longitude: lunchPOI?.longitude || lunchSpot?.longitude || dest?.longitude,
         activityType: "food" as const,
       },
+      // ── Afternoon sightseeing ──
       {
         id: generateId(),
         time: "14:00",
-        title: afternoonHighlight || afternoonActivities[i % afternoonActivities.length],
-        description: afternoonDescriptions[i % afternoonDescriptions.length](destName),
+        title: afternoonPOI
+          ? `Tham quan ${afternoonPOI.name}`
+          : afternoonHighlight || afternoonActivities[i % afternoonActivities.length],
+        description: afternoonPOI
+          ? `Tận hưởng buổi chiều tại ${afternoonPOI.name} — ⭐ ${afternoonPOI.rating}/5 (${afternoonPOI.reviewCount} đánh giá). ${afternoonPOI.description || ""}`
+          : `Dành buổi chiều tham quan ${destName}`,
         destinationId: dest?.id,
-        duration: "3 giờ",
-        estimatedCost: Math.round(destCost * 0.35) * numPeople,
+        duration: afternoonPOI?.estimatedDuration || "3 giờ",
+        estimatedCost: afternoonPOI
+          ? (afternoonPOI.estimatedCost || Math.round(destCost * 0.35)) * numPeople
+          : Math.round(destCost * 0.35) * numPeople,
         isCompleted: false,
-        address: dest?.address,
-        latitude: dest?.latitude,
-        longitude: dest?.longitude,
+        address: afternoonPOI?.address || dest?.address,
+        latitude: afternoonPOI?.latitude || dest?.latitude,
+        longitude: afternoonPOI?.longitude || dest?.longitude,
         activityType: "sightseeing" as const,
       },
+      // ── Dinner ──
       {
         id: generateId(),
         time: "18:00",
-        title: dinnerSpot ? `Ăn tối tại ${dinnerSpot.name}` : "Ăn tối với món đặc sản địa phương",
-        description: dinnerSpot ? `Thưởng thức ${dinnerSpot.cuisine} tại ${dinnerSpot.address}` : `Bữa tối đặc sản tại ${destName}`,
+        title: dinnerPOI
+          ? `Ăn tối tại ${dinnerPOI.name}`
+          : dinnerSpot ? `Ăn tối tại ${dinnerSpot.name}` : "Ăn tối với món đặc sản địa phương",
+        description: dinnerPOI
+          ? `Thưởng thức bữa tối tại ${dinnerPOI.name} — ⭐ ${dinnerPOI.rating}/5 (${dinnerPOI.reviewCount} đánh giá)`
+          : dinnerSpot ? `Thưởng thức ${dinnerSpot.cuisine} tại ${dinnerSpot.address}` : `Bữa tối đặc sản tại ${destName}`,
         destinationId: dest?.id,
         duration: "1.5 giờ",
-        estimatedCost: (dinnerSpot?.costPerPerson || 120000) * numPeople,
+        estimatedCost: dinnerPOI
+          ? (dinnerPOI.estimatedCost || 120000) * numPeople
+          : (dinnerSpot?.costPerPerson || 120000) * numPeople,
         isCompleted: false,
-        address: dinnerSpot?.address || dest?.address,
-        latitude: dinnerSpot?.latitude || dest?.latitude,
-        longitude: dinnerSpot?.longitude || dest?.longitude,
+        address: dinnerPOI?.address || dinnerSpot?.address || dest?.address,
+        latitude: dinnerPOI?.latitude || dinnerSpot?.latitude || dest?.latitude,
+        longitude: dinnerPOI?.longitude || dinnerSpot?.longitude || dest?.longitude,
         activityType: "food" as const,
       },
+      // ── Evening ──
       {
         id: generateId(),
         time: "20:00",
-        title: eveningActivities[i % eveningActivities.length],
-        description: eveningDescriptions[i % eveningDescriptions.length](destName),
+        title: eveningPOI
+          ? `Khám phá ${eveningPOI.name}`
+          : eveningActivities[i % eveningActivities.length],
+        description: eveningPOI
+          ? `Kết thúc ngày tại ${eveningPOI.name} — ⭐ ${eveningPOI.rating}/5 (${eveningPOI.reviewCount} đánh giá). ${eveningPOI.description || ""}`
+          : `Thưởng thức buổi tối thư giãn tại ${destName}`,
         destinationId: dest?.id,
-        duration: "2 giờ",
-        estimatedCost: Math.round(destCost * 0.15) * numPeople,
+        duration: eveningPOI?.estimatedDuration || "2 giờ",
+        estimatedCost: eveningPOI
+          ? (eveningPOI.estimatedCost || Math.round(destCost * 0.15)) * numPeople
+          : Math.round(destCost * 0.15) * numPeople,
         isCompleted: false,
-        address: dest?.address,
-        latitude: dest?.latitude,
-        longitude: dest?.longitude,
+        address: eveningPOI?.address || dest?.address,
+        latitude: eveningPOI?.latitude || dest?.latitude,
+        longitude: eveningPOI?.longitude || dest?.longitude,
         activityType: "sightseeing" as const,
       },
     ];
@@ -398,8 +461,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     loadData();
   }, [loadData]);
 
-  const addDestination = useCallback(async (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive">) => {
-    const newDest: Destination = { ...dest, id: generateId(), rating: 0, reviewCount: 0, isActive: true };
+  const addDestination = useCallback(async (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive"> & { rating?: number; reviewCount?: number }) => {
+    const newDest: Destination = { ...dest, id: generateId(), rating: dest.rating || 0, reviewCount: dest.reviewCount || 0, isActive: true };
     const updated = [...(await getDestinations()), newDest];
     await saveDestinations(updated);
     setDestinations(updated);
@@ -588,7 +651,75 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } else {
       // Fallback to local generation
       const allDests = await getDestinations();
-      const allPOIs = await getPOIs();
+      let allPOIs = await getPOIs();
+
+      // ═══ Auto-discover POIs if none exist for this destination ═══
+      const relevantDests = allDests.filter((d) =>
+        d.name.toLowerCase().includes(params.destination.toLowerCase()) ||
+        d.address.toLowerCase().includes(params.destination.toLowerCase()) ||
+        params.destination.toLowerCase().includes(d.name.toLowerCase())
+      );
+      const destIds = new Set(relevantDests.map((d) => d.id));
+      const existingPOIs = allPOIs.filter((p) => p.isActive && destIds.has(p.destinationId));
+
+      if (existingPOIs.length < 3 && relevantDests.length > 0) {
+        console.log(`[AutoDiscover] No POIs for "${params.destination}", fetching from SerpAPI...`);
+        try {
+          const dest = relevantDests[0];
+          const baseUrl = getApiUrl().replace(/\/$/, "");
+          const searchParams = new URLSearchParams({
+            query: dest.name || params.destination,
+            lat: String(dest.latitude || 0),
+            lng: String(dest.longitude || 0),
+          });
+          const discoveryRes = await fetch(`${baseUrl}/api/places/auto-discover?${searchParams.toString()}`, {
+            headers: getApiHeaders(),
+          });
+          if (discoveryRes.ok) {
+            const discovered = await discoveryRes.json();
+            const allDiscovered = [
+              ...(discovered.restaurants || []),
+              ...(discovered.attractions || []),
+            ];
+
+            // Save discovered POIs to database
+            const newPOIs: POI[] = [];
+            for (const item of allDiscovered) {
+              if (!item.latitude || !item.longitude || !item.name) continue;
+              const newPOI: POI = {
+                id: generateId(),
+                destinationId: dest.id,
+                name: item.name,
+                type: item.type === "restaurant" ? "restaurant" : "attraction",
+                address: item.address || "",
+                latitude: item.latitude,
+                longitude: item.longitude,
+                rating: item.rating || 0,
+                reviewCount: item.reviewCount || 0,
+                estimatedCost: item.estimatedCost || (item.type === "restaurant" ? 80000 : 50000),
+                description: item.description || "",
+                images: item.thumbnail ? [item.thumbnail] : [],
+                googlePlaceId: item.googlePlaceId || "",
+                openHours: item.openHours || "",
+                tags: [],
+                isActive: true,
+              };
+              newPOIs.push(newPOI);
+            }
+
+            if (newPOIs.length > 0) {
+              const updatedAll = [...allPOIs, ...newPOIs];
+              await savePOIs(updatedAll);
+              setPois(updatedAll);
+              allPOIs = updatedAll;
+              console.log(`[AutoDiscover] Saved ${newPOIs.length} POIs for "${dest.name}"`);
+            }
+          }
+        } catch (err) {
+          console.warn("[AutoDiscover] Failed to auto-discover POIs:", err);
+        }
+      }
+
       days = generateDays(params.startDate, params.endDate, params.destination, params.preferences, allDests, params.numPeople, params.startingPoint, allPOIs);
     }
 

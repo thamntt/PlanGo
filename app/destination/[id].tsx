@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TextInput,
   Alert,
   Linking,
+  ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +22,7 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { formatVND } from "@/lib/storage";
 import { t } from "@/lib/i18n";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 function StarRating({
   rating,
@@ -105,7 +107,47 @@ export default function DestinationDetailScreen() {
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const txt = t().destination;
-  const sampleReviews = destination.sampleReviews || [];
+  const itxt = t().itinerary;
+
+  // SerpAPI reviews state
+  const [serpReviews, setSerpReviews] = useState<any[]>([]);
+  const [serpNextToken, setSerpNextToken] = useState<string | null>(null);
+  const [serpLoading, setSerpLoading] = useState(false);
+  const [serpError, setSerpError] = useState(false);
+  const [serpPlaceInfo, setSerpPlaceInfo] = useState<any>(null);
+  const [expandedSerpIds, setExpandedSerpIds] = useState<Set<string>>(new Set());
+
+  const fetchSerpReviews = async (placeId: string, nextToken?: string) => {
+    setSerpLoading(true);
+    setSerpError(false);
+    try {
+      const baseUrl = getApiUrl().replace(/\/$/, "");
+      const params = new URLSearchParams({ place_id: placeId });
+      if (nextToken) params.set("next_page_token", nextToken);
+      const res = await fetch(`${baseUrl}/api/places/reviews?${params.toString()}`, { headers: getApiHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (nextToken) {
+        setSerpReviews((prev) => [...prev, ...(data.reviews || [])]);
+      } else {
+        setSerpReviews(data.reviews || []);
+        setSerpPlaceInfo(data.placeInfo || null);
+      }
+      setSerpNextToken(data.nextPageToken || null);
+    } catch (err) {
+      console.warn("SerpAPI reviews error:", err);
+      setSerpError(true);
+    } finally {
+      setSerpLoading(false);
+    }
+  };
+
+  // Auto-fetch reviews when destination has googlePlaceId
+  useEffect(() => {
+    if (destination?.googlePlaceId) {
+      fetchSerpReviews(destination.googlePlaceId);
+    }
+  }, [destination?.googlePlaceId]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -133,7 +175,7 @@ export default function DestinationDetailScreen() {
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: colors.text }]}>{destination.name}</Text>
             <View style={[styles.categoryBadge, { backgroundColor: colors.tagBg }]}>
-              <Text style={[styles.categoryText, { color: colors.tagText }]}>{destination.category}</Text>
+              <Text style={[styles.categoryText, { color: colors.tagText }]}>{t().categories[destination.category] || destination.category}</Text>
             </View>
           </View>
 
@@ -172,7 +214,7 @@ export default function DestinationDetailScreen() {
           <View style={styles.tagRow}>
             {destination.tags.map((tag) => (
               <View key={tag} style={[styles.tag, { backgroundColor: colors.tagBg }]}>
-                <Text style={[styles.tagText, { color: colors.tagText }]}>{tag}</Text>
+                <Text style={[styles.tagText, { color: colors.tagText }]}>{t().categories[tag] || t().preferences[tag] || tag}</Text>
               </View>
             ))}
           </View>
@@ -259,26 +301,114 @@ export default function DestinationDetailScreen() {
             <Text style={styles.planButtonText}>{txt.planTrip}</Text>
           </Pressable>
 
-          {sampleReviews.length > 0 && (
+          {/* SerpAPI Google Maps Reviews */}
+          {destination.googlePlaceId ? (
             <>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>{txt.sampleReviews}</Text>
-              {sampleReviews.map((review, idx) => (
-                <View key={idx} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                  <View style={styles.reviewHeader}>
-                    <View style={[styles.reviewAvatar, { backgroundColor: review.source === "Google" ? "#4285F4" : "#34E0A1" }]}>
-                      <Text style={styles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.reviewName, { color: colors.text }]}>{review.author}</Text>
-                      <View style={[styles.sourceBadge, { backgroundColor: review.source === "Google" ? "#4285F4" + "20" : "#34E0A1" + "20" }]}>
-                        <Text style={[styles.sourceText, { color: review.source === "Google" ? "#4285F4" : "#00AA6C" }]}>{review.source}</Text>
-                      </View>
-                    </View>
-                    <StarRating rating={review.rating} size={14} colors={colors} />
-                  </View>
-                  <Text style={[styles.reviewComment, { color: colors.textSecondary }]}>{review.comment}</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{itxt.serpReviews}</Text>
+
+              {serpLoading && serpReviews.length === 0 && (
+                <View style={{ alignItems: "center", paddingVertical: 20 }}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 8 }}>{itxt.serpReviewsLoading}</Text>
                 </View>
-              ))}
+              )}
+
+              {serpError && serpReviews.length === 0 && (
+                <View style={styles.emptyReviews}>
+                  <Ionicons name="alert-circle-outline" size={28} color={colors.textTertiary} />
+                  <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{itxt.serpReviewsError}</Text>
+                </View>
+              )}
+
+              {serpReviews.map((review: any, idx: number) => {
+                const SNIPPET_LIMIT = 150;
+                const snippet = review.snippet || "";
+                const isLong = snippet.length > SNIPPET_LIMIT;
+                const isExpanded = expandedSerpIds.has(`serp_${idx}`);
+                const displaySnippet = isLong && !isExpanded ? snippet.slice(0, SNIPPET_LIMIT).trimEnd() + "..." : snippet;
+
+                return (
+                  <View key={review.reviewId || idx} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderLeftWidth: 3, borderLeftColor: "#4285F4" }]}>
+                    <View style={styles.reviewHeader}>
+                      <View style={[styles.reviewAvatar, { backgroundColor: "#4285F4" }]}>
+                        <Text style={styles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <Text style={[styles.reviewName, { color: colors.text }]}>{review.author}</Text>
+                          {review.isLocalGuide && (
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: "#4285F4" + "18", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
+                              <Ionicons name="shield-checkmark" size={10} color="#4285F4" />
+                              <Text style={{ fontSize: 9, fontFamily: "Inter_600SemiBold", color: "#4285F4" }}>{itxt.serpLocalGuide}</Text>
+                            </View>
+                          )}
+                        </View>
+                        {review.date && (
+                          <Text style={[styles.reviewDate, { color: colors.textTertiary }]}>{review.date}</Text>
+                        )}
+                      </View>
+                      <StarRating rating={review.rating} size={14} colors={colors} />
+                    </View>
+                    {displaySnippet.length > 0 && (
+                      <View>
+                        <Text style={[styles.reviewComment, { color: colors.textSecondary }]}>{displaySnippet}</Text>
+                        {isLong && (
+                          <Pressable
+                            onPress={() => {
+                              setExpandedSerpIds((prev) => {
+                                const next = new Set(prev);
+                                const key = `serp_${idx}`;
+                                if (next.has(key)) next.delete(key);
+                                else next.add(key);
+                                return next;
+                              });
+                            }}
+                            hitSlop={6}
+                          >
+                            <Text style={{ fontSize: 13, fontFamily: "Inter_600SemiBold", color: colors.primary, marginTop: 4 }}>
+                              {isExpanded ? t().itinerary.seeLess : t().itinerary.seeMore}
+                            </Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    )}
+                    {review.likes > 0 && (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+                        <Ionicons name="thumbs-up-outline" size={12} color={colors.textTertiary} />
+                        <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary }}>{itxt.serpReviewLikes(review.likes)}</Text>
+                      </View>
+                    )}
+                    {review.response && (
+                      <View style={{ marginTop: 8, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.textTertiary + "40" }}>
+                        <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: colors.textSecondary }}>Phản hồi:</Text>
+                        <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 2 }}>{review.response.snippet}</Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+
+              {serpNextToken && (
+                <Pressable
+                  onPress={() => {
+                    if (destination.googlePlaceId && !serpLoading) {
+                      fetchSerpReviews(destination.googlePlaceId, serpNextToken);
+                    }
+                  }}
+                  style={({ pressed }) => [styles.seeMoreGoogleBtn, { backgroundColor: colors.inputBg, opacity: pressed ? 0.8 : 1 }]}
+                >
+                  {serpLoading ? (
+                    <ActivityIndicator size="small" color="#4285F4" />
+                  ) : (
+                    <>
+                      <Ionicons name="chatbubbles-outline" size={16} color="#4285F4" />
+                      <Text style={[styles.seeMoreGoogleText, { color: "#4285F4" }]}>{itxt.serpReviewsLoadMore}</Text>
+                      <Ionicons name="chevron-down" size={16} color="#4285F4" />
+                    </>
+                  )}
+                </Pressable>
+              )}
+
               <Pressable
                 onPress={() => {
                   const query = encodeURIComponent(destination.name);
@@ -290,7 +420,7 @@ export default function DestinationDetailScreen() {
                 <Text style={styles.seeMoreGoogleText}>{txt.seeMoreOnGoogle}</Text>
               </Pressable>
             </>
-          )}
+          ) : null}
 
           <View style={styles.reviewsHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>

@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
+import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
@@ -24,7 +25,8 @@ export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
-  const { destinations } = useData();
+  const { destinations, itineraries } = useData();
+  const { user } = useAuth();
 
   const [permission, requestPermission] = Location.useForegroundPermissions();
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
@@ -54,7 +56,44 @@ export default function MapScreen() {
     lng: d.longitude,
     name: d.name,
     type: d.category.toLowerCase(),
+    destId: d.id,
   }));
+
+  // Find the itinerary that contains a given destination
+  const findItineraryForDestination = (destId: string, destName: string) => {
+    // Only consider user's own itineraries
+    const userItineraries = itineraries.filter((it) => it.userId === user?.id);
+    // First try by destinationId in activities
+    for (const it of userItineraries) {
+      for (const day of it.days) {
+        for (const act of day.activities) {
+          if (act.destinationId === destId) return it.id;
+        }
+      }
+    }
+    // Fallback: match by activity title
+    for (const it of userItineraries) {
+      for (const day of it.days) {
+        for (const act of day.activities) {
+          if (act.title === destName) return it.id;
+        }
+      }
+    }
+    return null;
+  };
+
+  const handleMarkerPress = (point: { lat: number; lng: number; name: string; index?: number }) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const idx = point.index ?? mapPoints.findIndex((p) => p.lat === point.lat && p.lng === point.lng);
+    const dest = activeDestinations[idx];
+    if (!dest) return;
+    const itineraryId = findItineraryForDestination(dest.id, dest.name);
+    if (itineraryId) {
+      router.push({ pathname: "/itinerary/[id]", params: { id: itineraryId } });
+    } else {
+      router.push({ pathname: "/destination/[id]", params: { id: dest.id } });
+    }
+  };
 
   const userLoc = location ? { lat: location.coords.latitude, lng: location.coords.longitude } : null;
 
@@ -126,6 +165,7 @@ export default function MapScreen() {
             colors={colors as any}
             showRoute={false}
             userLocation={userLoc}
+            onMarkerPress={handleMarkerPress}
           />
           <View style={[styles.mapOverlay, { backgroundColor: colors.card + "E0" }]}>
             <Ionicons name="navigate" size={16} color={colors.primary} />
@@ -174,7 +214,12 @@ export default function MapScreen() {
               ]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({ pathname: "/destination/[id]", params: { id: dest.id } });
+                const itineraryId = findItineraryForDestination(dest.id, dest.name);
+                if (itineraryId) {
+                  router.push({ pathname: "/itinerary/[id]", params: { id: itineraryId } });
+                } else {
+                  router.push({ pathname: "/destination/[id]", params: { id: dest.id } });
+                }
               }}
             >
               <View style={[styles.destIcon, { backgroundColor: colors.tagBg }]}>

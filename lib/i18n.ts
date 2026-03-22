@@ -330,6 +330,14 @@ const vi = {
     proportion: "Tỷ lệ",
     splitInfo: "Chia tiền",
     noSplit: "Không chia",
+    // SerpAPI Google Maps Reviews
+    serpReviews: "Đánh giá Google Maps",
+    serpReviewsLoading: "Đang tải đánh giá...",
+    serpReviewsError: "Không thể tải đánh giá",
+    serpReviewsLoadMore: "Xem thêm đánh giá",
+    serpReviewsEmpty: "Chưa có đánh giá từ Google Maps",
+    serpLocalGuide: "Local Guide",
+    serpReviewLikes: (n: number) => `${n} lượt thích`,
   },
 
   profile: {

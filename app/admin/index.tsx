@@ -75,6 +75,11 @@ export default function AdminDashboard() {
   const [destCategory, setDestCategory] = useState("City");
   const [destLat, setDestLat] = useState("");
   const [destLng, setDestLng] = useState("");
+  const [destRating, setDestRating] = useState(0);
+  const [destReviewCount, setDestReviewCount] = useState(0);
+  const [destGooglePlaceId, setDestGooglePlaceId] = useState("");
+  const [destGooglePhotos, setDestGooglePhotos] = useState<{name:string;attributions:string[]}[]>([]);
+  const [destGoogleReviews, setDestGoogleReviews] = useState<{author:string;rating:number;text:string;time:string}[]>([]);
   const [destErrors, setDestErrors] = useState<DestFormErrors>({});
 
   const [userDetailId, setUserDetailId] = useState<string | null>(null);
@@ -143,14 +148,20 @@ export default function AdminDashboard() {
     setDestLat(place.latitude.toString());
     setDestLng(place.longitude.toString());
     setDestDesc(place.editorialSummary || "");
+    setDestRating(place.rating || 0);
+    setDestReviewCount(place.reviewCount || 0);
+    setDestGooglePlaceId(place.placeId || "");
+    setDestGooglePhotos(place.photos || []);
     setGoogleResults([]);
     setGoogleQuery("");
-    // Load full details for reviews and photos
+    // Load full details for reviews, photos, and more accurate rating
     const details = await getPlaceDetails(place.placeId);
     if (details) {
-      if (details.reviews && details.reviews.length > 0) {
-        setDestDesc(prev => prev || details.editorialSummary || "");
-      }
+      if (details.rating > 0) setDestRating(details.rating);
+      if (details.reviewCount > 0) setDestReviewCount(details.reviewCount);
+      if (details.editorialSummary) setDestDesc(prev => prev || details.editorialSummary);
+      setDestGoogleReviews(details.reviews || []);
+      if (details.photos && details.photos.length > 0) setDestGooglePhotos(details.photos);
     }
   };
 
@@ -399,6 +410,11 @@ export default function AdminDashboard() {
     setDestLat("");
     setDestLng("");
     setDestErrors({});
+    setDestRating(0);
+    setDestReviewCount(0);
+    setDestGooglePlaceId("");
+    setDestGooglePhotos([]);
+    setDestGoogleReviews([]);
     setDestModalVisible(true);
   };
 
@@ -412,6 +428,11 @@ export default function AdminDashboard() {
     setDestCategory(dest.category);
     setDestLat(dest.latitude?.toString() || "");
     setDestLng(dest.longitude?.toString() || "");
+    setDestRating(dest.rating || 0);
+    setDestReviewCount(dest.reviewCount || 0);
+    setDestGooglePlaceId(dest.googlePlaceId || "");
+    setDestGooglePhotos(dest.googlePhotos || []);
+    setDestGoogleReviews(dest.googleReviews || []);
     setDestErrors({});
     setDestModalVisible(true);
   };
@@ -449,7 +470,7 @@ export default function AdminDashboard() {
     if (editingDestId) {
       const updates: Record<string, any> = {
         name: destName.trim(),
-        description: destDesc.trim() || "A beautiful destination",
+        description: destDesc.trim() || "Một điểm đến tuyệt vời",
         address: destAddr.trim(),
         category: destCategory,
       };
@@ -457,19 +478,29 @@ export default function AdminDashboard() {
         updates.latitude = parsedLat;
         updates.longitude = parsedLng;
       }
+      if (destRating > 0) updates.rating = destRating;
+      if (destReviewCount > 0) updates.reviewCount = destReviewCount;
+      if (destGooglePlaceId) updates.googlePlaceId = destGooglePlaceId;
+      if (destGooglePhotos.length > 0) updates.googlePhotos = destGooglePhotos;
+      if (destGoogleReviews.length > 0) updates.googleReviews = destGoogleReviews;
       await updateDestination(editingDestId, updates);
     } else {
       await addDestination({
         name: destName.trim(),
-        description: destDesc.trim() || "A beautiful destination",
-        images: ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
+        description: destDesc.trim() || "Một điểm đến tuyệt vời",
+        images: destGooglePhotos.length > 0 ? destGooglePhotos.slice(0, 3).map(p => getPhotoUrl(p.name)) : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
         category: destCategory,
         address: destAddr.trim(),
         latitude: hasCoords && parsedLat !== null && !isNaN(parsedLat) ? parsedLat : 16.0 + Math.random() * 6,
         longitude: hasCoords && parsedLng !== null && !isNaN(parsedLng) ? parsedLng : 105.0 + Math.random() * 5,
+        rating: destRating,
+        reviewCount: destReviewCount,
         priceRange: "2-5M VND",
         tags: [destCategory],
-        openHours: "Open 24 hours",
+        openHours: "Mở cửa 24 giờ",
+        googlePlaceId: destGooglePlaceId || undefined,
+        googlePhotos: destGooglePhotos.length > 0 ? destGooglePhotos : undefined,
+        googleReviews: destGoogleReviews.length > 0 ? destGoogleReviews : undefined,
       });
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

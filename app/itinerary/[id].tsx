@@ -229,6 +229,14 @@ export default function ItineraryDetailScreen() {
   const [editingSummaryRow, setEditingSummaryRow] = useState<{ dayIdx: number; actId: string; cost: string; paidBy: string } | null>(null);
   const [summaryCollapsed, setSummaryCollapsed] = useState<Record<string, boolean>>({ budget: false, activities: true, expenses: true, category: false, payer: false });
 
+  // SerpAPI reviews state
+  const [serpReviews, setSerpReviews] = useState<any[]>([]);
+  const [serpNextToken, setSerpNextToken] = useState<string | null>(null);
+  const [serpLoading, setSerpLoading] = useState(false);
+  const [serpError, setSerpError] = useState(false);
+  const [serpPlaceId, setSerpPlaceId] = useState<string | null>(null);
+  const [serpPlaceInfo, setSerpPlaceInfo] = useState<any>(null);
+
   const totalEstimated = useMemo(() => {
     if (!itinerary) return 0;
     return itinerary.days.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.estimatedCost || 0), 0), 0);
@@ -313,6 +321,66 @@ export default function ItineraryDetailScreen() {
     }
     return members;
   }, [ownerName, itinerary?.userId, companions]);
+
+  // SerpAPI reviews fetch function
+  const fetchSerpReviews = async (placeId: string, nextToken?: string) => {
+    setSerpLoading(true);
+    setSerpError(false);
+    try {
+      const baseUrl = getApiUrl().replace(/\/$/, "");
+      const params = new URLSearchParams({ place_id: placeId });
+      if (nextToken) params.set("next_page_token", nextToken);
+      const res = await fetch(`${baseUrl}/api/places/reviews?${params.toString()}`, { headers: getApiHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (nextToken) {
+        setSerpReviews((prev) => [...prev, ...(data.reviews || [])]);
+      } else {
+        setSerpReviews(data.reviews || []);
+        setSerpPlaceInfo(data.placeInfo || null);
+      }
+      setSerpNextToken(data.nextPageToken || null);
+    } catch (err) {
+      console.warn("SerpAPI reviews error:", err);
+      setSerpError(true);
+    } finally {
+      setSerpLoading(false);
+    }
+  };
+
+  // Auto-fetch SerpAPI reviews when activity detail modal opens
+  useEffect(() => {
+    if (!activityDetailModal) {
+      setSerpReviews([]);
+      setSerpNextToken(null);
+      setSerpPlaceId(null);
+      setSerpPlaceInfo(null);
+      setSerpError(false);
+      return;
+    }
+    const act = activityDetailModal;
+    // Find googlePlaceId from linked destination or POI
+    let gPlaceId: string | undefined;
+    if (act.poiId) {
+      const linkedPOI = pois.find((p) => p.id === act.poiId);
+      gPlaceId = linkedPOI?.googlePlaceId;
+    }
+    if (!gPlaceId && act.destinationId) {
+      const linkedDest = destinations.find((d) => d.id === act.destinationId);
+      gPlaceId = linkedDest?.googlePlaceId;
+    }
+    if (!gPlaceId) {
+      // Fallback: try to find destination by name
+      const linkedDest = destinations.find((d) => d.name === act.title);
+      gPlaceId = linkedDest?.googlePlaceId;
+    }
+    if (gPlaceId && gPlaceId !== serpPlaceId) {
+      setSerpPlaceId(gPlaceId);
+      fetchSerpReviews(gPlaceId);
+    } else if (!gPlaceId) {
+      setSerpPlaceId(null);
+    }
+  }, [activityDetailModal]);
 
   const filteredPOIs = useMemo(() => {
     let filtered = pois.filter((p) => p.isActive);
@@ -3039,33 +3107,136 @@ export default function ItineraryDetailScreen() {
                 <Ionicons name="close" size={24} color={colors.text} />
               </Pressable>
             </View>
+
+            {/* Day selector tabs */}
+            {routeMapModal && itinerary.days.length > 1 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 40, marginBottom: 10 }}>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  {itinerary.days.map((d, idx) => (
+                    <Pressable
+                      key={idx}
+                      onPress={() => setRouteMapModal({ dayIdx: idx })}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 7,
+                        borderRadius: 10,
+                        backgroundColor: routeMapModal.dayIdx === idx ? colors.primary : colors.inputBg,
+                      }}
+                    >
+                      <Text style={{
+                        fontSize: 12,
+                        fontFamily: routeMapModal.dayIdx === idx ? "Inter_600SemiBold" : "Inter_400Regular",
+                        color: routeMapModal.dayIdx === idx ? "#fff" : colors.textSecondary,
+                      }}>
+                        Ngày {idx + 1}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+
             {routeMapModal && (() => {
               const day = itinerary.days[routeMapModal.dayIdx];
               if (!day) return null;
-              const mapPoints = day.activities
-                .filter((a) => a.latitude != null && a.longitude != null)
-                .map((a, i) => ({
-                  lat: a.latitude!,
-                  lng: a.longitude!,
-                  name: a.title,
-                  type: a.activityType,
-                  index: i,
-                }));
+
+              // Get activities with coordinates
+              const actsWithCoords = day.activities.filter((a) => a.latitude != null && a.longitude != null);
+
+              // Deduplicate: group activities at the same coordinates
+              const uniquePoints: { lat: number; lng: number; name: string; type?: string; index: number; activities: typeof actsWithCoords }[] = [];
+              actsWithCoords.forEach((a, i) => {
+                const existing = uniquePoints.find(
+                  (p) => Math.abs(p.lat - a.latitude!) < 0.0001 && Math.abs(p.lng - a.longitude!) < 0.0001
+                );
+                if (existing) {
+                  existing.activities.push(a);
+                  existing.name = existing.activities.map((act) => act.title).join(" → ");
+                } else {
+                  uniquePoints.push({
+                    lat: a.latitude!,
+                    lng: a.longitude!,
+                    name: a.title,
+                    type: a.activityType,
+                    index: uniquePoints.length,
+                    activities: [a],
+                  });
+                }
+              });
+
+              const allSameLocation = uniquePoints.length <= 1 && actsWithCoords.length > 1;
+
+              const mapPoints = uniquePoints.map((p) => ({
+                lat: p.lat,
+                lng: p.lng,
+                name: p.name,
+                type: p.type,
+                index: p.index,
+              }));
+
               return (
                 <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-                  <RouteMap
-                    points={mapPoints}
-                    height={Dimensions.get("window").height * 0.5}
-                    colors={colors as any}
-                    showRoute={true}
-                  />
+                  {allSameLocation ? (
+                    <View style={{
+                      height: 200,
+                      borderRadius: 14,
+                      backgroundColor: colors.inputBg,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 10,
+                    }}>
+                      <Ionicons name="location" size={36} color={colors.primary} />
+                      <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.text, textAlign: "center" }}>
+                        Tất cả hoạt động cùng vị trí
+                      </Text>
+                      <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, textAlign: "center", paddingHorizontal: 20 }}>
+                        Các hoạt động trong ngày này đều ở cùng một địa điểm. Bản đồ tuyến đường sẽ hiển thị khi có nhiều địa điểm khác nhau.
+                      </Text>
+                      {actsWithCoords[0] && (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+                          <Ionicons name="navigate-outline" size={14} color={colors.textTertiary} />
+                          <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary }}>
+                            {actsWithCoords[0].latitude!.toFixed(4)}, {actsWithCoords[0].longitude!.toFixed(4)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <RouteMap
+                      points={mapPoints}
+                      height={Dimensions.get("window").height * 0.45}
+                      colors={colors as any}
+                      showRoute={true}
+                    />
+                  )}
+
+                  {/* Activity list */}
                   <View style={{ marginTop: 12 }}>
+                    <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.text, marginBottom: 8 }}>
+                      {day.title} • {actsWithCoords.length} hoạt động
+                    </Text>
                     {day.activities.filter((a) => a.latitude != null).map((a, i) => (
                       <View key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 }}>
-                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }}>
+                        <View style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: 13,
+                          backgroundColor: a.activityType === "food" ? "#F59E0B" : colors.primary,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}>
                           <Text style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" }}>{i + 1}</Text>
                         </View>
-                        <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.text, flex: 1 }} numberOfLines={1}>{a.time} - {a.title}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.text }} numberOfLines={1}>
+                            {a.time} - {a.title}
+                          </Text>
+                          {a.address && (
+                            <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary }} numberOfLines={1}>
+                              📍 {a.address}
+                            </Text>
+                          )}
+                        </View>
                       </View>
                     ))}
                   </View>
@@ -3377,6 +3548,140 @@ export default function ItineraryDetailScreen() {
                                 </Pressable>
                               )}
                             </>
+                          )}
+                        </>
+                      );
+                    })()}
+
+                    {/* SerpAPI Google Maps Reviews */}
+                    {(() => {
+                      if (!serpPlaceId && !serpLoading && serpReviews.length === 0) return null;
+                      return (
+                        <>
+                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                            <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>{txt.serpReviews}</Text>
+                            {serpPlaceInfo && serpPlaceInfo.totalReviews > 0 && (
+                              <View style={[userRevStyles.countBadge, { backgroundColor: "#4285F4" + "15" }]}>
+                                <Text style={[userRevStyles.countText, { color: "#4285F4" }]}>{serpPlaceInfo.totalReviews}</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          {serpLoading && serpReviews.length === 0 && (
+                            <View style={{ alignItems: "center", paddingVertical: 20 }}>
+                              <ActivityIndicator size="small" color={colors.primary} />
+                              <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 8 }}>{txt.serpReviewsLoading}</Text>
+                            </View>
+                          )}
+
+                          {serpError && serpReviews.length === 0 && (
+                            <View style={[userRevStyles.emptyState, { backgroundColor: colors.inputBg }]}>
+                              <Ionicons name="alert-circle-outline" size={24} color={colors.textTertiary} />
+                              <Text style={[userRevStyles.emptyTitle, { color: colors.textSecondary }]}>{txt.serpReviewsError}</Text>
+                            </View>
+                          )}
+
+                          {serpReviews.length > 0 && serpReviews.slice(0, serpReviews.length).map((review: any, idx: number) => {
+                            const SNIPPET_LIMIT = 150;
+                            const isLongSnippet = (review.snippet || "").length > SNIPPET_LIMIT;
+                            const isExpandedSnippet = expandedReviewIds.has(`serp_${idx}`);
+                            const displaySnippet = isLongSnippet && !isExpandedSnippet
+                              ? (review.snippet || "").slice(0, SNIPPET_LIMIT).trimEnd() + "..."
+                              : review.snippet || "";
+
+                            return (
+                              <View key={review.reviewId || idx} style={[actDetailStyles.reviewCard, { backgroundColor: colors.inputBg, borderLeftWidth: 3, borderLeftColor: "#4285F4" }]}>
+                                <View style={actDetailStyles.reviewHeader}>
+                                  {review.authorPhoto ? (
+                                    <View style={[actDetailStyles.reviewAvatar, { backgroundColor: "#4285F4", overflow: "hidden" }]}>
+                                      <Text style={actDetailStyles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
+                                    </View>
+                                  ) : (
+                                    <View style={[actDetailStyles.reviewAvatar, { backgroundColor: "#4285F4" }]}>
+                                      <Text style={actDetailStyles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
+                                    </View>
+                                  )}
+                                  <View style={{ flex: 1 }}>
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                      <Text style={[actDetailStyles.reviewName, { color: colors.text }]}>{review.author}</Text>
+                                      {review.isLocalGuide && (
+                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: "#4285F4" + "18", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
+                                          <Ionicons name="shield-checkmark" size={10} color="#4285F4" />
+                                          <Text style={{ fontSize: 9, fontFamily: "Inter_600SemiBold", color: "#4285F4" }}>{txt.serpLocalGuide}</Text>
+                                        </View>
+                                      )}
+                                    </View>
+                                    {review.date && (
+                                      <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 1 }}>{review.date}</Text>
+                                    )}
+                                  </View>
+                                  <View style={{ flexDirection: "row", gap: 2 }}>
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
+                                    ))}
+                                  </View>
+                                </View>
+                                {displaySnippet.length > 0 && (
+                                  <View>
+                                    <Text style={[actDetailStyles.reviewComment, { color: colors.textSecondary }]}>{displaySnippet}</Text>
+                                    {isLongSnippet && (
+                                      <Pressable
+                                        onPress={() => {
+                                          setExpandedReviewIds((prev) => {
+                                            const next = new Set(prev);
+                                            const key = `serp_${idx}`;
+                                            if (next.has(key)) next.delete(key);
+                                            else next.add(key);
+                                            return next;
+                                          });
+                                        }}
+                                        hitSlop={6}
+                                      >
+                                        <Text style={[userRevStyles.seeMoreText, { color: colors.primary }]}>
+                                          {isExpandedSnippet ? txt.seeLess : txt.seeMore}
+                                        </Text>
+                                      </Pressable>
+                                    )}
+                                  </View>
+                                )}
+                                {review.likes > 0 && (
+                                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+                                    <Ionicons name="thumbs-up-outline" size={12} color={colors.textTertiary} />
+                                    <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary }}>{txt.serpReviewLikes(review.likes)}</Text>
+                                  </View>
+                                )}
+                                {review.response && (
+                                  <View style={{ marginTop: 8, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.textTertiary + "40" }}>
+                                    <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: colors.textSecondary }}>Phản hồi:</Text>
+                                    <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 2 }}>{review.response.snippet}</Text>
+                                    {review.response.date && (
+                                      <Text style={{ fontSize: 10, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 2 }}>{review.response.date}</Text>
+                                    )}
+                                  </View>
+                                )}
+                              </View>
+                            );
+                          })}
+
+                          {serpNextToken && (
+                            <Pressable
+                              onPress={() => {
+                                if (serpPlaceId && !serpLoading) {
+                                  fetchSerpReviews(serpPlaceId, serpNextToken);
+                                }
+                              }}
+                              style={({ pressed }) => [userRevStyles.showMoreBtn, { backgroundColor: colors.inputBg, opacity: pressed ? 0.8 : 1 }]}
+                            >
+                              {serpLoading ? (
+                                <ActivityIndicator size="small" color={colors.primary} />
+                              ) : (
+                                <>
+                                  <Ionicons name="chatbubbles-outline" size={16} color="#4285F4" />
+                                  <Text style={[userRevStyles.showMoreText, { color: "#4285F4" }]}>{txt.serpReviewsLoadMore}</Text>
+                                  <Ionicons name="chevron-down" size={16} color="#4285F4" />
+                                </>
+                              )}
+                            </Pressable>
                           )}
                         </>
                       );

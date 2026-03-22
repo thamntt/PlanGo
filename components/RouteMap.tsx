@@ -68,14 +68,21 @@ function generateLeafletHtml(
       const color = typeColors[p.type || "other"] || "#4F46E5";
       const label = p.index !== undefined ? p.index + 1 : i + 1;
       return `
-      L.marker([${p.lat}, ${p.lng}], {
-        icon: L.divIcon({
-          className: 'custom-marker',
-          html: '<div style="background:${color};color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35)">${label}</div>',
-          iconSize: [32, 32],
-          iconAnchor: [16, 16]
-        })
-      }).addTo(map).bindPopup('<b>${label}. ${p.name.replace(/'/g, "\\'")}</b>');
+      (function() {
+        var marker = L.marker([${p.lat}, ${p.lng}], {
+          icon: L.divIcon({
+            className: 'custom-marker',
+            html: '<div style="background:${color};color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35);cursor:pointer">${label}</div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+          })
+        }).addTo(map).bindPopup('<b>${label}. ${p.name.replace(/'/g, "\\'")}</b>');
+        marker.on('click', function() {
+          var msg = JSON.stringify({ type: 'markerPress', point: { lat: ${p.lat}, lng: ${p.lng}, name: '${p.name.replace(/'/g, "\\\'")}', type: '${p.type || "other"}', index: ${i} } });
+          window.parent.postMessage(msg, '*');
+          if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); }
+        });
+      })();
     `;
     })
     .join("\n");
@@ -222,6 +229,7 @@ export default function RouteMap({
   colors,
   showRoute = true,
   userLocation,
+  onMarkerPress,
 }: RouteMapProps) {
   if (points.length === 0) {
     return (
@@ -235,6 +243,29 @@ export default function RouteMap({
   }
 
   const html = generateLeafletHtml(points, showRoute, userLocation);
+
+  // Handle postMessage from iframe / WebView marker clicks
+  const handleMessage = React.useCallback(
+    (data: string) => {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.type === "markerPress" && parsed.point && onMarkerPress) {
+          onMarkerPress(parsed.point);
+        }
+      } catch {}
+    },
+    [onMarkerPress]
+  );
+
+  // Web: listen to iframe postMessage
+  React.useEffect(() => {
+    if (Platform.OS !== "web" || !onMarkerPress) return;
+    const listener = (e: MessageEvent) => {
+      if (typeof e.data === "string") handleMessage(e.data);
+    };
+    window.addEventListener("message", listener);
+    return () => window.removeEventListener("message", listener);
+  }, [handleMessage, onMarkerPress]);
 
   if (Platform.OS === "web") {
     return (
@@ -259,6 +290,7 @@ export default function RouteMap({
         domStorageEnabled={true}
         originWhitelist={["*"]}
         mixedContentMode="always"
+        onMessage={(event) => handleMessage(event.nativeEvent.data)}
       />
     </View>
   );
