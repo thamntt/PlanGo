@@ -38,12 +38,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Copy package files and install production deps only
+# Use --ignore-scripts because postinstall runs patch-package (a devDependency)
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 
 # Apply patches for production deps
 COPY patches/ ./patches/
-RUN npx patch-package || true
+RUN npx -y patch-package || true
 
 # Copy built artifacts from builder
 COPY --from=builder /app/server_dist/ ./server_dist/
