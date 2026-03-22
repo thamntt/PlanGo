@@ -11,8 +11,12 @@ ENV NODE_ENV=production
 # Copy package files
 COPY package.json package-lock.json ./
 
+# Remove postinstall script (patch-package is devDep, fails with --omit=dev behavior)
+# but keep all scripts so esbuild postinstall runs correctly
+RUN node -e "const p=require('./package.json'); delete p.scripts.postinstall; require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2))"
+
 # Install ALL dependencies (Metro needs devDeps for static build at startup)
-RUN npm ci --ignore-scripts
+RUN npm ci
 
 # Copy source code
 COPY . .
