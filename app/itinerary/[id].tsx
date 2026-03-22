@@ -910,13 +910,19 @@ export default function ItineraryDetailScreen() {
 
     activities[actIdx].time = minutesToTime(newMins);
 
-    let currentEnd = newMins + parseDurationToMinutes(activities[actIdx].duration || "1 giờ");
-    for (let i = actIdx + 1; i < activities.length; i++) {
-      const travelInfo = getTravelInfo(activities[i - 1], activities[i]);
+    newDays[timeModal.dayIdx].activities = activities.slice().sort((a, b) => {
+      return parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time);
+    });
+    const sortedActivities = newDays[timeModal.dayIdx].activities;
+    const newActIdx = sortedActivities.findIndex((a) => a.id === timeModal.activityId);
+
+    let currentEnd = newMins + parseDurationToMinutes(sortedActivities[newActIdx].duration || "1 giờ");
+    for (let i = newActIdx + 1; i < sortedActivities.length; i++) {
+      const travelInfo = getTravelInfo(sortedActivities[i - 1], sortedActivities[i]);
       const travelMins = travelInfo ? (travelInfo.defaultMode === "walking" ? travelInfo.walkingMinutes : travelInfo.drivingMinutes) : 0;
       const nextStart = currentEnd + travelMins;
-      activities[i].time = minutesToTime(nextStart);
-      currentEnd = nextStart + parseDurationToMinutes(activities[i].duration || "1 giờ");
+      sortedActivities[i].time = minutesToTime(nextStart);
+      currentEnd = nextStart + parseDurationToMinutes(sortedActivities[i].duration || "1 giờ");
     }
 
     await updateItinerary(itinerary.id, { days: newDays });
