@@ -6,16 +6,16 @@ FROM node:22-bookworm
 WORKDIR /app
 
 ENV CI=true
-ENV NODE_ENV=production
+# Do NOT set NODE_ENV=production here — npm ci skips devDeps when it's set
+# NODE_ENV is set to production at runtime in start.sh
 
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Remove postinstall script (patch-package is devDep, fails with --omit=dev behavior)
-# but keep all scripts so esbuild postinstall runs correctly
+# Remove postinstall script (patch-package is devDep, fails in clean install)
 RUN node -e "const p=require('./package.json'); delete p.scripts.postinstall; require('fs').writeFileSync('package.json', JSON.stringify(p, null, 2))"
 
-# Install ALL dependencies (Metro needs devDeps for static build at startup)
+# Install ALL dependencies including devDeps (Metro/TypeScript/Babel needed at startup)
 RUN npm ci
 
 # Copy source code
