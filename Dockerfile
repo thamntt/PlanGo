@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════
 # Single stage: All deps needed for Metro static build at startup
 # ══════════════════════════════════════════════════════════════
-FROM node:22-bookworm-slim
+FROM node:22-bookworm
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ COPY . .
 RUN npx -y patch-package || true
 
 # Build Express server with esbuild (this doesn't need domain)
-RUN npm run server:build
+RUN npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist
 
 # Make start script executable
 RUN chmod +x scripts/start.sh
