@@ -45,7 +45,11 @@ function setupCors(app: express.Application) {
     const isTunnelOrigin =
       origin?.includes(".ngrok") || origin?.includes(".loca.lt");
 
-    if (origin && (origins.has(origin) || isLocalhost || isLanOrigin || isTunnelOrigin)) {
+    // Allow Railway domains
+    const isRailwayOrigin =
+      origin?.includes(".railway.app") || origin?.includes(".up.railway.app");
+
+    if (origin && (origins.has(origin) || isLocalhost || isLanOrigin || isTunnelOrigin || isRailwayOrigin)) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header(
         "Access-Control-Allow-Methods",
@@ -242,6 +246,11 @@ function setupErrorHandler(app: express.Application) {
   setupRequestLogging(app);
 
   configureExpoAndLanding(app);
+
+  // Health check endpoint for Railway
+  app.get("/api/status", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
 
   const server = await registerRoutes(app);
 
