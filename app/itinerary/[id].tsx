@@ -1405,7 +1405,7 @@ export default function ItineraryDetailScreen() {
                   }}
                   hitSlop={8}
                 >
-                  <Ionicons name="create-outline" size={18} color={colors.primary} />
+
                 </Pressable>
               )}
             </View>
@@ -1706,10 +1706,10 @@ export default function ItineraryDetailScreen() {
                               if (itinerary.status === "completed") return true;
                               return false;
                             })() && (
-                              <Pressable onPress={() => { setCostPaidByDropdown(false); setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || 0).toString(), estimatedCost: (activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || user?.fullName || "", activityTitle: activity.title }); }} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
-                                <Ionicons name="cash-outline" size={14} color={colors.accent} />
-                              </Pressable>
-                            )}
+                                <Pressable onPress={() => { setCostPaidByDropdown(false); setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || 0).toString(), estimatedCost: (activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || user?.fullName || "", activityTitle: activity.title }); }} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                  <Ionicons name="cash-outline" size={14} color={colors.accent} />
+                                </Pressable>
+                              )}
                             {/* Time: draft or active unchecked */}
                             {canEdit && (itinerary.status === "draft" || (itinerary.status === "active" && !activity.isCompleted)) && (
                               <Pressable onPress={() => setTimeModal({ activityId: activity.id, dayIdx, time: activity.time })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
@@ -3347,6 +3347,12 @@ export default function ItineraryDetailScreen() {
                         <Ionicons name={getActivityTypeIcon(act.activityType) as any} size={16} color={colors.primary} />
                         <Text style={[actDetailStyles.infoText, { color: colors.text }]}>{getActivityTypeLabel(act.activityType)}</Text>
                       </View>
+                      {act.estimatedCost > 0 && (
+                        <View style={actDetailStyles.infoItem}>
+                          <Ionicons name="cash-outline" size={16} color={colors.primary} />
+                          <Text style={[actDetailStyles.infoText, { color: colors.text }]}>{txt.estimatedCost}: {formatVND(act.estimatedCost)}</Text>
+                        </View>
+                      )}
                     </View>
 
                     {act.address && (
@@ -3385,63 +3391,63 @@ export default function ItineraryDetailScreen() {
                       if (!linkedPOI) return null;
                       return (
                         <>
-                        <View style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg, flexDirection: "column", alignItems: "flex-start", gap: 6 }]}>
-                          <Text style={[actDetailStyles.sectionTitle, { color: colors.text, marginBottom: 2 }]}>{txt.poiInfo}</Text>
-                          {linkedPOI.openHours && (
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Ionicons name="time-outline" size={14} color={colors.primary} />
-                              <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.openHours}: {linkedPOI.openHours}</Text>
-                            </View>
-                          )}
-                          {linkedPOI.estimatedDuration && (
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Ionicons name="hourglass-outline" size={14} color={colors.primary} />
-                              <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.estDuration}: {linkedPOI.estimatedDuration}</Text>
-                            </View>
-                          )}
-                          {linkedPOI.estimatedCost != null && linkedPOI.estimatedCost > 0 && (
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Ionicons name="cash-outline" size={14} color={colors.primary} />
-                              <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.estCost}: {formatVND(linkedPOI.estimatedCost)}</Text>
-                            </View>
-                          )}
-                          {linkedPOI.rating > 0 && (
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              <Ionicons name="star" size={14} color="#F59E0B" />
-                              <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{linkedPOI.rating.toFixed(1)} ({linkedPOI.reviewCount} {txt.activityReviewCount})</Text>
-                            </View>
-                          )}
-                        </View>
+                          <View style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg, flexDirection: "column", alignItems: "flex-start", gap: 6 }]}>
+                            <Text style={[actDetailStyles.sectionTitle, { color: colors.text, marginBottom: 2 }]}>{txt.poiInfo}</Text>
+                            {linkedPOI.openHours && (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                <Ionicons name="time-outline" size={14} color={colors.primary} />
+                                <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.openHours}: {linkedPOI.openHours}</Text>
+                              </View>
+                            )}
+                            {linkedPOI.estimatedDuration && (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                <Ionicons name="hourglass-outline" size={14} color={colors.primary} />
+                                <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.estDuration}: {linkedPOI.estimatedDuration}</Text>
+                              </View>
+                            )}
+                            {linkedPOI.estimatedCost != null && linkedPOI.estimatedCost > 0 && (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                <Ionicons name="cash-outline" size={14} color={colors.primary} />
+                                <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{txt.estCost}: {formatVND(linkedPOI.estimatedCost)}</Text>
+                              </View>
+                            )}
+                            {linkedPOI.rating > 0 && (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                <Ionicons name="star" size={14} color="#F59E0B" />
+                                <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{linkedPOI.rating.toFixed(1)} ({linkedPOI.reviewCount} {txt.activityReviewCount})</Text>
+                              </View>
+                            )}
+                          </View>
 
-                        {linkedPOI.googleReviews && linkedPOI.googleReviews.length > 0 && (
-                          <>
-                            <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>Google Reviews ({linkedPOI.googleReviews.length})</Text>
-                            {linkedPOI.googleReviews.map((review, idx) => (
-                              <View key={idx} style={[actDetailStyles.reviewCard, { backgroundColor: colors.inputBg }]}>
-                                <View style={actDetailStyles.reviewHeader}>
-                                  <View style={[actDetailStyles.reviewAvatar, { backgroundColor: "#4285F4" }]}>
-                                    <Text style={actDetailStyles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
-                                  </View>
-                                  <View style={{ flex: 1 }}>
-                                    <Text style={[actDetailStyles.reviewName, { color: colors.text }]}>{review.author}</Text>
-                                    <View style={[actDetailStyles.sourceBadge, { backgroundColor: "#4285F420" }]}>
-                                      <Text style={[actDetailStyles.sourceText, { color: "#4285F4" }]}>Google</Text>
+                          {linkedPOI.googleReviews && linkedPOI.googleReviews.length > 0 && (
+                            <>
+                              <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>Google Reviews ({linkedPOI.googleReviews.length})</Text>
+                              {linkedPOI.googleReviews.map((review, idx) => (
+                                <View key={idx} style={[actDetailStyles.reviewCard, { backgroundColor: colors.inputBg }]}>
+                                  <View style={actDetailStyles.reviewHeader}>
+                                    <View style={[actDetailStyles.reviewAvatar, { backgroundColor: "#4285F4" }]}>
+                                      <Text style={actDetailStyles.reviewAvatarText}>{review.author.charAt(0).toUpperCase()}</Text>
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={[actDetailStyles.reviewName, { color: colors.text }]}>{review.author}</Text>
+                                      <View style={[actDetailStyles.sourceBadge, { backgroundColor: "#4285F420" }]}>
+                                        <Text style={[actDetailStyles.sourceText, { color: "#4285F4" }]}>Google</Text>
+                                      </View>
+                                    </View>
+                                    <View style={{ flexDirection: "row", gap: 2 }}>
+                                      {[1, 2, 3, 4, 5].map((star) => (
+                                        <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
+                                      ))}
                                     </View>
                                   </View>
-                                  <View style={{ flexDirection: "row", gap: 2 }}>
-                                    {[1, 2, 3, 4, 5].map((star) => (
-                                      <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
-                                    ))}
-                                  </View>
+                                  <Text style={[actDetailStyles.reviewComment, { color: colors.textSecondary }]}>{review.text}</Text>
+                                  {review.time && (
+                                    <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 4 }}>{review.time}</Text>
+                                  )}
                                 </View>
-                                <Text style={[actDetailStyles.reviewComment, { color: colors.textSecondary }]}>{review.text}</Text>
-                                {review.time && (
-                                  <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary, marginTop: 4 }}>{review.time}</Text>
-                                )}
-                              </View>
-                            ))}
-                          </>
-                        )}
+                              ))}
+                            </>
+                          )}
                         </>
                       );
                     })()}
