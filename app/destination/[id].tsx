@@ -56,10 +56,23 @@ export default function DestinationDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, reviews, addReview } = useData();
+  const { destinations, reviews, addReview, itineraries } = useData();
 
   const destination = destinations.find((d) => d.id === id);
   const destReviews = useMemo(() => reviews.filter((r) => r.destinationId === id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [reviews, id]);
+
+  const hasCompletedThisDestination = useMemo(() => {
+    if (!user || !id) return false;
+    return itineraries.some((itin) => {
+      const isMember = itin.userId === user.id || (itin.companions || []).some((c) => c.userId === user.id);
+      if (!isMember) return false;
+      return itin.days.some((day) =>
+        day.activities.some((act) =>
+          act.isCompleted && (act.destinationId === id || act.title === destination?.name)
+        )
+      );
+    });
+  }, [itineraries, user, id, destination?.name]);
 
   const [newRating, setNewRating] = useState(5);
   const [newComment, setNewComment] = useState("");
@@ -426,14 +439,28 @@ export default function DestinationDetailScreen() {
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
               {txt.userReviews} ({destReviews.length})
             </Text>
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowReviewForm(!showReviewForm);
-              }}
-            >
-              <Ionicons name={showReviewForm ? "close" : "add-circle-outline"} size={24} color={colors.primary} />
-            </Pressable>
+            {hasCompletedThisDestination ? (
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowReviewForm(!showReviewForm);
+                }}
+              >
+                <Ionicons name={showReviewForm ? "close" : "add-circle-outline"} size={24} color={colors.primary} />
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => {
+                  if (Platform.OS === "web") {
+                    window.alert("Hoàn thành điểm đến này trong lịch trình để có thể đánh giá.");
+                  } else {
+                    Alert.alert("Chưa thể đánh giá", "Hoàn thành điểm đến này trong lịch trình để có thể đánh giá.");
+                  }
+                }}
+              >
+                <Ionicons name="lock-closed-outline" size={22} color={colors.textTertiary} />
+              </Pressable>
+            )}
           </View>
 
           {showReviewForm && (

@@ -774,6 +774,11 @@ export default function ItineraryDetailScreen() {
     if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
       await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
     }
+    const destId = getActivityDestinationId(act);
+    const alreadyReviewed = getActivityReview(activityId);
+    if (destId && !alreadyReviewed) {
+      setTimeout(() => openReviewModal(activityId, dayIdx), 400);
+    }
   };
 
   const openReviewModal = (activityId: string, dayIdx: number, editReviewId?: string) => {
