@@ -286,6 +286,8 @@ export default function AdminDashboard() {
 
   const txt = t().admin;
 
+  const cleanReviewComment = (comment: string) => comment.replace(/\[activity:[^\]]+\]/g, "").replace(/\[resetBefore:[^\]]+\]/g, "").trim();
+
   const filteredUsers = useMemo(() => {
     let result = [...users];
     if (userSearch.trim()) {
@@ -721,7 +723,7 @@ export default function AdminDashboard() {
                               <Ionicons key={star} name={star <= r.rating ? "star" : "star-outline"} size={14} color="#F59E0B" />
                             ))}
                           </View>
-                          <Text style={[s.reviewText, { color: colors.textSecondary }]} numberOfLines={2}>{r.comment}</Text>
+                          <Text style={[s.reviewText, { color: colors.textSecondary }]} numberOfLines={2}>{cleanReviewComment(r.comment)}</Text>
                         </View>
                         <Pressable onPress={(e) => { e.stopPropagation(); handleDeleteReview(r.id); }} hitSlop={8}>
                           <Ionicons name="trash-outline" size={18} color={colors.error} />
@@ -807,7 +809,7 @@ export default function AdminDashboard() {
                         <Ionicons key={star} name={star <= r.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
                       ))}
                     </View>
-                    <Text style={[s.reviewText, { color: colors.textSecondary }]}>{r.comment}</Text>
+                    <Text style={[s.reviewText, { color: colors.textSecondary }]}>{cleanReviewComment(r.comment)}</Text>
                   </View>
                   <Pressable onPress={() => handleDeleteReview(r.id)} hitSlop={8}>
                     <Ionicons name="trash-outline" size={16} color={colors.error} />
@@ -847,7 +849,7 @@ export default function AdminDashboard() {
             </View>
 
             <Text style={[s.descLabel, { color: colors.textSecondary }]}>{txt.comment}</Text>
-            <Text style={[s.descText, { color: colors.text }]}>{selectedReview.comment}</Text>
+            <Text style={[s.descText, { color: colors.text }]}>{cleanReviewComment(selectedReview.comment)}</Text>
 
             <View style={[s.detailActions, { marginTop: 16 }]}>
               <Pressable onPress={() => handleDeleteReview(selectedReview.id)} style={[s.detailBtn, { backgroundColor: colors.error }]}>
@@ -1196,7 +1198,7 @@ export default function AdminDashboard() {
                           <Ionicons key={star} name={star <= r.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
                         ))}
                       </View>
-                      <Text style={[s.reviewText, { color: colors.textSecondary }]} numberOfLines={2}>{r.comment}</Text>
+                      <Text style={[s.reviewText, { color: colors.textSecondary }]} numberOfLines={2}>{cleanReviewComment(r.comment)}</Text>
                     </View>
                     <Pressable onPress={(e) => { e.stopPropagation(); handleDeleteReview(r.id); }} hitSlop={8}>
                       <Ionicons name="trash-outline" size={20} color={colors.error} />
