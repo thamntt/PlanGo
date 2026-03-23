@@ -689,35 +689,66 @@ export default function ItineraryDetailScreen() {
   };
 
   const toggleActivityComplete = async (dayIdx: number, activityId: string) => {
-    const newDays = [...itinerary.days];
-    const activity = newDays[dayIdx].activities.find((a) => a.id === activityId);
+    const activity = itinerary.days[dayIdx]?.activities.find((a) => a.id === activityId);
     if (!activity) return;
 
     if (activity.isCompleted) {
       const existingReview = getActivityReview(activityId);
       if (existingReview) {
         if (Platform.OS === "web") {
-          window.alert(txt.cannotUncheckHasReview);
+          window.alert(t().itinerary.cannotUncheckHasReview);
         } else {
-          Alert.alert("", txt.cannotUncheckHasReview);
+          Alert.alert("", t().itinerary.cannotUncheckHasReview);
         }
         return;
       }
+
+      const doUncheck = async () => {
+        const newDays = [...itinerary.days];
+        const act = newDays[dayIdx].activities.find((a) => a.id === activityId);
+        if (!act) return;
+        act.isCompleted = false;
+        act.actualCost = 0;
+        act.paidBy = undefined;
+        const newExpenses = expenses.filter((e) => e.activityId !== activityId);
+        const newSpent = recalcSpent(newDays, newExpenses);
+        await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      };
+
+      if (Platform.OS === "web") {
+        if (window.confirm("Bỏ hoàn thành địa điểm này sẽ xóa chi phí và người chi trả tương ứng. Bạn có chắc không?")) {
+          await doUncheck();
+        }
+      } else {
+        Alert.alert(
+          "Bỏ hoàn thành",
+          "Bỏ hoàn thành địa điểm này sẽ xóa chi phí và người chi trả tương ứng. Bạn có chắc không?",
+          [
+            { text: t().common.cancel, style: "cancel" },
+            { text: "Xác nhận", onPress: doUncheck },
+          ]
+        );
+      }
+      return;
     }
 
-    activity.isCompleted = !activity.isCompleted;
+    const newDays = [...itinerary.days];
+    const act = newDays[dayIdx].activities.find((a) => a.id === activityId);
+    if (!act) return;
+    act.isCompleted = true;
     const newExpenses = [...expenses];
-    if (activity.isCompleted && !activity.actualCost && activity.estimatedCost) {
-      activity.actualCost = activity.estimatedCost;
+    if (!act.actualCost && act.estimatedCost) {
+      act.actualCost = act.estimatedCost;
       const currentUserName = user?.fullName || user?.username || undefined;
       const currentUserId = user?.id || undefined;
       const existingExpIdx = newExpenses.findIndex((e) => e.activityId === activityId);
       if (existingExpIdx >= 0) {
         newExpenses[existingExpIdx] = {
           ...newExpenses[existingExpIdx],
-          title: activity.title,
-          amount: activity.estimatedCost,
-          type: activity.activityType as Expense["type"],
+          title: act.title,
+          amount: act.estimatedCost,
+          type: act.activityType as Expense["type"],
           paidBy: currentUserName,
           paidByUserId: currentUserId,
           dayIndex: dayIdx,
@@ -725,9 +756,9 @@ export default function ItineraryDetailScreen() {
       } else {
         newExpenses.push({
           id: generateId(),
-          title: activity.title,
-          amount: activity.estimatedCost,
-          type: activity.activityType as Expense["type"],
+          title: act.title,
+          amount: act.estimatedCost,
+          type: act.activityType as Expense["type"],
           paidBy: currentUserName,
           paidByUserId: currentUserId,
           dayIndex: dayIdx,
@@ -735,17 +766,11 @@ export default function ItineraryDetailScreen() {
           createdAt: new Date().toISOString(),
         });
       }
-    } else if (!activity.isCompleted && activity.actualCost === activity.estimatedCost) {
-      activity.actualCost = 0;
-      const existingExpIdx = newExpenses.findIndex((e) => e.activityId === activityId);
-      if (existingExpIdx >= 0) newExpenses.splice(existingExpIdx, 1);
     }
     const newSpent = recalcSpent(newDays, newExpenses);
     await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (activity.isCompleted) {
-      await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${activity.title}" đã hoàn thành`, type: "info" });
-    }
+    await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${act.title}" đã hoàn thành`, type: "info" });
     if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
       await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
     }
