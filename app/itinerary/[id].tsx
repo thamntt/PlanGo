@@ -3362,7 +3362,10 @@ export default function ItineraryDetailScreen() {
 
                     <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>{txt.activityAbout}</Text>
                     <Text style={[actDetailStyles.description, { color: colors.textSecondary }]}>
-                      {linkedDest?.description || act.description}
+                      {(() => {
+                        const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
+                        return linkedPOI?.description || linkedDest?.description || act.description;
+                      })()}
                     </Text>
 
                     {linkedDest && (
