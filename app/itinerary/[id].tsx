@@ -625,18 +625,16 @@ export default function ItineraryDetailScreen() {
         await addNotification({ userId: itinerary.userId, title: t().notifications.tripStarted, message: `${itinerary.title} đã bắt đầu!`, type: "info" });
       } else if (nextStatus === "completed") {
         await addNotification({ userId: itinerary.userId, title: t().notifications.tripCompleted, message: `${itinerary.title} đã hoàn thành!`, type: "success" });
-        const unreviewedActivities: { activityId: string; dayIdx: number }[] = [];
-        itinerary.days.forEach((day, dIdx) => {
-          day.activities.forEach((act) => {
-            const destId = getActivityDestinationId(act);
-            const alreadyReviewed = getActivityReview(act.id);
-            if (destId && !alreadyReviewed) {
-              unreviewedActivities.push({ activityId: act.id, dayIdx: dIdx });
-            }
-          });
-        });
-        if (unreviewedActivities.length > 0) {
-          setTimeout(() => openReviewModal(unreviewedActivities[0].activityId, unreviewedActivities[0].dayIdx), 600);
+        const mainDest = destinations.find((d) => d.name === itinerary.destination);
+        if (mainDest) {
+          const alreadyReviewed = reviews.some((r) => r.destinationId === mainDest.id && r.userId === user?.id);
+          if (!alreadyReviewed) {
+            setTimeout(() => {
+              setReviewRating(5);
+              setReviewComment("");
+              setReviewModal({ activityId: "", dayIdx: 0, destinationId: mainDest.id });
+            }, 600);
+          }
         }
       }
     };
@@ -3809,7 +3807,11 @@ export default function ItineraryDetailScreen() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>
-              {reviewModal?.editReviewId ? txt.editReview : txt.reviewActivity}
+              {reviewModal?.editReviewId
+                ? txt.editReview
+                : reviewModal?.activityId
+                  ? txt.reviewActivity
+                  : `Đánh giá điểm đến: ${destinations.find((d) => d.id === reviewModal?.destinationId)?.name || ""}`}
             </Text>
             <View style={styles.ratingRow}>
               {[1, 2, 3, 4, 5].map((star) => (

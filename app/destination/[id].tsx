@@ -67,11 +67,7 @@ export default function DestinationDetailScreen() {
       if (itin.status !== "completed") return false;
       const isMember = itin.userId === user.id || (itin.companions || []).some((c) => c.userId === user.id);
       if (!isMember) return false;
-      return itin.days.some((day) =>
-        day.activities.some((act) =>
-          act.destinationId === id || act.title === destination?.name
-        )
-      );
+      return itin.destination === destination?.name;
     });
   }, [itineraries, user, id, destination?.name]);
 
