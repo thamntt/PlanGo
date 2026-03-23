@@ -185,6 +185,7 @@ export interface Notification {
   title: string;
   message: string;
   type: "info" | "warning" | "success";
+  itineraryId?: string;
   createdAt: string;
   isRead: boolean;
 }

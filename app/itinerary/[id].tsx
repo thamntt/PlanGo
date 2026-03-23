@@ -595,6 +595,7 @@ export default function ItineraryDetailScreen() {
             ...a,
             isCompleted: false,
             actualCost: 0,
+            paidBy: undefined,
           })),
         }));
         await updateItinerary(itinerary.id, {
@@ -622,9 +623,9 @@ export default function ItineraryDetailScreen() {
       await updateItinerary(itinerary.id, { status: nextStatus });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (nextStatus === "active") {
-        await addNotification({ userId: itinerary.userId, title: t().notifications.tripStarted, message: `${itinerary.title} đã bắt đầu!`, type: "info" });
+        await addNotification({ userId: itinerary.userId, title: t().notifications.tripStarted, message: `${itinerary.title} đã bắt đầu!`, type: "info", itineraryId: itinerary.id });
       } else if (nextStatus === "completed") {
-        await addNotification({ userId: itinerary.userId, title: t().notifications.tripCompleted, message: `${itinerary.title} đã hoàn thành!`, type: "success" });
+        await addNotification({ userId: itinerary.userId, title: t().notifications.tripCompleted, message: `${itinerary.title} đã hoàn thành!`, type: "success", itineraryId: itinerary.id });
         const mainDest = destinations.find((d) => d.name === itinerary.destination);
         if (mainDest) {
           const alreadyReviewed = reviews.some((r) => r.destinationId === mainDest.id && r.userId === user?.id);
@@ -781,9 +782,9 @@ export default function ItineraryDetailScreen() {
     const newSpent = recalcSpent(newDays, newExpenses);
     await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${act.title}" đã hoàn thành`, type: "info" });
+    await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${act.title}" đã hoàn thành`, type: "info", itineraryId: itinerary.id });
     if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
-      await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
+      await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning", itineraryId: itinerary.id });
     }
   };
 
@@ -1229,7 +1230,7 @@ export default function ItineraryDetailScreen() {
     await updateItinerary(itinerary.id, { expenses: newExpenses, spentAmount: newSpent });
 
     if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
-      await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
+      await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning", itineraryId: itinerary.id });
     }
 
     resetExpenseModal();
@@ -2295,6 +2296,7 @@ export default function ItineraryDetailScreen() {
                     title: txt.debtReminderTitle,
                     message: txt.debtReminderMsg(s.fromName, s.toName, formatVND(s.amount), itinerary.title),
                     type: "warning",
+                    itineraryId: itinerary.id,
                   });
                   // Also send notification to the creditor
                   await addNotification({
@@ -2302,6 +2304,7 @@ export default function ItineraryDetailScreen() {
                     title: txt.debtReminderTitle,
                     message: `${s.fromName} đã được nhắc nhở thanh toán ${formatVND(s.amount)} cho bạn từ chuyến đi "${itinerary.title}"`,
                     type: "info",
+                    itineraryId: itinerary.id,
                   });
                   sentCount++;
                 }

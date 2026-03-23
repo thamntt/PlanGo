@@ -130,7 +130,7 @@ export default function AdminDashboard() {
   const [poiGoogleResults, setPoiGoogleResults] = useState<PlaceSearchResult[]>([]);
   const [poiGoogleLoading, setPoiGoogleLoading] = useState(false);
 
-  const categories = ["City", "Beach", "Mountain", "Heritage", "Nature", "Island"];
+  const categories = ["City", "Beach", "Mountain", "Heritage", "Nature", "Island", "Culture", "Biển", "Núi", "Thành phố", "Văn hóa", "Thiên nhiên", "Phiêu lưu", "Lịch sử"];
   const poiTypes: POI["type"][] = ["attraction", "restaurant", "cafe", "hotel", "shopping", "other"];
 
   // Google search for destinations
@@ -302,8 +302,19 @@ export default function AdminDashboard() {
 
   const uniqueCategories = useMemo(() => {
     const cats = new Set<string>();
-    destinations.forEach((d) => cats.add(d.category));
-    return Array.from(cats).sort();
+    const seenLabels = new Set<string>();
+    destinations.forEach((d) => {
+      const label = t().categories[d.category] || d.category;
+      if (!seenLabels.has(label)) {
+        seenLabels.add(label);
+        cats.add(d.category);
+      }
+    });
+    return Array.from(cats).sort((a, b) => {
+      const la = t().categories[a] || a;
+      const lb = t().categories[b] || b;
+      return la.localeCompare(lb, "vi");
+    });
   }, [destinations]);
 
   const filteredDestinations = useMemo(() => {
@@ -312,7 +323,13 @@ export default function AdminDashboard() {
       const q = destSearch.toLowerCase().trim();
       result = result.filter((d) => d.name.toLowerCase().includes(q) || d.category.toLowerCase().includes(q) || (t().categories[d.category] || "").toLowerCase().includes(q));
     }
-    if (destCategoryFilter !== "all") result = result.filter((d) => d.category === destCategoryFilter);
+    if (destCategoryFilter !== "all") {
+      const filterLabel = t().categories[destCategoryFilter] || destCategoryFilter;
+      result = result.filter((d) => {
+        const destLabel = t().categories[d.category] || d.category;
+        return d.category === destCategoryFilter || destLabel === filterLabel;
+      });
+    }
     result.sort((a, b) => b.rating - a.rating);
     return result;
   }, [destinations, destSearch, destCategoryFilter]);

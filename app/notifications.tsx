@@ -117,6 +117,9 @@ export default function NotificationsScreen() {
             colors={colors}
             onPress={() => {
               if (!item.isRead) markNotificationRead(item.id);
+              if (item.itineraryId) {
+                router.push({ pathname: "/itinerary/[id]", params: { id: item.itineraryId } });
+              }
             }}
           />
         )}

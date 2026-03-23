@@ -746,6 +746,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       title: "Lịch trình mới đã được tạo",
       message: `Chuyến đi ${params.destination} (${params.startDate} - ${params.endDate}) đã được tạo thành công!`,
       type: "success",
+      itineraryId: created.id,
     });
 
     return created;
