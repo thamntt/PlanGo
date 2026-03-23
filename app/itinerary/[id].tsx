@@ -3479,8 +3479,15 @@ export default function ItineraryDetailScreen() {
 
                     {(() => {
                       if (!linkedDest) return null;
+                      const actId = act.id;
                       const destUserReviews = reviews
-                        .filter((r) => r.destinationId === linkedDest.id)
+                        .filter((r) => {
+                          if (r.destinationId !== linkedDest.id) return false;
+                          // Show only reviews for this specific activity, or general destination reviews (no activity tag)
+                          const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
+                          if (activityTag) return activityTag[1] === actId;
+                          return true; // general destination review (no tag)
+                        })
                         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
                       const formatReviewDate = (dateStr: string) => {
@@ -3488,7 +3495,7 @@ export default function ItineraryDetailScreen() {
                         return `${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getFullYear()}`;
                       };
 
-                      const cleanComment = (comment: string) => comment.replace(/\[activity:[^\]]+\]/g, "").trim();
+                      const cleanComment = (comment: string) => comment.replace(/\[activity:[^\]]+\]/g, "").replace(/\[resetBefore:[^\]]+\]/g, "").trim();
 
                       return (
                         <>
@@ -3810,8 +3817,8 @@ export default function ItineraryDetailScreen() {
               {reviewModal?.editReviewId
                 ? txt.editReview
                 : reviewModal?.activityId
-                  ? txt.reviewActivity
-                  : `Đánh giá điểm đến: ${destinations.find((d) => d.id === reviewModal?.destinationId)?.name || ""}`}
+                  ? `${txt.reviewActivity}: ${itinerary.days[reviewModal.dayIdx]?.activities.find((a) => a.id === reviewModal.activityId)?.title || ""}`
+                  : `Đánh giá: ${destinations.find((d) => d.id === reviewModal?.destinationId)?.name || ""}`}
             </Text>
             <View style={styles.ratingRow}>
               {[1, 2, 3, 4, 5].map((star) => (
