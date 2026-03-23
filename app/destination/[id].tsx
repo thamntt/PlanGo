@@ -64,11 +64,12 @@ export default function DestinationDetailScreen() {
   const hasCompletedThisDestination = useMemo(() => {
     if (!user || !id) return false;
     return itineraries.some((itin) => {
+      if (itin.status !== "completed") return false;
       const isMember = itin.userId === user.id || (itin.companions || []).some((c) => c.userId === user.id);
       if (!isMember) return false;
       return itin.days.some((day) =>
         day.activities.some((act) =>
-          act.isCompleted && (act.destinationId === id || act.title === destination?.name)
+          act.destinationId === id || act.title === destination?.name
         )
       );
     });

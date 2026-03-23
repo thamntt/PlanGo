@@ -625,6 +625,19 @@ export default function ItineraryDetailScreen() {
         await addNotification({ userId: itinerary.userId, title: t().notifications.tripStarted, message: `${itinerary.title} đã bắt đầu!`, type: "info" });
       } else if (nextStatus === "completed") {
         await addNotification({ userId: itinerary.userId, title: t().notifications.tripCompleted, message: `${itinerary.title} đã hoàn thành!`, type: "success" });
+        const unreviewedActivities: { activityId: string; dayIdx: number }[] = [];
+        itinerary.days.forEach((day, dIdx) => {
+          day.activities.forEach((act) => {
+            const destId = getActivityDestinationId(act);
+            const alreadyReviewed = getActivityReview(act.id);
+            if (destId && !alreadyReviewed) {
+              unreviewedActivities.push({ activityId: act.id, dayIdx: dIdx });
+            }
+          });
+        });
+        if (unreviewedActivities.length > 0) {
+          setTimeout(() => openReviewModal(unreviewedActivities[0].activityId, unreviewedActivities[0].dayIdx), 600);
+        }
       }
     };
     if (Platform.OS === "web") {
@@ -773,11 +786,6 @@ export default function ItineraryDetailScreen() {
     await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${act.title}" đã hoàn thành`, type: "info" });
     if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
       await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning" });
-    }
-    const destId = getActivityDestinationId(act);
-    const alreadyReviewed = getActivityReview(activityId);
-    if (destId && !alreadyReviewed) {
-      setTimeout(() => openReviewModal(activityId, dayIdx), 400);
     }
   };
 
