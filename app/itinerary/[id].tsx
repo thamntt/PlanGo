@@ -706,13 +706,42 @@ export default function ItineraryDetailScreen() {
     }
 
     activity.isCompleted = !activity.isCompleted;
+    const newExpenses = [...expenses];
     if (activity.isCompleted && !activity.actualCost && activity.estimatedCost) {
       activity.actualCost = activity.estimatedCost;
+      const currentUserName = user?.fullName || user?.username || undefined;
+      const currentUserId = user?.id || undefined;
+      const existingExpIdx = newExpenses.findIndex((e) => e.activityId === activityId);
+      if (existingExpIdx >= 0) {
+        newExpenses[existingExpIdx] = {
+          ...newExpenses[existingExpIdx],
+          title: activity.title,
+          amount: activity.estimatedCost,
+          type: activity.activityType as Expense["type"],
+          paidBy: currentUserName,
+          paidByUserId: currentUserId,
+          dayIndex: dayIdx,
+        };
+      } else {
+        newExpenses.push({
+          id: generateId(),
+          title: activity.title,
+          amount: activity.estimatedCost,
+          type: activity.activityType as Expense["type"],
+          paidBy: currentUserName,
+          paidByUserId: currentUserId,
+          dayIndex: dayIdx,
+          activityId: activityId,
+          createdAt: new Date().toISOString(),
+        });
+      }
     } else if (!activity.isCompleted && activity.actualCost === activity.estimatedCost) {
       activity.actualCost = 0;
+      const existingExpIdx = newExpenses.findIndex((e) => e.activityId === activityId);
+      if (existingExpIdx >= 0) newExpenses.splice(existingExpIdx, 1);
     }
-    const newSpent = recalcSpent(newDays, expenses);
-    await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
+    const newSpent = recalcSpent(newDays, newExpenses);
+    await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (activity.isCompleted) {
       await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${activity.title}" đã hoàn thành`, type: "info" });
