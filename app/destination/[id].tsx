@@ -196,37 +196,11 @@ export default function DestinationDetailScreen() {
                 {destination.rating} ({destination.reviewCount})
               </Text>
             </View>
-            <View style={styles.infoItem}>
-              <Ionicons name="cash-outline" size={16} color={colors.primary} />
-              <Text style={[styles.infoText, { color: colors.text }]}>{destination.priceRange}</Text>
-            </View>
           </View>
 
           <View style={styles.infoItem}>
             <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
             <Text style={[styles.addressText, { color: colors.textSecondary }]}>{destination.address}</Text>
-          </View>
-
-          <View style={styles.infoItem}>
-            <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
-            <Text style={[styles.addressText, { color: colors.textSecondary }]}>{destination.openHours}</Text>
-          </View>
-
-          {destination.estimatedCostPerPerson && (
-            <View style={[styles.costBadge, { backgroundColor: colors.primary + "15" }]}>
-              <Ionicons name="wallet-outline" size={16} color={colors.primary} />
-              <Text style={[styles.costBadgeText, { color: colors.primary }]}>
-                {txt.estimatedCost}: {formatVND(destination.estimatedCostPerPerson)}{txt.perPerson}
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.tagRow}>
-            {destination.tags.map((tag) => (
-              <View key={tag} style={[styles.tag, { backgroundColor: colors.tagBg }]}>
-                <Text style={[styles.tagText, { color: colors.tagText }]}>{t().categories[tag] || t().preferences[tag] || tag}</Text>
-              </View>
-            ))}
           </View>
 
           <View style={styles.deepLinkRow}>

@@ -199,8 +199,6 @@ export default function ProfileScreen() {
           <StatItem icon="map" value={myTripsCount} label={txt.profile.trips} colors={colors} />
           <View style={[pStyles.statDivider, { backgroundColor: colors.divider }]} />
           <StatItem icon="chatbubble" value={myReviewsCount} label={txt.profile.reviews} colors={colors} />
-          <View style={[pStyles.statDivider, { backgroundColor: colors.divider }]} />
-          <StatItem icon="heart" value={selectedPrefs.length} label={txt.profile.interests} colors={colors} />
         </View>
 
         <View style={pStyles.section}>
@@ -244,49 +242,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={pStyles.section}>
-          <View style={pStyles.sectionHeader}>
-            <Ionicons name="heart" size={18} color={colors.primary} />
-            <Text style={[pStyles.sectionTitle, { color: colors.text }]}>{txt.profile.travelInterests}</Text>
-            {editing && (
-              <Text style={[pStyles.sectionHint, { color: colors.textTertiary }]}>{txt.profile.tapToSelect}</Text>
-            )}
-          </View>
-          <View style={pStyles.prefsGrid}>
-            {PREFERENCE_OPTIONS.map((pref) => {
-              const isSelected = selectedPrefs.includes(pref);
-              const prefIcons: Record<string, string> = {
-                Beach: "sunny-outline", Mountain: "triangle-outline", City: "business-outline",
-                Culture: "color-palette-outline", Food: "restaurant-outline", Adventure: "compass-outline",
-                Relaxation: "leaf-outline", Nature: "flower-outline", History: "library-outline",
-                Shopping: "bag-outline", Nightlife: "moon-outline", Photography: "camera-outline",
-              };
-              return (
-                <Pressable
-                  key={pref}
-                  onPress={() => editing && togglePref(pref)}
-                  style={({ pressed }) => [
-                    pStyles.prefChip,
-                    {
-                      backgroundColor: isSelected ? colors.primary : colors.card,
-                      borderColor: isSelected ? colors.primary : colors.cardBorder,
-                      opacity: pressed && editing ? 0.8 : 1,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={prefIcons[pref] as any || "ellipse-outline"}
-                    size={15}
-                    color={isSelected ? "#fff" : colors.textSecondary}
-                  />
-                  <Text style={[pStyles.prefChipText, { color: isSelected ? "#fff" : colors.text }]}>
-                    {txt.preferences[pref] || pref}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
+
 
         <View style={pStyles.section}>
           <View style={pStyles.sectionHeader}>
