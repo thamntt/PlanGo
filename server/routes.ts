@@ -311,17 +311,16 @@ async function searchPlaces(req: Request, res: Response) {
   const googleResult = await searchPlacesGoogle(query, language);
   if (googleResult) return res.json(googleResult);
 
-  // Cách 2: Goong (enriched with SerpAPI ratings)
-  const goongResult = await searchPlacesGoong(query, language);
-  if (goongResult && goongResult.places && goongResult.places.length > 0) {
-    goongResult.places = await enrichWithSerpApiRatings(goongResult.places, query);
-    return res.json(goongResult);
-  }
-
-  // Cách 3: SerpAPI Google Maps search as standalone fallback
+  // Cách 2: SerpAPI Google Maps search (ưu tiên hơn Goong vì có rating, review)
   const serpResult = await searchPlacesSerpApi(query);
   if (serpResult && serpResult.places && serpResult.places.length > 0) {
     return res.json(serpResult);
+  }
+
+  // Cách 3: Goong
+  const goongResult = await searchPlacesGoong(query, language);
+  if (goongResult && goongResult.places && goongResult.places.length > 0) {
+    return res.json(goongResult);
   }
 
   // Cách 4: Nominatim (miễn phí)

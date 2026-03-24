@@ -3371,18 +3371,35 @@ export default function ItineraryDetailScreen() {
                       })()}
                     </Text>
 
-                    {linkedDest && (
-                      <View style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg }]}>
-                        <Ionicons name="star" size={18} color="#F59E0B" />
-                        <Text style={[actDetailStyles.ratingText, { color: colors.text }]}>
-                          {linkedDest.rating.toFixed(1)}/5
-                        </Text>
-                        <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>
-                          ({linkedDest.reviewCount} {txt.activityReviewCount})
-                        </Text>
-
-                      </View>
-                    )}
+                    {linkedDest && (() => {
+                      const actId = act.id;
+                      const destReviewCount = reviews.filter((r) => {
+                        if (r.destinationId !== linkedDest.id) return false;
+                        const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
+                        if (activityTag) return activityTag[1] === actId;
+                        return true;
+                      }).length;
+                      const displayRating = destReviewCount > 0
+                        ? Math.round(reviews.filter((r) => {
+                            if (r.destinationId !== linkedDest.id) return false;
+                            const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
+                            if (activityTag) return activityTag[1] === actId;
+                            return true;
+                          }).reduce((sum, r) => sum + r.rating, 0) / destReviewCount * 10) / 10
+                        : linkedDest.rating;
+                      const displayCount = destReviewCount > 0 ? destReviewCount : linkedDest.reviewCount;
+                      return (
+                        <View style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg }]}>
+                          <Ionicons name="star" size={18} color="#F59E0B" />
+                          <Text style={[actDetailStyles.ratingText, { color: colors.text }]}>
+                            {displayRating.toFixed(1)}/5
+                          </Text>
+                          <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>
+                            ({displayCount} {txt.activityReviewCount})
+                          </Text>
+                        </View>
+                      );
+                    })()}
 
                     {(() => {
                       const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
