@@ -3380,13 +3380,7 @@ export default function ItineraryDetailScreen() {
                         <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>
                           ({linkedDest.reviewCount} {txt.activityReviewCount})
                         </Text>
-                        {linkedDest.priceRange && (
-                          <>
-                            <Text style={[actDetailStyles.ratingCount, { color: colors.textTertiary }]}> • </Text>
-                            <Ionicons name="cash-outline" size={14} color={colors.textSecondary} />
-                            <Text style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}>{linkedDest.priceRange}</Text>
-                          </>
-                        )}
+
                       </View>
                     )}
 

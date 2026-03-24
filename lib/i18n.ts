@@ -448,6 +448,8 @@ const vi = {
     Nature: "Thiên nhiên",
     Island: "Đảo",
     Culture: "Văn hóa",
+    Adventure: "Phiêu lưu",
+    History: "Lịch sử",
   } as Record<string, string>,
 
   preferences: {

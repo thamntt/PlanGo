@@ -49,9 +49,9 @@ export interface Destination {
   longitude: number;
   rating: number;
   reviewCount: number;
-  priceRange: string;
+  priceRange?: string;
   tags: string[];
-  openHours: string;
+  openHours?: string;
   isActive: boolean;
   highlights?: string[];
   tips?: string[];

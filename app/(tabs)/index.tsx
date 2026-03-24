@@ -52,14 +52,8 @@ function DestinationCard({ item, colors }: { item: Destination; colors: ReturnTy
             {item.address}
           </Text>
         </View>
-        <View style={styles.tagRow}>
-          {item.tags.slice(0, 3).map((tag) => (
-            <View key={tag} style={[styles.tag, { backgroundColor: colors.tagBg }]}>
-              <Text style={[styles.tagText, { color: colors.tagText }]}>{tag}</Text>
-            </View>
-          ))}
-        </View>
-        <Text style={[styles.cardPrice, { color: colors.primary }]}>{item.priceRange}</Text>
+
+
       </View>
     </Pressable>
   );
@@ -156,16 +150,17 @@ export default function ExploreScreen() {
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
-          data={[t().common.all, ...CATEGORIES]}
-          keyExtractor={(item) => item}
+          data={[null, ...CATEGORIES]}
+          keyExtractor={(item) => item || "all"}
           contentContainerStyle={styles.categoryList}
           renderItem={({ item }) => {
-            const isSelected = item === t().common.all ? !selectedCategory : selectedCategory === item;
+            const isSelected = item === null ? !selectedCategory : selectedCategory === item;
+            const label = item === null ? t().common.all : (t().categories[item] || item);
             return (
               <Pressable
                 onPress={() => {
                   Haptics.selectionAsync();
-                  setSelectedCategory(item === t().common.all ? null : item);
+                  setSelectedCategory(item);
                 }}
                 style={[
                   styles.categoryChip,
@@ -176,7 +171,7 @@ export default function ExploreScreen() {
                 ]}
               >
                 <Text style={[styles.categoryChipText, { color: isSelected ? "#fff" : colors.textSecondary }]}>
-                  {item}
+                  {label}
                 </Text>
               </Pressable>
             );

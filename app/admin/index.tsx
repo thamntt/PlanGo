@@ -22,6 +22,7 @@ import { getUsers, saveUsers, formatVND, type UserData } from "@/lib/storage";
 import { validateDestinationName, validateAddress } from "@/lib/validation";
 import { t } from "@/lib/i18n";
 import { searchPlaces, getPlaceDetails, getPhotoUrl, mapGoogleTypeToPOIType, getPOITypeLabel, getPOITypeIcon, type PlaceSearchResult } from "@/lib/places";
+import { CATEGORIES } from "@/lib/seed-data";
 import type { POI } from "@/lib/storage";
 
 type Tab = "dashboard" | "users" | "destinations" | "reviews" | "pois";
@@ -130,7 +131,7 @@ export default function AdminDashboard() {
   const [poiGoogleResults, setPoiGoogleResults] = useState<PlaceSearchResult[]>([]);
   const [poiGoogleLoading, setPoiGoogleLoading] = useState(false);
 
-  const categories = ["City", "Beach", "Mountain", "Heritage", "Nature", "Island", "Culture", "Biển", "Núi", "Thành phố", "Văn hóa", "Thiên nhiên", "Phiêu lưu", "Lịch sử"];
+
   const poiTypes: POI["type"][] = ["attraction", "restaurant", "cafe", "hotel", "shopping", "other"];
 
   // Google search for destinations
@@ -514,9 +515,7 @@ export default function AdminDashboard() {
         longitude: hasCoords && parsedLng !== null && !isNaN(parsedLng) ? parsedLng : 105.0 + Math.random() * 5,
         rating: destRating,
         reviewCount: destReviewCount,
-        priceRange: "2-5M VND",
         tags: [destCategory],
-        openHours: "Mở cửa 24 giờ",
         googlePlaceId: destGooglePlaceId || undefined,
         googlePhotos: destGooglePhotos.length > 0 ? destGooglePhotos : undefined,
         googleReviews: destGoogleReviews.length > 0 ? destGoogleReviews : undefined,
@@ -770,12 +769,7 @@ export default function AdminDashboard() {
                 <Ionicons name="star" size={16} color="#F59E0B" />
                 <Text style={[s.infoText, { color: colors.text }]}>{selectedDest.rating.toFixed(1)}/5 ({selectedDest.reviewCount} {txt.reviewsTab.toLowerCase()})</Text>
               </View>
-              {selectedDest.priceRange && (
-                <View style={s.infoRow}>
-                  <Ionicons name="cash-outline" size={16} color={colors.textSecondary} />
-                  <Text style={[s.infoText, { color: colors.text }]}>{selectedDest.priceRange}</Text>
-                </View>
-              )}
+
               {selectedDest.openHours && (
                 <View style={s.infoRow}>
                   <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
@@ -852,10 +846,40 @@ export default function AdminDashboard() {
             </View>
 
             <View style={s.detailInfo}>
-              <View style={s.infoRow}>
-                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
-                <Text style={[s.infoText, { color: colors.text }]}>{txt.destination}: {selectedReviewDest?.name || "—"}</Text>
-              </View>
+              {(() => {
+                const actTag = selectedReview.comment.match(/\[activity:([^\]]+)\]/);
+                let reviewPlaceName = selectedReviewDest?.name || "—";
+                if (actTag) {
+                  const actId = actTag[1];
+                  for (const itin of itineraries) {
+                    for (const day of itin.days) {
+                      const act = day.activities.find((a) => a.id === actId);
+                      if (act) { reviewPlaceName = act.title; break; }
+                    }
+                    if (reviewPlaceName !== (selectedReviewDest?.name || "—")) break;
+                  }
+                }
+                return (
+                  <>
+                    <View style={s.infoRow}>
+                      <Ionicons name="pin-outline" size={16} color={colors.textSecondary} />
+                      <Text style={[s.infoText, { color: colors.text }]}>Địa điểm: {reviewPlaceName}</Text>
+                    </View>
+                    {actTag && selectedReviewDest && (
+                      <View style={s.infoRow}>
+                        <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                        <Text style={[s.infoText, { color: colors.textSecondary }]}>{txt.destination}: {selectedReviewDest.name}</Text>
+                      </View>
+                    )}
+                    {!actTag && (
+                      <View style={s.infoRow}>
+                        <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                        <Text style={[s.infoText, { color: colors.text }]}>{txt.destination}: {selectedReviewDest?.name || "—"}</Text>
+                      </View>
+                    )}
+                  </>
+                );
+              })()}
               <View style={s.infoRow}>
                 <Text style={[s.infoText, { color: colors.textSecondary }]}>{txt.rating}:</Text>
                 {[1, 2, 3, 4, 5].map((star) => (
@@ -1201,6 +1225,21 @@ export default function AdminDashboard() {
               );
               return subFiltered.map((r) => {
                 const dest = destinations.find((d) => d.id === r.destinationId);
+                // For POI reviews, extract the activity name
+                let placeName = dest?.name || "—";
+                if (reviewSubTab === "pois") {
+                  const actTag = r.comment.match(/\[activity:([^\]]+)\]/);
+                  if (actTag) {
+                    const actId = actTag[1];
+                    for (const itin of itineraries) {
+                      for (const day of itin.days) {
+                        const act = day.activities.find((a) => a.id === actId);
+                        if (act) { placeName = act.title; break; }
+                      }
+                      if (placeName !== (dest?.name || "—")) break;
+                    }
+                  }
+                }
                 return (
                   <Pressable
                     key={r.id}
@@ -1209,7 +1248,7 @@ export default function AdminDashboard() {
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={[s.itemTitle, { color: colors.text }]}>{r.userName}</Text>
-                      <Text style={[s.itemSub, { color: colors.textSecondary }]}>{dest?.name} - {new Date(r.createdAt).toLocaleDateString("vi-VN")}</Text>
+                      <Text style={[s.itemSub, { color: colors.textSecondary }]}>{placeName} - {new Date(r.createdAt).toLocaleDateString("vi-VN")}</Text>
                       <View style={s.ratingRow}>
                         {[1, 2, 3, 4, 5].map((star) => (
                           <Ionicons key={star} name={star <= r.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
@@ -1342,7 +1381,7 @@ export default function AdminDashboard() {
               </View>
               <Text style={[s.categoryLabel, { color: colors.text }]}>{txt.category}</Text>
               <View style={s.categoryGrid}>
-                {categories.map((cat) => (
+                {CATEGORIES.map((cat) => (
                   <Pressable
                     key={cat}
                     onPress={() => setDestCategory(cat)}
