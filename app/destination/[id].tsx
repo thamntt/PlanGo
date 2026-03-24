@@ -56,7 +56,7 @@ export default function DestinationDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, reviews, addReview, itineraries } = useData();
+  const { destinations, reviews, addReview, deleteReview, itineraries } = useData();
 
   const destination = destinations.find((d) => d.id === id);
   const destReviews = useMemo(() => reviews.filter((r) => r.destinationId === id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [reviews, id]);
@@ -464,23 +464,70 @@ export default function DestinationDetailScreen() {
               <Text style={[styles.emptyText, { color: colors.textTertiary }]}>{txt.noReviews}</Text>
             </View>
           ) : (
-            destReviews.map((review) => (
-              <View key={review.id} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                <View style={styles.reviewHeader}>
-                  <View style={[styles.reviewAvatar, { backgroundColor: colors.primary }]}>
-                    <Text style={styles.reviewAvatarText}>{review.userName.charAt(0).toUpperCase()}</Text>
+            destReviews.map((review) => {
+              const cleanComment = review.comment
+                .replace(/\s*\[activity:[^\]]+\]/g, "")
+                .replace(/\s*\[resetBefore:[^\]]+\]/g, "")
+                .trim();
+              const isOwn = user && review.userId === user.id;
+              return (
+                <View key={review.id} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: isOwn ? colors.primary + "40" : colors.cardBorder }]}>
+                  <View style={styles.reviewHeader}>
+                    <View style={[styles.reviewAvatar, { backgroundColor: isOwn ? colors.primary : colors.textTertiary }]}>
+                      <Text style={styles.reviewAvatarText}>{review.userName.charAt(0).toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={[styles.reviewName, { color: colors.text }]}>{review.userName}</Text>
+                        {isOwn && (
+                          <View style={{ backgroundColor: colors.primary + "15", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
+                            <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: colors.primary }}>Bạn</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.reviewDate, { color: colors.textTertiary }]}>
+                        {new Date(review.createdAt).toLocaleDateString("vi-VN")}
+                      </Text>
+                    </View>
+                    <StarRating rating={review.rating} size={14} colors={colors} />
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.reviewName, { color: colors.text }]}>{review.userName}</Text>
-                    <Text style={[styles.reviewDate, { color: colors.textTertiary }]}>
-                      {new Date(review.createdAt).toLocaleDateString("vi-VN")}
-                    </Text>
-                  </View>
-                  <StarRating rating={review.rating} size={14} colors={colors} />
+                  <Text style={[styles.reviewComment, { color: colors.textSecondary }]}>{cleanComment}</Text>
+                  {isOwn && (
+                    <View style={{ flexDirection: "row", gap: 16, marginTop: 4 }}>
+                      <Pressable
+                        onPress={() => {
+                          setNewRating(review.rating);
+                          setNewComment(cleanComment);
+                          setShowReviewForm(true);
+                        }}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                      >
+                        <Ionicons name="create-outline" size={14} color={colors.primary} />
+                        <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.primary }}>Sửa đánh giá</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          if (Platform.OS === "web") {
+                            if (window.confirm("Xóa đánh giá này?")) {
+                              deleteReview(review.id);
+                            }
+                          } else {
+                            Alert.alert("Xóa đánh giá", "Bạn có chắc muốn xóa đánh giá này?", [
+                              { text: "Hủy", style: "cancel" },
+                              { text: "Xóa", style: "destructive", onPress: () => deleteReview(review.id) },
+                            ]);
+                          }
+                        }}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                      >
+                        <Ionicons name="trash-outline" size={14} color={colors.error} />
+                        <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.error }}>Xóa đánh giá</Text>
+                      </Pressable>
+                    </View>
+                  )}
                 </View>
-                <Text style={[styles.reviewComment, { color: colors.textSecondary }]}>{review.comment}</Text>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
       </ScrollView>
