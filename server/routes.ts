@@ -1049,19 +1049,15 @@ THÔNG TIN:
 - Số người: ${numPeople || 2}
 - Tổng ngân sách: ${totalBudget ? totalBudget.toLocaleString("vi-VN") + "đ" : "không giới hạn"} (≈${budgetPerDay > 0 ? budgetPerDay.toLocaleString("vi-VN") + "đ/ngày" : "tùy ý"})
 ${prefsText ? `- Sở thích: ${prefsText}` : ""}
-${startingPoint ? `- Xuất phát: ${startingPoint}` : ""}
 
 QUY TẮC BẮT BUỘC:
 1. 100% địa điểm PHẢI nằm trong ${province}. KHÔNG ĐƯỢC có địa điểm ở tỉnh/thành phố khác.
-2. CHỈ gợi ý địa điểm, nhà hàng, quán ăn CÓ THẬT và NỔI TIẾNG tại ${destination}/${province}. Dùng ĐÚNG TÊN trên Google Maps.
-3. Mỗi ngày có 6 hoạt động: Ăn sáng → Tham quan sáng → Ăn trưa → Tham quan chiều → Ăn tối → Hoạt động tối
+2. QUAN TRỌNG NHẤT: "title" PHẢI là TÊN CHÍNH XÁC của địa điểm/nhà hàng/quán ăn/khách sạn NHƯ TRÊN GOOGLE MAPS. Ví dụ: "Ăn sáng tại Nhà Hàng Hải Cảng Sầm Sơn", "Tham quan Công trời Sầm Sơn". KHÔNG ĐƯỢC dùng tên chung chung như "Ăn sáng tại quán phở", "Tham quan bãi biển".
+3. Mỗi ngày có 5-6 hoạt động: Ăn sáng → Tham quan sáng → Ăn trưa → Tham quan chiều → Ăn tối → (Hoạt động tối tùy chọn)
 4. NGÂN SÁCH: Tổng estimatedCost PHẢI trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + (totalBudget * 1.0).toLocaleString("vi-VN") + "đ" : "hợp lý"}. estimatedCost đã tính cho ${numPeople || 2} người.
-5. "address" PHẢI chứa "${province}" ở cuối. Ví dụ: "Số 1, Đường ABC, ${province}".
-6. "latitude"/"longitude" PHẢI là tọa độ GPS chính xác của địa điểm trong ${province}.
-7. "rating" là điểm Google Maps thực tế (1.0-5.0).
-8. Thời gian: 07:00, 08:30, 12:00, 14:00, 18:00, 20:00
-9. Nếu thiếu địa điểm, gợi ý ở huyện/thị xã lân cận TRONG CÙNG TỈNH ${province}.
-${prefsText ? `10. ƯU TIÊN: ${prefsText}` : ""}
+5. Thời gian: 07:00, 08:30, 12:00, 14:00, 18:00, 20:00
+6. KHÔNG CẦN cung cấp address, latitude, longitude, rating chính xác — hệ thống sẽ tự tra cứu từ Google Maps.
+${prefsText ? `7. ƯU TIÊN: ${prefsText}` : ""}
 
 JSON format:
 {
@@ -1072,15 +1068,11 @@ JSON format:
       "activities": [
         {
           "time": "07:00",
-          "title": "Tên hoạt động",
-          "description": "Mô tả ngắn gọn",
+          "title": "Ăn sáng tại [TÊN CHÍNH XÁC NHÀ HÀNG TRÊN GOOGLE MAPS]",
+          "description": "Mô tả ngắn gọn về địa điểm",
           "duration": "1 giờ",
           "estimatedCost": 120000,
-          "activityType": "food",
-          "address": "Địa chỉ đầy đủ, ${province}",
-          "latitude": 0.0,
-          "longitude": 0.0,
-          "rating": 4.4
+          "activityType": "food"
         }
       ]
     }
@@ -1096,7 +1088,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         systemInstruction: {
-          parts: [{ text: `Bạn là chuyên gia du lịch Việt Nam. QUAN TRỌNG: Bạn CHỈ ĐƯỢC gợi ý địa điểm tại ${destination} thuộc ${province}. TUYỆT ĐỐI KHÔNG gợi ý bất kỳ địa điểm nào ở tỉnh/thành phố khác. Mọi address PHẢI chứa "${province}".` }]
+          parts: [{ text: `Bạn là chuyên gia du lịch Việt Nam. CHỈ gợi ý địa điểm tại ${destination} thuộc ${province}. TUYỆT ĐỐI KHÔNG gợi ý địa điểm ở tỉnh/thành phố khác. QUAN TRỌNG: Mỗi hoạt động PHẢI dùng TÊN CHÍNH XÁC của nhà hàng/quán ăn/điểm tham quan NHƯ TRÊN GOOGLE MAPS để hệ thống có thể tra cứu thông tin. Không dùng tên chung chung.` }]
         },
         contents: [{
           parts: [{ text: prompt }]

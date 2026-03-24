@@ -114,7 +114,12 @@ export interface ItineraryActivity {
   activityType: "sightseeing" | "food" | "transport" | "shopping" | "other";
   poiId?: string;
   rating?: number;
+  reviewCount?: number;
   googleMapsUrl?: string;
+  googlePlaceId?: string;
+  openHours?: string;
+  thumbnail?: string;
+  placeType?: string;
 }
 
 export interface ExpenseSplit {

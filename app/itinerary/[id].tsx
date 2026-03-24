@@ -245,7 +245,9 @@ export default function ItineraryDetailScreen() {
   const totalSpent = useMemo(() => {
     if (!itinerary) return 0;
     const activitySpent = itinerary.days.reduce((sum, day) => sum + day.activities.reduce((s, a) => s + (a.actualCost || 0), 0), 0);
-    const expenseSpent = (itinerary.expenses || []).reduce((sum, e) => sum + e.amount, 0);
+    // Only count manual expenses (not activity-linked ones, which are already in actualCost)
+    const manualExpenses = (itinerary.expenses || []).filter((e) => !e.activityId);
+    const expenseSpent = manualExpenses.reduce((sum, e) => sum + e.amount, 0);
     return activitySpent + expenseSpent;
   }, [itinerary?.days, itinerary?.expenses]);
 
@@ -359,18 +361,24 @@ export default function ItineraryDetailScreen() {
       return;
     }
     const act = activityDetailModal;
-    // Find googlePlaceId from linked destination or POI
+    // Find googlePlaceId: activity (from SerpAPI enrichment) → POI → destination
     let gPlaceId: string | undefined;
-    if (act.poiId) {
+    // Priority 1: Activity's own googlePlaceId (from SerpAPI enrichment)
+    if (act.googlePlaceId) {
+      gPlaceId = act.googlePlaceId;
+    }
+    // Priority 2: Linked POI
+    if (!gPlaceId && act.poiId) {
       const linkedPOI = pois.find((p) => p.id === act.poiId);
       gPlaceId = linkedPOI?.googlePlaceId;
     }
+    // Priority 3: Linked destination
     if (!gPlaceId && act.destinationId) {
       const linkedDest = destinations.find((d) => d.id === act.destinationId);
       gPlaceId = linkedDest?.googlePlaceId;
     }
+    // Priority 4: Fallback — find destination by name
     if (!gPlaceId) {
-      // Fallback: try to find destination by name
       const linkedDest = destinations.find((d) => d.name === act.title);
       gPlaceId = linkedDest?.googlePlaceId;
     }
@@ -754,6 +762,7 @@ export default function ItineraryDetailScreen() {
       act.actualCost = act.estimatedCost;
       const currentUserName = user?.fullName || user?.username || undefined;
       const currentUserId = user?.id || undefined;
+      act.paidBy = currentUserName;
       const existingExpIdx = newExpenses.findIndex((e) => e.activityId === activityId);
       if (existingExpIdx >= 0) {
         newExpenses[existingExpIdx] = {
@@ -1830,7 +1839,9 @@ export default function ItineraryDetailScreen() {
               );
               const totalActEstimated = allActivities.reduce((s, a) => s + (a.estimatedCost || 0), 0);
               const totalActActual = allActivities.reduce((s, a) => s + (a.actualCost || 0), 0);
-              const totalExpAmount = expenses.reduce((s, e) => s + e.amount, 0);
+              // Only count manual expenses (not activity-linked ones)
+              const manualExpenses = expenses.filter((e) => !e.activityId);
+              const totalExpAmount = manualExpenses.reduce((s, e) => s + e.amount, 0);
               const grandTotal = totalActActual + totalExpAmount;
               const budget = itinerary.totalBudget || 0;
               const budgetPct = budget > 0 ? Math.min(100, (grandTotal / budget) * 100) : 0;
@@ -1842,7 +1853,7 @@ export default function ItineraryDetailScreen() {
                 const cat = a.activityType || "other";
                 catMap[cat] = (catMap[cat] || 0) + (a.actualCost || 0);
               }
-              for (const e of expenses) {
+              for (const e of manualExpenses) {
                 catMap[e.type] = (catMap[e.type] || 0) + e.amount;
               }
               const catEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
@@ -1854,7 +1865,7 @@ export default function ItineraryDetailScreen() {
                   payerMap[a.paidBy] = (payerMap[a.paidBy] || 0) + (a.actualCost || 0);
                 }
               }
-              for (const e of expenses) {
+              for (const e of manualExpenses) {
                 if (e.paidBy && e.amount > 0) {
                   payerMap[e.paidBy] = (payerMap[e.paidBy] || 0) + e.amount;
                 }
@@ -2004,11 +2015,11 @@ export default function ItineraryDetailScreen() {
                   )}
 
                   {/* ── 3. Additional Expenses Table ── */}
-                  {expenses.length > 0 && (
+                  {manualExpenses.length > 0 && (
                     <>
                       <Pressable onPress={() => toggleSection("expenses")} style={sumStyles.sectionHeader}>
                         <Ionicons name="receipt-outline" size={16} color={colors.primary} />
-                        <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.additionalExpenses} ({expenses.length})</Text>
+                        <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.additionalExpenses} ({manualExpenses.length})</Text>
                         <Ionicons name={summaryCollapsed.expenses ? "chevron-down" : "chevron-up"} size={16} color={colors.textTertiary} />
                       </Pressable>
                       {!summaryCollapsed.expenses && (
@@ -2021,7 +2032,7 @@ export default function ItineraryDetailScreen() {
                             <Text style={[sumStyles.thCell, sumStyles.cellSplit, { color: colors.textSecondary }]}>{txt.splitInfo}</Text>
                             <View style={sumStyles.cellAction} />
                           </View>
-                          {expenses.map((exp, idx) => (
+                          {manualExpenses.map((exp, idx) => (
                             <View key={exp.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40" }]}>
                               <Text style={[sumStyles.tdCell, sumStyles.cellName, { color: colors.text }]} numberOfLines={1}>{exp.title}</Text>
                               <Text style={[sumStyles.tdCell, sumStyles.cellType, { color: colors.textTertiary }]}>{getActivityTypeLabel(exp.type)}</Text>
@@ -3390,7 +3401,7 @@ export default function ItineraryDetailScreen() {
                         displayCount = userCount;
                       } else if (act.rating && act.rating > 0) {
                         displayRating = act.rating;
-                        displayCount = (act as any).reviewCount || (act as any).userRatingCount || 0;
+                        displayCount = act.reviewCount || 0;
                       } else if (linkedPOI && linkedPOI.rating > 0) {
                         displayRating = linkedPOI.rating;
                         displayCount = linkedPOI.reviewCount || 0;

@@ -76,6 +76,46 @@ export default function DestinationDetailScreen() {
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [imageIndex, setImageIndex] = useState(0);
 
+  // SerpAPI reviews state — must be declared before any early returns
+  const [serpReviews, setSerpReviews] = useState<any[]>([]);
+  const [serpNextToken, setSerpNextToken] = useState<string | null>(null);
+  const [serpLoading, setSerpLoading] = useState(false);
+  const [serpError, setSerpError] = useState(false);
+  const [serpPlaceInfo, setSerpPlaceInfo] = useState<any>(null);
+  const [expandedSerpIds, setExpandedSerpIds] = useState<Set<string>>(new Set());
+
+  const fetchSerpReviews = async (placeId: string, nextToken?: string) => {
+    setSerpLoading(true);
+    setSerpError(false);
+    try {
+      const baseUrl = getApiUrl().replace(/\/$/, "");
+      const params = new URLSearchParams({ place_id: placeId });
+      if (nextToken) params.set("next_page_token", nextToken);
+      const res = await fetch(`${baseUrl}/api/places/reviews?${params.toString()}`, { headers: getApiHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (nextToken) {
+        setSerpReviews((prev) => [...prev, ...(data.reviews || [])]);
+      } else {
+        setSerpReviews(data.reviews || []);
+        setSerpPlaceInfo(data.placeInfo || null);
+      }
+      setSerpNextToken(data.nextPageToken || null);
+    } catch (err) {
+      console.warn("SerpAPI reviews error:", err);
+      setSerpError(true);
+    } finally {
+      setSerpLoading(false);
+    }
+  };
+
+  // Auto-fetch reviews when destination has googlePlaceId
+  useEffect(() => {
+    if (destination?.googlePlaceId) {
+      fetchSerpReviews(destination.googlePlaceId);
+    }
+  }, [destination?.googlePlaceId]);
+
   if (!destination) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" }]}>
@@ -119,45 +159,6 @@ export default function DestinationDetailScreen() {
   const txt = t().destination;
   const itxt = t().itinerary;
 
-  // SerpAPI reviews state
-  const [serpReviews, setSerpReviews] = useState<any[]>([]);
-  const [serpNextToken, setSerpNextToken] = useState<string | null>(null);
-  const [serpLoading, setSerpLoading] = useState(false);
-  const [serpError, setSerpError] = useState(false);
-  const [serpPlaceInfo, setSerpPlaceInfo] = useState<any>(null);
-  const [expandedSerpIds, setExpandedSerpIds] = useState<Set<string>>(new Set());
-
-  const fetchSerpReviews = async (placeId: string, nextToken?: string) => {
-    setSerpLoading(true);
-    setSerpError(false);
-    try {
-      const baseUrl = getApiUrl().replace(/\/$/, "");
-      const params = new URLSearchParams({ place_id: placeId });
-      if (nextToken) params.set("next_page_token", nextToken);
-      const res = await fetch(`${baseUrl}/api/places/reviews?${params.toString()}`, { headers: getApiHeaders() });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (nextToken) {
-        setSerpReviews((prev) => [...prev, ...(data.reviews || [])]);
-      } else {
-        setSerpReviews(data.reviews || []);
-        setSerpPlaceInfo(data.placeInfo || null);
-      }
-      setSerpNextToken(data.nextPageToken || null);
-    } catch (err) {
-      console.warn("SerpAPI reviews error:", err);
-      setSerpError(true);
-    } finally {
-      setSerpLoading(false);
-    }
-  };
-
-  // Auto-fetch reviews when destination has googlePlaceId
-  useEffect(() => {
-    if (destination?.googlePlaceId) {
-      fetchSerpReviews(destination.googlePlaceId);
-    }
-  }, [destination?.googlePlaceId]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
