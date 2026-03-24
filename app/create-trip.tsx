@@ -403,45 +403,7 @@ export default function CreateTripScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.section, { zIndex: 20 }]}>
-          <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.startingPoint}</Text>
-          <View style={[styles.inputBox, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-            <Ionicons name="navigate-outline" size={20} color={colors.textTertiary} />
-            <TextInput
-              style={[styles.input, { color: colors.text }]}
-              placeholder={t().createTrip.startingPointPlaceholder}
-              placeholderTextColor={colors.textTertiary}
-              value={startingPoint}
-              onChangeText={(v) => { setStartingPoint(v); clearError("startingPoint"); setShowStartingSuggestions(true); }}
-              onFocus={() => setShowStartingSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowStartingSuggestions(false), 200)}
-            />
-            {startingPoint.length > 0 && (
-              <Pressable onPress={() => { setStartingPoint(""); setShowStartingSuggestions(true); }}>
-                <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
-              </Pressable>
-            )}
-          </View>
-          {showStartingSuggestions && startingSuggestions.length > 0 && (
-            <View style={[styles.suggestionList, { backgroundColor: colors.card, borderColor: colors.inputBorder }]}>
-              {startingSuggestions.map((name) => (
-                <Pressable
-                  key={name}
-                  style={({ pressed }) => [styles.suggestionItem, { backgroundColor: pressed ? colors.inputBg : "transparent" }]}
-                  onPress={() => {
-                    setStartingPoint(name);
-                    setShowStartingSuggestions(false);
-                    clearError("startingPoint");
-                    Haptics.selectionAsync();
-                  }}
-                >
-                  <Ionicons name="location" size={16} color={colors.primary} />
-                  <Text style={[styles.suggestionText, { color: colors.text }]}>{name}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </View>
+
 
         <View style={[styles.section, { zIndex: 10 }]}>
           <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.destination}</Text>

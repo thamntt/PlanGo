@@ -3371,23 +3371,34 @@ export default function ItineraryDetailScreen() {
                       })()}
                     </Text>
 
-                    {linkedDest && (() => {
+                    {(() => {
+                      const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
                       const actId = act.id;
-                      const destReviewCount = reviews.filter((r) => {
+                      // Count user reviews for this activity/destination
+                      const userReviewsForAct = linkedDest ? reviews.filter((r) => {
                         if (r.destinationId !== linkedDest.id) return false;
                         const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
                         if (activityTag) return activityTag[1] === actId;
                         return true;
-                      }).length;
-                      const displayRating = destReviewCount > 0
-                        ? Math.round(reviews.filter((r) => {
-                            if (r.destinationId !== linkedDest.id) return false;
-                            const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
-                            if (activityTag) return activityTag[1] === actId;
-                            return true;
-                          }).reduce((sum, r) => sum + r.rating, 0) / destReviewCount * 10) / 10
-                        : linkedDest.rating;
-                      const displayCount = destReviewCount > 0 ? destReviewCount : linkedDest.reviewCount;
+                      }) : [];
+                      const userCount = userReviewsForAct.length;
+                      // Priority: user reviews avg → activity.rating (Google) → POI rating → dest rating
+                      let displayRating = 0;
+                      let displayCount = 0;
+                      if (userCount > 0) {
+                        displayRating = Math.round(userReviewsForAct.reduce((sum, r) => sum + r.rating, 0) / userCount * 10) / 10;
+                        displayCount = userCount;
+                      } else if (act.rating && act.rating > 0) {
+                        displayRating = act.rating;
+                        displayCount = (act as any).reviewCount || (act as any).userRatingCount || 0;
+                      } else if (linkedPOI && linkedPOI.rating > 0) {
+                        displayRating = linkedPOI.rating;
+                        displayCount = linkedPOI.reviewCount || 0;
+                      } else if (linkedDest) {
+                        displayRating = linkedDest.rating;
+                        displayCount = linkedDest.reviewCount;
+                      }
+                      if (displayRating <= 0 && displayCount <= 0) return null;
                       return (
                         <View style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg }]}>
                           <Ionicons name="star" size={18} color="#F59E0B" />

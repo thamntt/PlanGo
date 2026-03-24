@@ -152,7 +152,7 @@ async function searchPlacesGoong(query: string, language: string) {
                 longitude = loc.lng || 0;
               }
             }
-          } catch {}
+          } catch { }
         }
 
         return {
@@ -864,7 +864,7 @@ async function internalGeocode(address: string): Promise<{ lat: number; lng: num
           };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Cách 2: Goong
@@ -884,7 +884,7 @@ async function internalGeocode(address: string): Promise<{ lat: number; lng: num
           };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Cách 3: Nominatim (miễn phí)
@@ -903,7 +903,7 @@ async function internalGeocode(address: string): Promise<{ lat: number; lng: num
         };
       }
     }
-  } catch {}
+  } catch { }
 
   return null;
 }
@@ -1089,7 +1089,7 @@ JSON format:
 
 activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=${apiKey}`;
 
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
@@ -1155,11 +1155,93 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
       }
     }
 
-    // Geocoding with fallback: Google → Goong → Nominatim
-    const provider = getActiveProvider();
-    console.log(`[Geocoding] Using provider chain: ${provider} → fallback. Processing ${allActivities.length} activities...`);
+    // ═══ SerpAPI Enrichment: Search each activity on Google Maps for real data ═══
+    const serpApiKey = getSerpApiKey();
+    console.log(`[Enrich] Enriching ${allActivities.length} activities with SerpAPI...`);
 
-    const geocodePromises = allActivities.map(async (act) => {
+    // First, get destination coordinates for location bias (@lat,lng,zoom)
+    let destLat = 0, destLng = 0;
+    const destGeo = await internalGeocode(destination);
+    if (destGeo) {
+      destLat = destGeo.lat;
+      destLng = destGeo.lng;
+    }
+    const locationBias = destLat && destLng ? `@${destLat},${destLng},14z` : "";
+
+    // Helper: strip Vietnamese activity prefixes to get the actual place name
+    const extractPlaceName = (title: string): string => {
+      return title
+        .replace(/^(Ăn sáng|Ăn trưa|Ăn tối|Ăn chiều|Nghỉ trưa|Nghỉ đêm|Nghỉ ngơi|Check-in|Check-out|Tham quan|Khám phá|Trải nghiệm|Dạo chơi|Đi bộ|Di chuyển|Mua sắm|Thưởng thức|Ghé thăm|Uống cà phê|Cà phê|Cafe)\s*(tại|ở|đến|quanh|trong|trên|vào|lúc)?\s*/i, "")
+        .trim();
+    };
+
+    // Run sequentially to avoid SerpAPI rate limits
+    for (const act of allActivities) {
+      if (!serpApiKey) break;
+
+      // Extract the actual place name for better search
+      const placeName = extractPlaceName(act.title);
+      const searchQuery = placeName.length > 3 ? `${placeName} ${destination}` : `${act.title} ${destination}`;
+
+      try {
+        const params = new URLSearchParams({
+          engine: "google_maps",
+          q: searchQuery,
+          hl: "vi",
+          type: "search",
+          api_key: serpApiKey,
+        });
+        if (locationBias) {
+          params.set("ll", locationBias);
+        }
+
+        const serpUrl = `${SERPAPI_BASE}?${params.toString()}`;
+        console.log(`[Enrich] Searching: "${searchQuery}"`);
+        const serpRes = await fetch(serpUrl);
+
+        if (serpRes.ok) {
+          const serpData = await serpRes.json();
+          const results = serpData.local_results || [];
+          if (results.length > 0) {
+            // Take the best match (first result)
+            const match = results[0];
+            // Update activity with real data from SerpAPI
+            if (match.gps_coordinates?.latitude && match.gps_coordinates?.longitude) {
+              act.latitude = match.gps_coordinates.latitude;
+              act.longitude = match.gps_coordinates.longitude;
+            }
+            if (match.address) act.address = match.address;
+            if (match.rating) act.rating = match.rating;
+            if (match.reviews) act.reviewCount = match.reviews;
+            if (match.hours) act.openHours = match.hours;
+            if (match.place_id) act.googlePlaceId = match.place_id;
+            if (match.type) act.placeType = match.type;
+            if (match.thumbnail) act.thumbnail = match.thumbnail;
+            // Enrich description with Google Maps info
+            if (match.title) {
+              act.description = `${match.title} — ★ ${match.rating || "N/A"}/5${match.reviews ? ` (${match.reviews} đánh giá)` : ""}. ${act.description || ""}`.trim();
+            }
+            // Generate Google Maps URL
+            act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
+            console.log(`[Enrich] ✅ "${act.title}" → ${match.title} | ${match.address} (${match.rating}★, ${match.reviews || 0} reviews)`);
+          } else {
+            console.log(`[Enrich] ⚠️ No results for: "${searchQuery}"`);
+          }
+        } else {
+          console.warn(`[Enrich] ❌ SerpAPI HTTP ${serpRes.status} for: "${searchQuery}"`);
+        }
+      } catch (err) {
+        console.warn(`[Enrich] ❌ SerpAPI error for "${act.title}":`, err);
+      }
+
+      // Small delay between requests to avoid rate limiting
+      await new Promise((r) => setTimeout(r, 300));
+    }
+
+    // Fallback geocoding for activities that SerpAPI missed
+    for (const act of allActivities) {
+      if (act.latitude && act.longitude && act.latitude !== 0 && act.longitude !== 0) continue;
+      // No coordinates yet — try geocoding
       if (act.address) {
         const geo = await internalGeocode(act.address);
         if (geo && geo.lat !== 0 && geo.lng !== 0) {
@@ -1167,7 +1249,6 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
           act.longitude = geo.lng;
           act.address = geo.formattedAddress;
         } else if (act.title) {
-          // Fallback: geocode by title + destination
           const geo2 = await internalGeocode(`${act.title}, ${destination}`);
           if (geo2 && geo2.lat !== 0 && geo2.lng !== 0) {
             act.latitude = geo2.lat;
@@ -1176,15 +1257,14 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
           }
         }
       }
-      // Generate Google Maps URL from geocoded coordinates
+      // Generate Google Maps URL
       if (act.latitude && act.longitude) {
         act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
       } else if (act.address) {
         act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.title + " " + act.address)}`;
       }
-    });
-    await Promise.all(geocodePromises);
-    console.log(`[Geocoding] Complete`);
+    }
+    console.log(`[Enrich] Complete — all ${allActivities.length} activities processed`);
 
     // Budget scaling: if total is way off budget, scale proportionally
     if (totalBudget && totalEstimated > 0) {
