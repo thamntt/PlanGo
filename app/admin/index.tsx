@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -88,6 +88,8 @@ export default function AdminDashboard() {
   const [editUserModal, setEditUserModal] = useState(false);
   const [editUserName, setEditUserName] = useState("");
   const [editUserEmail, setEditUserEmail] = useState("");
+  const [editUserRole, setEditUserRole] = useState<"user" | "admin">("user");
+  const [editUserPassword, setEditUserPassword] = useState("");
 
   const [destDetailId, setDestDetailId] = useState<string | null>(null);
   const [reviewDetailId, setReviewDetailId] = useState<string | null>(null);
@@ -294,9 +296,9 @@ export default function AdminDashboard() {
     setUsersLoaded(true);
   }, []);
 
-  if (!usersLoaded) {
-    loadUsers();
-  }
+  useEffect(() => {
+    if (!usersLoaded) loadUsers();
+  }, [usersLoaded, loadUsers]);
 
   const txt = t().admin;
 
@@ -406,7 +408,8 @@ export default function AdminDashboard() {
     if (idx === -1) return;
     allUsers[idx].isLocked = !allUsers[idx].isLocked;
     await saveUsers(allUsers);
-    setUsers([...allUsers]);
+    const updated = [...allUsers];
+    setUsers(updated);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -428,9 +431,14 @@ export default function AdminDashboard() {
     if (idx === -1) return;
     allUsers[idx].fullName = editUserName.trim() || allUsers[idx].fullName;
     allUsers[idx].email = editUserEmail.trim() || allUsers[idx].email;
+    allUsers[idx].role = editUserRole;
+    if (editUserPassword.trim()) {
+      allUsers[idx].password = editUserPassword.trim();
+    }
     await saveUsers(allUsers);
     setUsers([...allUsers]);
     setEditUserModal(false);
+    setEditUserPassword("");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -674,6 +682,8 @@ export default function AdminDashboard() {
                     onPress={() => {
                       setEditUserName(selectedUser.fullName);
                       setEditUserEmail(selectedUser.email);
+                      setEditUserRole(selectedUser.role);
+                      setEditUserPassword("");
                       setEditUserModal(true);
                     }}
                     style={[s.detailBtn, { backgroundColor: colors.primary }]}
@@ -701,6 +711,7 @@ export default function AdminDashboard() {
 
             <View style={s.subTabBar}>
               {([
+                { key: "info" as const, label: "Thông tin", icon: "person-outline" },
                 { key: "trips" as const, label: txt.userTrips, icon: "map-outline" },
                 { key: "reviews" as const, label: txt.userReviews, icon: "star-outline" },
               ]).map((st) => (
@@ -714,6 +725,87 @@ export default function AdminDashboard() {
                 </Pressable>
               ))}
             </View>
+
+            {userDetailTab === "info" && (
+              <View style={[s.detailCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                <Text style={[s.sectionTitle, { color: colors.text, marginBottom: 12 }]}>Thông tin chi tiết</Text>
+                <View style={s.detailInfo}>
+                  <View style={s.infoRow}>
+                    <Ionicons name="person-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[s.infoText, { color: colors.text }]}>Username: @{selectedUser.username}</Text>
+                  </View>
+                  <View style={s.infoRow}>
+                    <Ionicons name="mail-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[s.infoText, { color: colors.text }]}>Email: {selectedUser.email}</Text>
+                  </View>
+                  <View style={s.infoRow}>
+                    <Ionicons name="shield-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[s.infoText, { color: colors.text }]}>Vai trò: {selectedUser.role === "admin" ? "Quản trị viên" : "Người dùng"}</Text>
+                  </View>
+                  <View style={s.infoRow}>
+                    <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[s.infoText, { color: colors.text }]}>{txt.createdDate}: {new Date(selectedUser.createdAt).toLocaleDateString("vi-VN")}</Text>
+                  </View>
+                  <View style={s.infoRow}>
+                    <Ionicons name={selectedUser.isLocked ? "lock-closed" : "lock-open-outline"} size={16} color={selectedUser.isLocked ? colors.error : colors.success} />
+                    <Text style={[s.infoText, { color: selectedUser.isLocked ? colors.error : colors.success }]}>
+                      Trạng thái: {selectedUser.isLocked ? txt.locked : txt.active}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={{ marginTop: 16 }}>
+                  <Text style={[s.sectionTitle, { color: colors.text, marginBottom: 12 }]}>Thống kê</Text>
+                  <View style={s.statsGrid}>
+                    <View style={[s.statCard, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder, width: "47%" as any }]}>
+                      <View style={[s.statIcon, { backgroundColor: "#3B82F620" }]}>
+                        <Ionicons name="map-outline" size={20} color="#3B82F6" />
+                      </View>
+                      <Text style={[s.statValue, { color: colors.text, fontSize: 22 }]}>{userTrips.length}</Text>
+                      <Text style={[s.statLabel, { color: colors.textSecondary }]}>Chuyến đi</Text>
+                    </View>
+                    <View style={[s.statCard, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder, width: "47%" as any }]}>
+                      <View style={[s.statIcon, { backgroundColor: "#F59E0B20" }]}>
+                        <Ionicons name="star-outline" size={20} color="#F59E0B" />
+                      </View>
+                      <Text style={[s.statValue, { color: colors.text, fontSize: 22 }]}>{userReviews.length}</Text>
+                      <Text style={[s.statLabel, { color: colors.textSecondary }]}>Đánh giá</Text>
+                    </View>
+                    <View style={[s.statCard, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder, width: "47%" as any }]}>
+                      <View style={[s.statIcon, { backgroundColor: "#10B98120" }]}>
+                        <Ionicons name="wallet-outline" size={20} color="#10B981" />
+                      </View>
+                      <Text style={[s.statValue, { color: colors.text, fontSize: 22 }]}>
+                        {formatVND(userTrips.reduce((sum, t) => sum + (t.totalBudget || 0), 0))}
+                      </Text>
+                      <Text style={[s.statLabel, { color: colors.textSecondary }]}>Tổng ngân sách</Text>
+                    </View>
+                    <View style={[s.statCard, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder, width: "47%" as any }]}>
+                      <View style={[s.statIcon, { backgroundColor: "#EF444420" }]}>
+                        <Ionicons name="cash-outline" size={20} color="#EF4444" />
+                      </View>
+                      <Text style={[s.statValue, { color: colors.text, fontSize: 22 }]}>
+                        {formatVND(userTrips.reduce((sum, t) => sum + (t.spentAmount || 0), 0))}
+                      </Text>
+                      <Text style={[s.statLabel, { color: colors.textSecondary }]}>Đã chi tiêu</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {selectedUser.preferences && selectedUser.preferences.length > 0 && (
+                  <View style={{ marginTop: 16 }}>
+                    <Text style={[s.sectionTitle, { color: colors.text, marginBottom: 8 }]}>Sở thích</Text>
+                    <View style={s.tagsRow}>
+                      {selectedUser.preferences.map((pref) => (
+                        <View key={pref} style={[s.tagChip, { backgroundColor: colors.tagBg }]}>
+                          <Text style={[s.tagText, { color: colors.tagText }]}>{pref}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
 
             {userDetailTab === "trips" && (
               <>
@@ -1650,8 +1742,34 @@ export default function AdminDashboard() {
               onChangeText={setEditUserEmail}
               keyboardType="email-address"
             />
+            <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>Vai trò</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pressable
+                onPress={() => setEditUserRole("user")}
+                style={[s.filterChip, { backgroundColor: editUserRole === "user" ? colors.primary : colors.inputBg, borderColor: editUserRole === "user" ? colors.primary : colors.inputBorder }]}
+              >
+                <Ionicons name="person-outline" size={14} color={editUserRole === "user" ? "#fff" : colors.textSecondary} />
+                <Text style={[s.filterChipText, { color: editUserRole === "user" ? "#fff" : colors.textSecondary }]}>Người dùng</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setEditUserRole("admin")}
+                style={[s.filterChip, { backgroundColor: editUserRole === "admin" ? colors.accent : colors.inputBg, borderColor: editUserRole === "admin" ? colors.accent : colors.inputBorder }]}
+              >
+                <Ionicons name="shield-outline" size={14} color={editUserRole === "admin" ? "#fff" : colors.textSecondary} />
+                <Text style={[s.filterChipText, { color: editUserRole === "admin" ? "#fff" : colors.textSecondary }]}>Quản trị viên</Text>
+              </Pressable>
+            </View>
+            <Text style={[s.fieldLabel, { color: colors.textSecondary }]}>Đặt lại mật khẩu (để trống nếu không đổi)</Text>
+            <TextInput
+              style={[s.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              value={editUserPassword}
+              onChangeText={setEditUserPassword}
+              placeholder="Nhập mật khẩu mới..."
+              placeholderTextColor={colors.textTertiary}
+              secureTextEntry
+            />
             <View style={s.editModalActions}>
-              <Pressable onPress={() => setEditUserModal(false)} style={[s.editModalBtn, { backgroundColor: colors.inputBg }]}>
+              <Pressable onPress={() => { setEditUserModal(false); setEditUserPassword(""); }} style={[s.editModalBtn, { backgroundColor: colors.inputBg }]}>
                 <Text style={[s.editModalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
               </Pressable>
               <Pressable onPress={saveEditUser} style={[s.editModalBtn, { backgroundColor: colors.primary }]}>
