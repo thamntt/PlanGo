@@ -1666,7 +1666,7 @@ export default function ItineraryDetailScreen() {
                                     <Ionicons name="star" size={14} color="#F59E0B" />
                                     <Text style={[styles.reviewBoxRating, { color: colors.text }]}>{actReview.rating}/5</Text>
                                     <Text style={[styles.reviewBoxComment, { color: colors.textSecondary }]} numberOfLines={2}>
-                                      {actReview.comment.replace(/\s*\[activity:[^\]]+\]/, "")}
+                                      {actReview.comment.replace(/\s*\[activity:[^\]]+\]/, "").replace(/\s*\[resetBefore:\d+\]/, "")}
                                     </Text>
                                   </View>
                                   <View style={styles.reviewBoxActions}>

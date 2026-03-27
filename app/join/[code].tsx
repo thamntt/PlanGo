@@ -174,36 +174,54 @@ export default function JoinTripScreen() {
 
         {status === "found" && itinerary && (
           <View style={styles.centerContent}>
-            <Ionicons name="airplane-outline" size={64} color={colors.primary} />
-            <Text style={[styles.statusTitle, { color: colors.text }]}>{txt.joinTrip}</Text>
-            <View style={[styles.tripCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-              <Text style={[styles.tripTitle, { color: colors.text }]}>{itinerary.title}</Text>
-              <View style={styles.tripInfo}>
-                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.tripInfoText, { color: colors.textSecondary }]}>{itinerary.destination}</Text>
-              </View>
-              <View style={styles.tripInfo}>
-                <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.tripInfoText, { color: colors.textSecondary }]}>{itinerary.startDate} - {itinerary.endDate}</Text>
-              </View>
-              <View style={styles.tripInfo}>
-                <Ionicons name="people-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.tripInfoText, { color: colors.textSecondary }]}>{itinerary.numPeople} người</Text>
-              </View>
-              <View style={styles.tripInfo}>
-                <Ionicons name="shield-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.tripInfoText, { color: colors.textSecondary }]}>
-                  {txt.sharePermission}: {itinerary.sharePermission === "editor" ? txt.canEdit : txt.viewOnly}
+            {itinerary.status === "completed" ? (
+              <>
+                <Ionicons name="lock-closed-outline" size={64} color={colors.textSecondary} />
+                <Text style={[styles.statusTitle, { color: colors.text }]}>Chuyến đi đã hoàn thành</Text>
+                <Text style={{ fontSize: 14, fontFamily: "Inter_400Regular", color: colors.textSecondary, textAlign: "center" }}>
+                  Không thể tham gia chuyến đi đã kết thúc.
                 </Text>
-              </View>
-            </View>
-            <Pressable
-              onPress={handleJoin}
-              style={[styles.actionBtn, { backgroundColor: colors.primary }]}
-            >
-              <Ionicons name="enter-outline" size={20} color="#fff" />
-              <Text style={styles.actionBtnText}>{txt.joinTrip}</Text>
-            </Pressable>
+                <Pressable
+                  onPress={() => router.replace("/(tabs)/trips")}
+                  style={[styles.actionBtn, { backgroundColor: colors.primary }]}
+                >
+                  <Text style={styles.actionBtnText}>{t().common.back}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Ionicons name="airplane-outline" size={64} color={colors.primary} />
+                <Text style={[styles.statusTitle, { color: colors.text }]}>{txt.joinTrip}</Text>
+                <View style={[styles.tripCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                  <Text style={[styles.tripTitle, { color: colors.text }]}>{itinerary.title}</Text>
+                  <View style={styles.tripInfo}>
+                    <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[styles.tripInfoText, { color: colors.textSecondary }]}>{itinerary.destination}</Text>
+                  </View>
+                  <View style={styles.tripInfo}>
+                    <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[styles.tripInfoText, { color: colors.textSecondary }]}>{itinerary.startDate} - {itinerary.endDate}</Text>
+                  </View>
+                  <View style={styles.tripInfo}>
+                    <Ionicons name="people-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[styles.tripInfoText, { color: colors.textSecondary }]}>{itinerary.numPeople} người</Text>
+                  </View>
+                  <View style={styles.tripInfo}>
+                    <Ionicons name="shield-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[styles.tripInfoText, { color: colors.textSecondary }]}>
+                      {txt.sharePermission}: {itinerary.sharePermission === "editor" ? txt.canEdit : txt.viewOnly}
+                    </Text>
+                  </View>
+                </View>
+                <Pressable
+                  onPress={handleJoin}
+                  style={[styles.actionBtn, { backgroundColor: colors.primary }]}
+                >
+                  <Ionicons name="enter-outline" size={20} color="#fff" />
+                  <Text style={styles.actionBtnText}>{txt.joinTrip}</Text>
+                </Pressable>
+              </>
+            )}
           </View>
         )}
 
