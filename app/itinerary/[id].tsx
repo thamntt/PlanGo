@@ -217,7 +217,7 @@ export default function ItineraryDetailScreen() {
   const [activityDetailModal, setActivityDetailModal] = useState<ItineraryActivity | null>(null);
   const [expandedReviewIds, setExpandedReviewIds] = useState<Set<string>>(new Set());
   const [showAllUserReviews, setShowAllUserReviews] = useState(false);
-  const [reviewModal, setReviewModal] = useState<{ activityId: string; dayIdx: number; destinationId?: string; editReviewId?: string } | null>(null);
+  const [reviewModal, setReviewModal] = useState<{ activityId: string; dayIdx: number; destinationId?: string; activityTitle?: string; editReviewId?: string } | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const [routeMapModal, setRouteMapModal] = useState<{ dayIdx: number } | null>(null);
@@ -683,21 +683,22 @@ export default function ItineraryDetailScreen() {
   };
 
   const getActivityReview = (activityId: string) => {
-    const activity = itinerary.days.flatMap((d) => d.activities).find((a) => a.id === activityId);
-    if (!activity) return null;
-
-    const linkedDest = activity.destinationId
-      ? destinations.find((d) => d.id === activity.destinationId)
-      : destinations.find((d) => d.name === activity.title);
-    if (!linkedDest) return null;
     const currentResetCount = itinerary.resetCount || 0;
     return reviews.find((r) => {
-      if (r.destinationId !== linkedDest.id || r.userId !== user?.id) return false;
-      if (!r.comment.includes(`[activity:${activityId}]`)) return false;
-      // Hide reviews tagged from previous resets
-      const resetMatch = r.comment.match(/\[resetBefore:(\d+)\]/);
-      if (resetMatch && parseInt(resetMatch[1], 10) <= currentResetCount) return false;
-      return true;
+      if (r.userId !== user?.id) return false;
+      // Match by new activityId field
+      if (r.activityId === activityId) {
+        const resetMatch = r.comment.match(/\[resetBefore:(\d+)\]/);
+        if (resetMatch && parseInt(resetMatch[1], 10) <= currentResetCount) return false;
+        return true;
+      }
+      // Fallback: match by [activity:xxx] tag in comment (legacy)
+      if (r.comment.includes(`[activity:${activityId}]`)) {
+        const resetMatch = r.comment.match(/\[resetBefore:(\d+)\]/);
+        if (resetMatch && parseInt(resetMatch[1], 10) <= currentResetCount) return false;
+        return true;
+      }
+      return false;
     }) || null;
   };
 
@@ -805,13 +806,13 @@ export default function ItineraryDetailScreen() {
       const existingReview = reviews.find((r) => r.id === editReviewId);
       if (existingReview) {
         setReviewRating(existingReview.rating);
-        setReviewComment(existingReview.comment.replace(/\s*\[activity:[^\]]+\]/, ""));
+        setReviewComment(existingReview.comment.replace(/\s*\[activity:[^\]]+\]/, "").replace(/\s*\[resetBefore:\d+\]/, ""));
       }
     } else {
       setReviewRating(5);
       setReviewComment("");
     }
-    setReviewModal({ activityId, dayIdx, destinationId: destId, editReviewId });
+    setReviewModal({ activityId, dayIdx, destinationId: destId, activityTitle: activity.title, editReviewId });
   };
 
   const submitActivityReview = async () => {
@@ -819,11 +820,14 @@ export default function ItineraryDetailScreen() {
     const taggedComment = reviewModal.activityId ? `${reviewComment.trim()} [activity:${reviewModal.activityId}]` : reviewComment.trim();
     if (reviewModal.editReviewId) {
       await updateReview(reviewModal.editReviewId, { rating: reviewRating, comment: taggedComment });
-    } else if (reviewModal.destinationId) {
+    } else {
       await addReview({
         userId: user!.id,
         userName: user!.fullName,
-        destinationId: reviewModal.destinationId,
+        destinationId: reviewModal.destinationId || "activity_" + reviewModal.activityId,
+        activityId: reviewModal.activityId,
+        activityTitle: reviewModal.activityTitle,
+        itineraryId: itinerary.id,
         rating: reviewRating,
         comment: taggedComment,
       });
@@ -1346,7 +1350,7 @@ export default function ItineraryDetailScreen() {
           {itinerary.title}
         </Text>
         <View style={styles.headerActions}>
-          {isOwner && (
+          {isOwner && itinerary.status !== "completed" && (
             <Pressable onPress={() => { setSharePermission(itinerary.sharePermission || "viewer"); setShareModal(true); }} hitSlop={8}>
               <Ionicons name="person-add-outline" size={22} color={colors.primary} />
             </Pressable>
@@ -1752,7 +1756,7 @@ export default function ItineraryDetailScreen() {
                               </Pressable>
                             )}
                             {/* Review: active(completed) or completed status */}
-                            {itinerary.status !== "draft" && activity.isCompleted && getActivityDestinationId(activity) && !getActivityReview(activity.id) && (
+                            {itinerary.status !== "draft" && activity.isCompleted && !getActivityReview(activity.id) && (
                               <Pressable onPress={() => openReviewModal(activity.id, dayIdx)} style={[styles.miniBtn, { backgroundColor: colors.primary + "15" }]}>
                                 <Ionicons name="star-outline" size={14} color={colors.primary} />
                               </Pressable>

@@ -143,7 +143,8 @@ export default function DestinationDetailScreen() {
   };
 
   const openGoogleMaps = () => {
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${destination.latitude},${destination.longitude}`);
+    const query = encodeURIComponent(destination.name);
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
   };
 
   const openGrab = () => {

@@ -179,6 +179,9 @@ export interface Review {
   userId: string;
   userName: string;
   destinationId: string;
+  activityId?: string;
+  activityTitle?: string;
+  itineraryId?: string;
   rating: number;
   comment: string;
   createdAt: string;

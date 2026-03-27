@@ -144,6 +144,19 @@ export default function AdminDashboard() {
   };
 
   const fillFromGoogleResult = async (place: PlaceSearchResult) => {
+    // Check duplicate before filling
+    const dup = destinations.find(
+      (d) => d.name.toLowerCase() === place.name.toLowerCase() && d.id !== editingDestId
+    );
+    if (dup) {
+      const msg = `Địa điểm "${place.name}" đã tồn tại trong hệ thống. Không thể thêm trùng.`;
+      if (Platform.OS === "web") {
+        window.alert(msg);
+      } else {
+        Alert.alert("Trùng địa điểm", msg);
+      }
+      return;
+    }
     setDestName(place.name);
     setDestAddr(place.address);
     setDestLat(place.latitude.toString());
@@ -484,6 +497,20 @@ export default function AdminDashboard() {
 
   const handleSaveDest = async () => {
     if (!validateDestForm()) return;
+    // Check duplicate destination name
+    const normalizedName = destName.trim().toLowerCase();
+    const duplicate = destinations.find(
+      (d) => d.name.toLowerCase() === normalizedName && d.id !== editingDestId
+    );
+    if (duplicate) {
+      const msg = `Địa điểm "${destName.trim()}" đã tồn tại. Không thể thêm trùng.`;
+      if (Platform.OS === "web") {
+        window.alert(msg);
+      } else {
+        Alert.alert("Trùng địa điểm", msg);
+      }
+      return;
+    }
     const hasCoords = destLat.trim() !== "" && destLng.trim() !== "";
     const parsedLat = hasCoords ? parseFloat(destLat) : null;
     const parsedLng = hasCoords ? parseFloat(destLng) : null;
