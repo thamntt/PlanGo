@@ -322,7 +322,7 @@ export default function CreateTripScreen() {
       setRangeStart(day);
       setRangeEnd(null);
     } else {
-      if (day <= rangeStart) {
+      if (day < rangeStart) {
         setRangeStart(day);
         setRangeEnd(null);
       } else {
@@ -622,7 +622,7 @@ export default function CreateTripScreen() {
               <View style={styles.calendarSelectionInfo}>
                 <Text style={[styles.calendarInfoText, { color: colors.textSecondary }]}>
                   {rangeStart && !rangeEnd && `${t().createTrip.startDate}: ${formatDateDDMMYYYY(rangeStart)} — ${t().createTrip.selectEndDate}`}
-                  {rangeStart && rangeEnd && `${formatDateDDMMYYYY(rangeStart)}  →  ${formatDateDDMMYYYY(rangeEnd)} (${Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24))} ${t().createTrip.days})`}
+                  {rangeStart && rangeEnd && `${formatDateDDMMYYYY(rangeStart)}  →  ${formatDateDDMMYYYY(rangeEnd)} (${Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)) + 1} ${t().createTrip.days})`}
                 </Text>
               </View>
             )}

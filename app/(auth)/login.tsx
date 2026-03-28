@@ -23,7 +23,7 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
-  const { login } = useAuth();
+  const { login, isAdmin } = useAuth();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -48,7 +48,7 @@ export default function LoginScreen() {
     const result = await login(username.trim(), password);
     setLoading(false);
     if (result.success) {
-      router.replace("/(tabs)");
+      router.replace(isAdmin ? "/admin" : "/(tabs)");
     } else {
       setErrors({ general: result.error || t().auth.loginFailed });
     }

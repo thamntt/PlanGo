@@ -20,7 +20,7 @@ import { SettingsProvider } from "@/contexts/SettingsContext";
 SplashScreen.preventAutoHideAsync();
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isAdmin } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -32,7 +32,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (!user && !inAuthGroup) {
       router.replace("/(auth)/login");
     } else if (user && inAuthGroup) {
-      router.replace("/(tabs)");
+      router.replace(isAdmin ? "/admin" : "/(tabs)");
     }
   }, [user, isLoading, segments]);
 

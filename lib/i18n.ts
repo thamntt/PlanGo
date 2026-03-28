@@ -343,8 +343,6 @@ const vi = {
   profile: {
     title: "Hồ sơ",
     personalInfo: "Thông tin cá nhân",
-    phone: "Số điện thoại",
-    phonePlaceholder: "Thêm số điện thoại",
     notSet: "Chưa thiết lập",
     travelInterests: "Sở thích du lịch",
     tapToSelect: "Nhấn để chọn",

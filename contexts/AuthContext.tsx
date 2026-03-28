@@ -1,13 +1,23 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
-import {
-  getCurrentUser,
-  setCurrentUser,
-  getUsers,
-  saveUsers,
-  generateId,
-  type UserData,
-} from "@/lib/storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { apiRequest } from "@/lib/query-client";
 import { SEED_ADMIN } from "@/lib/seed-data";
+
+// Keep UserData type compatible with server schema
+export interface UserData {
+  id: string;
+  username: string;
+  password: string;
+  email: string;
+  fullName: string;
+  avatar: string;
+  role: "user" | "admin";
+  isLocked: boolean;
+  preferences: string[];
+  createdAt: string;
+}
+
+const CURRENT_USER_KEY = "@plango_current_user";
 
 interface AuthContextValue {
   user: UserData | null;
@@ -27,18 +37,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Map server response to UserData shape
+  const mapUser = (u: any): UserData => ({
+    id: u.id,
+    username: u.username,
+    password: u.password || "",
+    email: u.email || u.full_name ? u.email : (u.email || ""),
+    fullName: u.fullName || u.full_name || "",
+    avatar: u.avatar || "",
+    role: u.role || "user",
+    isLocked: u.isLocked ?? u.is_locked ?? false,
+    preferences: u.preferences || [],
+    createdAt: u.createdAt || u.created_at || new Date().toISOString(),
+  });
+
   const loadUser = async () => {
-    const saved = await getCurrentUser();
-    if (saved) {
-      const users = await getUsers();
-      const fresh = users.find((u) => u.id === saved.id);
-      if (fresh && !fresh.isLocked) {
-        setUser(fresh);
-        await setCurrentUser(fresh);
-      } else {
-        setUser(null);
-        await setCurrentUser(null);
+    try {
+      const raw = await AsyncStorage.getItem(CURRENT_USER_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as UserData;
+        // Re-fetch from server to get latest data
+        try {
+          const res = await apiRequest("GET", `/api/users/${saved.id}`);
+          const fresh = mapUser(await res.json());
+          if (!fresh.isLocked) {
+            setUser(fresh);
+            await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(fresh));
+          } else {
+            setUser(null);
+            await AsyncStorage.removeItem(CURRENT_USER_KEY);
+          }
+        } catch {
+          // Server unreachable, use cached data
+          if (!saved.isLocked) {
+            setUser(saved);
+          }
+        }
       }
+    } catch {
+      // ignore
     }
     setIsLoading(false);
   };
@@ -48,91 +85,91 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const initializeAndLoad = async () => {
-    const users = await getUsers();
-    if (users.length === 0) {
-      const adminUser: UserData = {
-        id: generateId(),
-        username: SEED_ADMIN.username,
-        password: SEED_ADMIN.password,
-        email: SEED_ADMIN.email,
-        fullName: SEED_ADMIN.fullName,
-        phone: "",
-        avatar: "",
-        role: "admin",
-        isLocked: false,
-        preferences: [],
-        createdAt: new Date().toISOString(),
-      };
-      await saveUsers([adminUser]);
+    // Seed admin user if none exists
+    try {
+      const res = await apiRequest("GET", "/api/users");
+      const users = await res.json();
+      if (users.length === 0) {
+        await apiRequest("POST", "/api/auth/register", {
+          username: SEED_ADMIN.username,
+          password: SEED_ADMIN.password,
+          email: SEED_ADMIN.email,
+          fullName: SEED_ADMIN.fullName,
+        });
+        // Set role to admin
+        const loginRes = await apiRequest("POST", "/api/auth/login", {
+          username: SEED_ADMIN.username,
+          password: SEED_ADMIN.password,
+        });
+        const adminUser = mapUser(await loginRes.json());
+        await apiRequest("PUT", `/api/users/${adminUser.id}`, { role: "admin" });
+      }
+    } catch {
+      // Server might be down, skip seeding
     }
     await loadUser();
   };
 
   const login = async (username: string, password: string) => {
-    const users = await getUsers();
-    const found = users.find((u) => u.username === username && u.password === password);
-    if (!found) return { success: false, error: "Invalid username or password" };
-    if (found.isLocked) return { success: false, error: "Account is locked" };
-    setUser(found);
-    await setCurrentUser(found);
-    return { success: true };
+    try {
+      const res = await apiRequest("POST", "/api/auth/login", { username, password });
+      const found = mapUser(await res.json());
+      setUser(found);
+      await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(found));
+      return { success: true };
+    } catch (err: any) {
+      const msg = err.message || "Login failed";
+      if (msg.includes("401")) return { success: false, error: "Sai tên đăng nhập hoặc mật khẩu" };
+      if (msg.includes("403")) return { success: false, error: "Tài khoản đã bị khóa" };
+      return { success: false, error: msg };
+    }
   };
 
   const register = async (data: { username: string; password: string; email: string; fullName: string }) => {
-    const users = await getUsers();
-    if (users.find((u) => u.username === data.username)) {
-      return { success: false, error: "Username already exists" };
+    try {
+      const res = await apiRequest("POST", "/api/auth/register", data);
+      const newUser = mapUser(await res.json());
+      setUser(newUser);
+      await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
+      return { success: true };
+    } catch (err: any) {
+      const msg = err.message || "Register failed";
+      if (msg.includes("409")) return { success: false, error: "Tên đăng nhập đã tồn tại" };
+      return { success: false, error: msg };
     }
-    const newUser: UserData = {
-      id: generateId(),
-      username: data.username,
-      password: data.password,
-      email: data.email,
-      fullName: data.fullName,
-      phone: "",
-      avatar: "",
-      role: "user",
-      isLocked: false,
-      preferences: [],
-      createdAt: new Date().toISOString(),
-    };
-    users.push(newUser);
-    await saveUsers(users);
-    setUser(newUser);
-    await setCurrentUser(newUser);
-    return { success: true };
   };
 
   const logout = async () => {
     setUser(null);
-    await setCurrentUser(null);
+    await AsyncStorage.removeItem(CURRENT_USER_KEY);
   };
 
   const updateProfile = async (data: Partial<UserData>) => {
     if (!user) return;
-    const users = await getUsers();
-    const idx = users.findIndex((u) => u.id === user.id);
-    if (idx === -1) return;
-    const updated = { ...users[idx], ...data };
-    users[idx] = updated;
-    await saveUsers(users);
-    setUser(updated);
-    await setCurrentUser(updated);
+    try {
+      const res = await apiRequest("PUT", `/api/users/${user.id}`, data);
+      const updated = mapUser(await res.json());
+      setUser(updated);
+      await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
   };
 
   const changePassword = async (currentPassword: string, newPassword: string) => {
     if (!user) return { success: false, error: "Not logged in" };
-    const users = await getUsers();
-    const idx = users.findIndex((u) => u.id === user.id);
-    if (idx === -1) return { success: false, error: "User not found" };
-    if (users[idx].password !== currentPassword) {
-      return { success: false, error: "Wrong current password" };
+    if (user.password !== currentPassword) {
+      return { success: false, error: "Mật khẩu hiện tại không đúng" };
     }
-    users[idx].password = newPassword;
-    await saveUsers(users);
-    setUser(users[idx]);
-    await setCurrentUser(users[idx]);
-    return { success: true };
+    try {
+      const res = await apiRequest("PUT", `/api/users/${user.id}`, { password: newPassword });
+      const updated = mapUser(await res.json());
+      setUser(updated);
+      await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
+      return { success: true };
+    } catch {
+      return { success: false, error: "Failed to change password" };
+    }
   };
 
   const refreshUser = async () => {

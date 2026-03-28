@@ -18,7 +18,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
-import { getUsers, saveUsers, formatVND, type UserData } from "@/lib/storage";
+import { formatVND, type UserData } from "@/lib/storage";
+import { apiRequest } from "@/lib/query-client";
 import { validateDestinationName, validateAddress } from "@/lib/validation";
 import { t } from "@/lib/i18n";
 import { searchPlaces, getPlaceDetails, getPhotoUrl, mapGoogleTypeToPOIType, getPOITypeLabel, getPOITypeIcon, type PlaceSearchResult } from "@/lib/places";
@@ -290,9 +291,20 @@ export default function AdminDashboard() {
     return result;
   }, [pois, poiSearch, poiFilterDest]);
 
+  const mapUser = (u: any): UserData => ({
+    id: u.id, username: u.username, password: u.password || "",
+    email: u.email || "", fullName: u.fullName || u.full_name || "",
+    avatar: u.avatar || "",
+    role: u.role || "user", isLocked: u.isLocked ?? u.is_locked ?? false,
+    preferences: u.preferences || [], createdAt: u.createdAt || u.created_at || "",
+  });
+
   const loadUsers = useCallback(async () => {
-    const u = await getUsers();
-    setUsers(u);
+    try {
+      const res = await apiRequest("GET", "/api/users");
+      const data = (await res.json()) as any[];
+      setUsers(data.map(mapUser));
+    } catch { }
     setUsersLoaded(true);
   }, []);
 
@@ -403,22 +415,22 @@ export default function AdminDashboard() {
   }, [itineraries, reviews, destinations, users]);
 
   const toggleLock = async (userId: string) => {
-    const allUsers = await getUsers();
-    const idx = allUsers.findIndex((u) => u.id === userId);
-    if (idx === -1) return;
-    allUsers[idx].isLocked = !allUsers[idx].isLocked;
-    await saveUsers(allUsers);
-    const updated = [...allUsers];
-    setUsers(updated);
+    const current = users.find((u) => u.id === userId);
+    if (!current) return;
+    try {
+      const res = await apiRequest("PUT", `/api/users/${userId}`, { isLocked: !current.isLocked });
+      const updated = mapUser(await res.json());
+      setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
+    } catch { }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const deleteUser = async (userId: string, name: string) => {
     confirmAction(txt.deleteUser, txt.deleteUserMsg(name), async () => {
-      const allUsers = await getUsers();
-      const filtered = allUsers.filter((u) => u.id !== userId);
-      await saveUsers(filtered);
-      setUsers(filtered);
+      try {
+        await apiRequest("DELETE", `/api/users/${userId}`);
+        setUsers((prev) => prev.filter((u) => u.id !== userId));
+      } catch { }
       if (userDetailId === userId) setUserDetailId(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     });
@@ -426,17 +438,15 @@ export default function AdminDashboard() {
 
   const saveEditUser = async () => {
     if (!userDetailId) return;
-    const allUsers = await getUsers();
-    const idx = allUsers.findIndex((u) => u.id === userDetailId);
-    if (idx === -1) return;
-    allUsers[idx].fullName = editUserName.trim() || allUsers[idx].fullName;
-    allUsers[idx].email = editUserEmail.trim() || allUsers[idx].email;
-    allUsers[idx].role = editUserRole;
-    if (editUserPassword.trim()) {
-      allUsers[idx].password = editUserPassword.trim();
-    }
-    await saveUsers(allUsers);
-    setUsers([...allUsers]);
+    const updateData: Record<string, any> = { role: editUserRole };
+    if (editUserName.trim()) updateData.fullName = editUserName.trim();
+    if (editUserEmail.trim()) updateData.email = editUserEmail.trim();
+    if (editUserPassword.trim()) updateData.password = editUserPassword.trim();
+    try {
+      const res = await apiRequest("PUT", `/api/users/${userDetailId}`, updateData);
+      const updated = mapUser(await res.json());
+      setUsers((prev) => prev.map((u) => (u.id === userDetailId ? updated : u)));
+    } catch { }
     setEditUserModal(false);
     setEditUserPassword("");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -543,7 +553,7 @@ export default function AdminDashboard() {
       await addDestination({
         name: destName.trim(),
         description: destDesc.trim() || "Một điểm đến tuyệt vời",
-        images: destGooglePhotos.length > 0 ? destGooglePhotos.slice(0, 3).map(p => getPhotoUrl(p.name)) : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
+        images: destGooglePhotos.length > 0 ? destGooglePhotos.slice(0, 3).map(p => p.name.startsWith("http") ? p.name : getPhotoUrl(p.name)) : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
         category: destCategory,
         address: destAddr.trim(),
         latitude: hasCoords && parsedLat !== null && !isNaN(parsedLat) ? parsedLat : 16.0 + Math.random() * 6,

@@ -68,7 +68,7 @@ export function validateDateRange(start: string, end: string): string | null {
   const s = parseDDMMYYYY(start);
   const e = parseDDMMYYYY(end);
   if (!s || !e) return null;
-  if (e <= s) return t().validation.endDateAfterStart;
+  if (e < s) return t().validation.endDateAfterStart;
   const diffDays = Math.ceil((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays > 30) return t().validation.maxTripDuration;
   return null;

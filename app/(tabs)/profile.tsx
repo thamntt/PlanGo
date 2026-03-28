@@ -43,7 +43,6 @@ export default function ProfileScreen() {
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState(user?.fullName || "");
   const [email, setEmail] = useState(user?.email || "");
-  const [phone, setPhone] = useState(user?.phone || "");
   const [selectedPrefs, setSelectedPrefs] = useState<string[]>(user?.preferences || []);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPwd, setCurrentPwd] = useState("");
@@ -57,7 +56,7 @@ export default function ProfileScreen() {
   const memberSince = user?.createdAt ? new Date(user.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "";
 
   const handleSave = async () => {
-    await updateProfile({ fullName, email, phone, preferences: selectedPrefs });
+    await updateProfile({ fullName, email, preferences: selectedPrefs });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setEditing(false);
   };
@@ -65,7 +64,6 @@ export default function ProfileScreen() {
   const handleCancel = () => {
     setFullName(user?.fullName || "");
     setEmail(user?.email || "");
-    setPhone(user?.phone || "");
     setSelectedPrefs(user?.preferences || []);
     setEditing(false);
   };
@@ -226,18 +224,6 @@ export default function ProfileScreen() {
               onChangeText={setEmail}
               colors={colors}
               keyboardType="email-address"
-            />
-            <View style={[pStyles.infoDivider, { backgroundColor: colors.divider }]} />
-            <InfoRow
-              icon="call-outline"
-              label={txt.profile.phone}
-              value={user?.phone || txt.profile.notSet}
-              editing={editing}
-              editValue={phone}
-              onChangeText={setPhone}
-              colors={colors}
-              keyboardType="phone-pad"
-              placeholder={txt.profile.phonePlaceholder}
             />
           </View>
         </View>

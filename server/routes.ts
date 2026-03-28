@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
+import { storage } from "./storage";
 
 // ══════════════════════════════════════════════════════════════
 // API Base URLs
@@ -802,6 +803,11 @@ async function getPlacePhoto(req: Request, res: Response) {
     return res.status(400).json({ error: "Photo name parameter is required" });
   }
 
+  // If photoName is already a direct URL (e.g. from SerpAPI thumbnail), just redirect
+  if (photoName.startsWith("http")) {
+    return res.redirect(photoName);
+  }
+
   const apiKey = getGoogleKey();
 
   try {
@@ -908,27 +914,30 @@ async function internalGeocode(address: string): Promise<{ lat: number; lng: num
   return null;
 }
 
-// In-memory store for shared trips (keyed by shareCode)
-const sharedTrips = new Map<string, any>();
-
-// POST /api/share — register a trip share
+// POST /api/share — register a trip share (database-backed)
 async function shareTrip(req: Request, res: Response) {
   const { shareCode, itinerary } = req.body;
   if (!shareCode || !itinerary) {
     return res.status(400).json({ error: "shareCode and itinerary are required" });
   }
-  sharedTrips.set(shareCode, itinerary);
+  // Upsert: update if exists, create if not
+  const existing = await storage.getSharedTrip(shareCode);
+  if (existing) {
+    await storage.updateSharedTrip(shareCode, { itinerary });
+  } else {
+    await storage.createSharedTrip({ shareCode, itinerary });
+  }
   return res.json({ ok: true });
 }
 
 // GET /api/share/:code — look up a shared trip
 async function getSharedTrip(req: Request, res: Response) {
   const code = req.params.code as string;
-  const trip = sharedTrips.get(code);
+  const trip = await storage.getSharedTrip(code);
   if (!trip) {
     return res.status(404).json({ error: "Share code not found" });
   }
-  return res.json(trip);
+  return res.json(trip.itinerary);
 }
 
 // POST /api/share/join — join a shared trip (update companions)
@@ -937,18 +946,19 @@ async function joinSharedTrip(req: Request, res: Response) {
   if (!shareCode || !companion) {
     return res.status(400).json({ error: "shareCode and companion are required" });
   }
-  const trip = sharedTrips.get(shareCode);
+  const trip = await storage.getSharedTrip(shareCode);
   if (!trip) {
     return res.status(404).json({ error: "Share code not found" });
   }
-  const companions = trip.companions || [];
+  const itinerary = trip.itinerary as any;
+  const companions = itinerary.companions || [];
   if (companions.some((c: any) => c.userId === companion.userId)) {
-    return res.json({ ok: true, alreadyJoined: true, itinerary: trip });
+    return res.json({ ok: true, alreadyJoined: true, itinerary });
   }
   companions.push(companion);
-  trip.companions = companions;
-  sharedTrips.set(shareCode, trip);
-  return res.json({ ok: true, alreadyJoined: false, itinerary: trip });
+  itinerary.companions = companions;
+  await storage.updateSharedTrip(shareCode, { itinerary });
+  return res.json({ ok: true, alreadyJoined: false, itinerary });
 }
 
 // PATCH /api/share/companion — update a companion's role
@@ -960,17 +970,18 @@ async function updateCompanionRole(req: Request, res: Response) {
   if (role !== "editor" && role !== "viewer") {
     return res.status(400).json({ error: "role must be 'editor' or 'viewer'" });
   }
-  const trip = sharedTrips.get(shareCode);
+  const trip = await storage.getSharedTrip(shareCode);
   if (!trip) {
     return res.status(404).json({ error: "Share code not found" });
   }
-  const companions = trip.companions || [];
+  const itinerary = trip.itinerary as any;
+  const companions = itinerary.companions || [];
   const companion = companions.find((c: any) => c.userId === userId);
   if (!companion) {
     return res.status(404).json({ error: "Companion not found" });
   }
   companion.role = role;
-  sharedTrips.set(shareCode, trip);
+  await storage.updateSharedTrip(shareCode, { itinerary });
   return res.json({ ok: true });
 }
 
@@ -980,12 +991,13 @@ async function removeCompanion(req: Request, res: Response) {
   if (!shareCode || !userId) {
     return res.status(400).json({ error: "shareCode and userId are required" });
   }
-  const trip = sharedTrips.get(shareCode);
+  const trip = await storage.getSharedTrip(shareCode);
   if (!trip) {
     return res.status(404).json({ error: "Share code not found" });
   }
-  trip.companions = (trip.companions || []).filter((c: any) => c.userId !== userId);
-  sharedTrips.set(shareCode, trip);
+  const itinerary = trip.itinerary as any;
+  itinerary.companions = (itinerary.companions || []).filter((c: any) => c.userId !== userId);
+  await storage.updateSharedTrip(shareCode, { itinerary });
   return res.json({ ok: true });
 }
 
@@ -1484,6 +1496,7 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
   }
 }
 
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Log active provider on startup
   const provider = getActiveProvider();
@@ -1491,6 +1504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   console.log(`   Google: ${getGoogleKey() ? "✅ configured" : "❌ not configured"}`);
   console.log(`   Goong:  ${getGoongKey() ? "✅ configured" : "❌ not configured"}`);
   console.log(`   Free:   ✅ always available (Nominatim + OSRM)\n`);
+  console.log(`   💾 Database: PostgreSQL (Drizzle ORM)\n`);
 
   // Provider status
   app.get("/api/places/provider", getProviderStatus);
@@ -1519,6 +1533,233 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/share/join", joinSharedTrip);
   app.patch("/api/share/companion", updateCompanionRole);
   app.delete("/api/share/companion", removeCompanion);
+
+  // ══════════════════════════════════════════════════════════════
+  // CRUD: Users
+  // ══════════════════════════════════════════════════════════════
+  app.get("/api/users", async (_req, res) => {
+    const users = await storage.getUsers();
+    res.json(users);
+  });
+
+  app.get("/api/users/:id", async (req, res) => {
+    const user = await storage.getUser(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  });
+
+  app.post("/api/users", async (req, res) => {
+    try {
+      const user = await storage.createUser(req.body);
+      res.status(201).json(user);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/users/:id", async (req, res) => {
+    const user = await storage.updateUser(req.params.id, req.body);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  });
+
+  app.delete("/api/users/:id", async (req, res) => {
+    const ok = await storage.deleteUser(req.params.id);
+    if (!ok) return res.status(404).json({ error: "User not found" });
+    res.json({ ok: true });
+  });
+
+  // Login / Register
+  app.post("/api/auth/login", async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "username and password are required" });
+    }
+    const user = await storage.getUserByUsername(username);
+    if (!user || user.password !== password) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    if (user.isLocked) {
+      return res.status(403).json({ error: "Account is locked" });
+    }
+    res.json(user);
+  });
+
+  app.post("/api/auth/register", async (req, res) => {
+    const { username, password, email, fullName } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "username and password are required" });
+    }
+    const existing = await storage.getUserByUsername(username);
+    if (existing) {
+      return res.status(409).json({ error: "Username already exists" });
+    }
+    try {
+      const user = await storage.createUser({ username, password });
+      // Update extra fields if provided
+      if (email || fullName) {
+        const updated = await storage.updateUser(user.id, { email, fullName });
+        return res.status(201).json(updated || user);
+      }
+      res.status(201).json(user);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // CRUD: Destinations
+  // ══════════════════════════════════════════════════════════════
+  app.get("/api/destinations", async (_req, res) => {
+    const destinations = await storage.getDestinations();
+    res.json(destinations);
+  });
+
+  app.get("/api/destinations/:id", async (req, res) => {
+    const dest = await storage.getDestination(req.params.id);
+    if (!dest) return res.status(404).json({ error: "Destination not found" });
+    res.json(dest);
+  });
+
+  app.post("/api/destinations", async (req, res) => {
+    try {
+      const dest = await storage.createDestination(req.body);
+      res.status(201).json(dest);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/destinations/:id", async (req, res) => {
+    const dest = await storage.updateDestination(req.params.id, req.body);
+    if (!dest) return res.status(404).json({ error: "Destination not found" });
+    res.json(dest);
+  });
+
+  app.delete("/api/destinations/:id", async (req, res) => {
+    const ok = await storage.deleteDestination(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Destination not found" });
+    res.json({ ok: true });
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // CRUD: Itineraries
+  // ══════════════════════════════════════════════════════════════
+  app.get("/api/itineraries", async (req, res) => {
+    const userId = req.query.userId as string;
+    if (userId) {
+      const items = await storage.getItinerariesByUser(userId);
+      return res.json(items);
+    }
+    const items = await storage.getItineraries();
+    res.json(items);
+  });
+
+  app.get("/api/itineraries/:id", async (req, res) => {
+    const itin = await storage.getItinerary(req.params.id);
+    if (!itin) return res.status(404).json({ error: "Itinerary not found" });
+    res.json(itin);
+  });
+
+  app.post("/api/itineraries", async (req, res) => {
+    try {
+      const itin = await storage.createItinerary(req.body);
+      res.status(201).json(itin);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/itineraries/:id", async (req, res) => {
+    const itin = await storage.updateItinerary(req.params.id, req.body);
+    if (!itin) return res.status(404).json({ error: "Itinerary not found" });
+    res.json(itin);
+  });
+
+  app.delete("/api/itineraries/:id", async (req, res) => {
+    const ok = await storage.deleteItinerary(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Itinerary not found" });
+    res.json({ ok: true });
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // CRUD: Reviews
+  // ══════════════════════════════════════════════════════════════
+  app.get("/api/reviews", async (req, res) => {
+    const userId = req.query.userId as string;
+    const destinationId = req.query.destinationId as string;
+    if (userId) {
+      const items = await storage.getReviewsByUser(userId);
+      return res.json(items);
+    }
+    if (destinationId) {
+      const items = await storage.getReviewsByDestination(destinationId);
+      return res.json(items);
+    }
+    const items = await storage.getReviews();
+    res.json(items);
+  });
+
+  app.get("/api/reviews/:id", async (req, res) => {
+    const review = await storage.getReview(req.params.id);
+    if (!review) return res.status(404).json({ error: "Review not found" });
+    res.json(review);
+  });
+
+  app.post("/api/reviews", async (req, res) => {
+    try {
+      const review = await storage.createReview(req.body);
+      res.status(201).json(review);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/reviews/:id", async (req, res) => {
+    const review = await storage.updateReview(req.params.id, req.body);
+    if (!review) return res.status(404).json({ error: "Review not found" });
+    res.json(review);
+  });
+
+  app.delete("/api/reviews/:id", async (req, res) => {
+    const ok = await storage.deleteReview(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Review not found" });
+    res.json({ ok: true });
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // CRUD: Notifications
+  // ══════════════════════════════════════════════════════════════
+  app.get("/api/notifications", async (req, res) => {
+    const userId = req.query.userId as string;
+    if (userId) {
+      const items = await storage.getNotificationsByUser(userId);
+      return res.json(items);
+    }
+    const items = await storage.getNotifications();
+    res.json(items);
+  });
+
+  app.post("/api/notifications", async (req, res) => {
+    try {
+      const notif = await storage.createNotification(req.body);
+      res.status(201).json(notif);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/notifications/:id", async (req, res) => {
+    const notif = await storage.updateNotification(req.params.id, req.body);
+    if (!notif) return res.status(404).json({ error: "Notification not found" });
+    res.json(notif);
+  });
+
+  app.delete("/api/notifications/:id", async (req, res) => {
+    const ok = await storage.deleteNotification(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Notification not found" });
+    res.json({ ok: true });
+  });
 
   const httpServer = createServer(app);
   return httpServer;

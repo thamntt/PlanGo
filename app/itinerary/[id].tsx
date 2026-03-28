@@ -23,9 +23,9 @@ import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import * as Clipboard from "expo-clipboard";
-import { formatVND, generateId, getUsers } from "@/lib/storage";
+import { formatVND, generateId } from "@/lib/storage";
 import { t } from "@/lib/i18n";
-import { getApiUrl, getApiHeaders } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders, apiRequest } from "@/lib/query-client";
 import type { ItineraryActivity, Expense, ExpenseSplit, TripCompanion, POI } from "@/lib/storage";
 import RouteMap from "@/components/RouteMap";
 
@@ -227,6 +227,7 @@ export default function ItineraryDetailScreen() {
 
   // Inline editing state for expense summary table
   const [editingSummaryRow, setEditingSummaryRow] = useState<{ dayIdx: number; actId: string; cost: string; paidBy: string } | null>(null);
+  const [summaryPaidByDropdown, setSummaryPaidByDropdown] = useState(false);
   const [summaryCollapsed, setSummaryCollapsed] = useState<Record<string, boolean>>({ budget: false, activities: true, expenses: true, category: false, payer: false });
 
   // SerpAPI reviews state
@@ -263,10 +264,10 @@ export default function ItineraryDetailScreen() {
     if (isOwner && user) {
       setOwnerName(user.fullName);
     } else {
-      getUsers().then((users) => {
-        const owner = users.find((u) => u.id === itinerary.userId);
-        if (owner) setOwnerName(owner.fullName);
-      });
+      apiRequest("GET", "/api/users").then((res) => res.json()).then((users: any[]) => {
+        const owner = users.find((u: any) => u.id === itinerary.userId);
+        if (owner) setOwnerName(owner.fullName || owner.full_name || "");
+      }).catch(() => {});
     }
   }, [isOwner, user, itinerary?.userId]);
 
@@ -1264,9 +1265,22 @@ export default function ItineraryDetailScreen() {
 
   const deleteExpense = async (expenseId: string) => {
     const doDelete = async () => {
+      const deletedExpense = expenses.find((e) => e.id === expenseId);
       const newExpenses = expenses.filter((e) => e.id !== expenseId);
-      const newSpent = recalcSpent(itinerary.days, newExpenses);
-      await updateItinerary(itinerary.id, { expenses: newExpenses, spentAmount: newSpent });
+      // If this expense was linked to an activity, clear actualCost and paidBy on that activity
+      const newDays = [...itinerary.days];
+      if (deletedExpense?.activityId) {
+        for (const day of newDays) {
+          const act = day.activities.find((a) => a.id === deletedExpense.activityId);
+          if (act) {
+            act.actualCost = 0;
+            act.paidBy = undefined;
+            break;
+          }
+        }
+      }
+      const newSpent = recalcSpent(newDays, newExpenses);
+      await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
     };
     if (Platform.OS === "web") {
       if (window.confirm(t().itinerary.deleteExpenseConfirm)) doDelete();
@@ -1890,6 +1904,7 @@ export default function ItineraryDetailScreen() {
 
               const saveInlineEdit = async () => {
                 if (!editingSummaryRow) return;
+                setSummaryPaidByDropdown(false);
                 const newDays = [...itinerary.days];
                 const act = newDays[editingSummaryRow.dayIdx].activities.find((a) => a.id === editingSummaryRow.actId);
                 if (act) {
@@ -1980,13 +1995,36 @@ export default function ItineraryDetailScreen() {
                               <Text style={[sumStyles.tdCell, sumStyles.cellCost, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>{formatVND(act.actualCost || 0)}</Text>
                             )}
                             {isEditing ? (
-                              <TextInput
-                                style={[sumStyles.inlineInput, sumStyles.cellPayer, { backgroundColor: colors.inputBg, borderColor: colors.primary, color: colors.text }]}
-                                value={editingSummaryRow.paidBy}
-                                onChangeText={(v) => setEditingSummaryRow({ ...editingSummaryRow, paidBy: v })}
-                                placeholder={txt.payer}
-                                placeholderTextColor={colors.textTertiary}
-                              />
+                              <View style={{ position: "relative" }}>
+                              <Pressable
+                                onPress={() => setSummaryPaidByDropdown(!summaryPaidByDropdown)}
+                                style={[sumStyles.inlineInput, sumStyles.cellPayer, { backgroundColor: colors.inputBg, borderColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 }]}
+                              >
+                                <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: editingSummaryRow.paidBy ? colors.text : colors.textTertiary }} numberOfLines={1}>
+                                  {editingSummaryRow.paidBy || txt.payer}
+                                </Text>
+                                <Ionicons name={summaryPaidByDropdown ? "chevron-up" : "chevron-down"} size={10} color={colors.textSecondary} />
+                              </Pressable>
+                              {summaryPaidByDropdown && (
+                                <View style={[styles.dropdownList, { backgroundColor: colors.card, borderColor: colors.inputBorder, position: "absolute", top: "100%", right: 0, minWidth: 120, zIndex: 999 }]}>
+                                  {tripMembers.map((m) => (
+                                    <Pressable
+                                      key={m.userId}
+                                      onPress={() => {
+                                        setEditingSummaryRow({ ...editingSummaryRow, paidBy: m.userName });
+                                        setSummaryPaidByDropdown(false);
+                                      }}
+                                      style={[styles.dropdownItem, editingSummaryRow.paidBy === m.userName && { backgroundColor: colors.primary + "15" }]}
+                                    >
+                                      <Text style={[styles.dropdownItemText, { color: colors.text }]}>
+                                        {m.userName}{m.isOwner ? " 👑" : ""}
+                                      </Text>
+                                      {editingSummaryRow.paidBy === m.userName && <Ionicons name="checkmark" size={14} color={colors.primary} />}
+                                    </Pressable>
+                                  ))}
+                                </View>
+                              )}
+                            </View>
                             ) : (
                               <Text style={[sumStyles.tdCell, sumStyles.cellPayer, { color: act.paidBy ? colors.textSecondary : colors.textTertiary }]} numberOfLines={1}>
                                 {act.paidBy || "—"}
@@ -1998,7 +2036,7 @@ export default function ItineraryDetailScreen() {
                                   <Ionicons name="checkmark-circle" size={20} color={"#00B894"} />
                                 </Pressable>
                               ) : (
-                                <Pressable onPress={() => setEditingSummaryRow({ dayIdx: act._dayIdx, actId: act.id, cost: (act.actualCost || 0).toString(), paidBy: act.paidBy || "" })} hitSlop={6}>
+                                <Pressable onPress={() => { setSummaryPaidByDropdown(false); setEditingSummaryRow({ dayIdx: act._dayIdx, actId: act.id, cost: (act.actualCost || 0).toString(), paidBy: act.paidBy || "" }); }} hitSlop={6}>
                                   <Ionicons name="create-outline" size={16} color={colors.primary} />
                                 </Pressable>
                               )}
