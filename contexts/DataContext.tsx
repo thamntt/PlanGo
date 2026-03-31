@@ -139,6 +139,32 @@ function mapNotification(n: any): Notification {
   };
 }
 
+function mapPoi(p: any): POI {
+  return {
+    id: p.id,
+    destinationId: p.destinationId ?? p.destination_id ?? "",
+    name: p.name || "",
+    type: p.type || "attraction",
+    address: p.address || "",
+    latitude: p.latitude || 0,
+    longitude: p.longitude || 0,
+    rating: p.rating || 0,
+    reviewCount: p.reviewCount ?? p.review_count ?? 0,
+    openHours: p.openHours ?? p.open_hours,
+    openingHours: p.openingHours ?? p.opening_hours ?? [],
+    priceLevel: p.priceLevel ?? p.price_level,
+    estimatedCost: p.estimatedCost ?? p.estimated_cost,
+    estimatedDuration: p.estimatedDuration ?? p.estimated_duration,
+    description: p.description || "",
+    images: p.images || [],
+    googlePlaceId: p.googlePlaceId ?? p.google_place_id,
+    googlePhotos: p.googlePhotos ?? p.google_photos ?? [],
+    googleReviews: p.googleReviews ?? p.google_reviews ?? [],
+    tags: p.tags || [],
+    isActive: p.isActive ?? p.is_active ?? true,
+  };
+}
+
 // ═══════════════════════════════════════════
 // Local fallback generation (kept for offline/error cases)
 // ═══════════════════════════════════════════
@@ -355,11 +381,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const loadData = useCallback(async () => {
     try {
       // Load all data from server API
-      const [destsRes, itinsRes, revsRes, notifsRes] = await Promise.all([
+      const [destsRes, itinsRes, revsRes, notifsRes, poisRes] = await Promise.all([
         apiRequest("GET", "/api/destinations"),
         apiRequest("GET", "/api/itineraries"),
         apiRequest("GET", "/api/reviews"),
         apiRequest("GET", "/api/notifications"),
+        apiRequest("GET", "/api/pois"),
       ]);
 
       let dests = ((await destsRes.json()) as any[]).map(mapDestination);
@@ -380,6 +407,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setItineraries(((await itinsRes.json()) as any[]).map(mapItinerary));
       setReviews(((await revsRes.json()) as any[]).map(mapReview));
       setNotifications(((await notifsRes.json()) as any[]).map(mapNotification));
+      setPois(((await poisRes.json()) as any[]).map(mapPoi));
     } catch (err) {
       console.warn("[Data] Failed to load from server:", err);
     }
@@ -550,19 +578,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setNotifications((prev) => prev.filter((n) => n.userId !== userId));
   }, [notifications]);
 
-  // ── POIs (kept local for now — no server endpoints) ──
+  // ── POIs (now backed by server API) ───────────────────────────
 
   const addPOI = useCallback(async (poi: Omit<POI, "id">) => {
-    const newPoi: POI = { ...poi, id: generateId() };
-    setPois((prev) => [...prev, newPoi]);
-    return newPoi;
+    const res = await apiRequest("POST", "/api/pois", poi);
+    const created = mapPoi(await res.json());
+    setPois((prev) => [...prev, created]);
+    return created;
   }, []);
 
   const updatePOI = useCallback(async (id: string, data: Partial<POI>) => {
-    setPois((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
+    const res = await apiRequest("PUT", `/api/pois/${id}`, data);
+    const updated = mapPoi(await res.json());
+    setPois((prev) => prev.map((p) => (p.id === id ? updated : p)));
   }, []);
 
   const deletePOI = useCallback(async (id: string) => {
+    await apiRequest("DELETE", `/api/pois/${id}`);
     setPois((prev) => prev.filter((p) => p.id !== id));
   }, []);
 

@@ -192,3 +192,43 @@ export const insertSharedTripSchema = createInsertSchema(sharedTrips).omit({
 
 export type InsertSharedTrip = z.infer<typeof insertSharedTripSchema>;
 export type SharedTrip = typeof sharedTrips.$inferSelect;
+
+// ══════════════════════════════════════════════════════════════
+// POIs (Points of Interest)
+// ══════════════════════════════════════════════════════════════
+
+export const pois = pgTable("pois", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  destinationId: text("destination_id").default(""),
+  name: text("name").notNull(),
+  type: text("type").default("attraction"), // "attraction" | "restaurant" | "cafe" | "hotel" | "shopping" | "other"
+  address: text("address").default(""),
+  latitude: real("latitude").default(0),
+  longitude: real("longitude").default(0),
+  rating: real("rating").default(0),
+  reviewCount: integer("review_count").default(0),
+  openHours: text("open_hours"),
+  openingHours: jsonb("opening_hours").default([]), // string[]
+  priceLevel: integer("price_level"),
+  estimatedCost: integer("estimated_cost"),
+  estimatedDuration: text("estimated_duration"),
+  description: text("description").default(""),
+  images: jsonb("images").default([]), // string[]
+  googlePlaceId: text("google_place_id"),
+  googlePhotos: jsonb("google_photos").default([]),
+  googleReviews: jsonb("google_reviews").default([]),
+  tags: jsonb("tags").default([]), // string[]
+  isActive: boolean("is_active").default(true),
+  source: text("source").default("manual"), // "manual" | "ai_generated" | "auto_discover"
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPoiSchema = createInsertSchema(pois).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertPoi = z.infer<typeof insertPoiSchema>;
+export type Poi = typeof pois.$inferSelect;

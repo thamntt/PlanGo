@@ -7,6 +7,7 @@ import {
   reviews,
   notifications,
   sharedTrips,
+  pois,
   type User,
   type InsertUser,
   type Destination,
@@ -19,6 +20,8 @@ import {
   type InsertNotification,
   type SharedTrip,
   type InsertSharedTrip,
+  type Poi,
+  type InsertPoi,
 } from "../shared/schema";
 
 // ══════════════════════════════════════════════════════════════
@@ -71,6 +74,16 @@ export interface IStorage {
   createSharedTrip(trip: InsertSharedTrip): Promise<SharedTrip>;
   updateSharedTrip(shareCode: string, data: Partial<SharedTrip>): Promise<SharedTrip | undefined>;
   deleteSharedTrip(shareCode: string): Promise<boolean>;
+
+  // POIs
+  getPoi(id: string): Promise<Poi | undefined>;
+  getPois(): Promise<Poi[]>;
+  getPoisByDestination(destinationId: string): Promise<Poi[]>;
+  getPoiByGooglePlaceId(googlePlaceId: string): Promise<Poi | undefined>;
+  getPoiByName(name: string): Promise<Poi | undefined>;
+  createPoi(poi: InsertPoi): Promise<Poi>;
+  updatePoi(id: string, data: Partial<Poi>): Promise<Poi | undefined>;
+  deletePoi(id: string): Promise<boolean>;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -272,6 +285,50 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSharedTrip(shareCode: string): Promise<boolean> {
     const result = await db.delete(sharedTrips).where(eq(sharedTrips.shareCode, shareCode)).returning();
+    return result.length > 0;
+  }
+
+  // ── POIs ───────────────────────────────────────────────────
+
+  async getPoi(id: string): Promise<Poi | undefined> {
+    const [poi] = await db.select().from(pois).where(eq(pois.id, id));
+    return poi;
+  }
+
+  async getPois(): Promise<Poi[]> {
+    return db.select().from(pois);
+  }
+
+  async getPoisByDestination(destinationId: string): Promise<Poi[]> {
+    return db.select().from(pois).where(eq(pois.destinationId, destinationId));
+  }
+
+  async getPoiByGooglePlaceId(googlePlaceId: string): Promise<Poi | undefined> {
+    const [poi] = await db.select().from(pois).where(eq(pois.googlePlaceId, googlePlaceId));
+    return poi;
+  }
+
+  async getPoiByName(name: string): Promise<Poi | undefined> {
+    const [poi] = await db.select().from(pois).where(eq(pois.name, name));
+    return poi;
+  }
+
+  async createPoi(poi: InsertPoi): Promise<Poi> {
+    const [created] = await db.insert(pois).values(poi).returning();
+    return created;
+  }
+
+  async updatePoi(id: string, data: Partial<Poi>): Promise<Poi | undefined> {
+    const [updated] = await db
+      .update(pois)
+      .set(data)
+      .where(eq(pois.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePoi(id: string): Promise<boolean> {
+    const result = await db.delete(pois).where(eq(pois.id, id)).returning();
     return result.length > 0;
   }
 }

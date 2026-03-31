@@ -1800,11 +1800,11 @@ export default function ItineraryDetailScreen() {
                           const doDelete = async () => {
                             const newDays = itinerary.days.filter((_, i) => i !== dayIdx).map((d, i) => ({ ...d, day: i + 1, title: `Ngày ${i + 1}` }));
                             // Recalculate endDate
-                            const startParts = itinerary.startDate.split("/");
+                            const startParts = itinerary.startDate.split("-");
                             const startDate = startParts.length === 3 ? new Date(parseInt(startParts[2]), parseInt(startParts[1]) - 1, parseInt(startParts[0])) : new Date(itinerary.startDate);
                             const newEnd = new Date(startDate);
                             newEnd.setDate(newEnd.getDate() + newDays.length - 1);
-                            const endStr = `${newEnd.getDate().toString().padStart(2, "0")}/${(newEnd.getMonth() + 1).toString().padStart(2, "0")}/${newEnd.getFullYear()}`;
+                            const endStr = `${newEnd.getDate().toString().padStart(2, "0")}-${(newEnd.getMonth() + 1).toString().padStart(2, "0")}-${newEnd.getFullYear()}`;
                             const newSpent = recalcSpent(newDays, expenses);
                             await updateItinerary(itinerary.id, { days: newDays, endDate: endStr, spentAmount: newSpent });
                             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1829,11 +1829,11 @@ export default function ItineraryDetailScreen() {
                   const newDayNum = itinerary.days.length + 1;
                   const newDays = [...itinerary.days, { day: newDayNum, title: `Ngày ${newDayNum}`, activities: [] }];
                   // Recalculate endDate
-                  const startParts = itinerary.startDate.split("/");
+                  const startParts = itinerary.startDate.split("-");
                   const startDate = startParts.length === 3 ? new Date(parseInt(startParts[2]), parseInt(startParts[1]) - 1, parseInt(startParts[0])) : new Date(itinerary.startDate);
                   const newEnd = new Date(startDate);
                   newEnd.setDate(newEnd.getDate() + newDays.length - 1);
-                  const endStr = `${newEnd.getDate().toString().padStart(2, "0")}/${(newEnd.getMonth() + 1).toString().padStart(2, "0")}/${newEnd.getFullYear()}`;
+                  const endStr = `${newEnd.getDate().toString().padStart(2, "0")}-${(newEnd.getMonth() + 1).toString().padStart(2, "0")}-${newEnd.getFullYear()}`;
                   await updateItinerary(itinerary.id, { days: newDays, endDate: endStr });
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }}
@@ -3855,7 +3855,12 @@ export default function ItineraryDetailScreen() {
                     {(act.latitude != null && act.longitude != null) && (
                       <Pressable
                         onPress={() => {
-                          const query = linkedDest ? encodeURIComponent(linkedDest.name) : `${act.latitude},${act.longitude}`;
+                          const placeName = act.title || "";
+                          const addr = act.address || "";
+                          const searchTerm = placeName + (addr ? " " + addr : "");
+                          const query = searchTerm.trim()
+                            ? encodeURIComponent(searchTerm.trim())
+                            : `${act.latitude},${act.longitude}`;
                           Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
                         }}
                         style={({ pressed }) => [actDetailStyles.moreReviewsBtn, { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 }]}

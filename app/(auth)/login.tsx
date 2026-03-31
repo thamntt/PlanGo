@@ -9,7 +9,7 @@ import {
   Platform,
   ActivityIndicator,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -24,6 +24,7 @@ export default function LoginScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { login, isAdmin } = useAuth();
+  const { redirect } = useLocalSearchParams<{ redirect?: string }>();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -48,7 +49,11 @@ export default function LoginScreen() {
     const result = await login(username.trim(), password);
     setLoading(false);
     if (result.success) {
-      router.replace(isAdmin ? "/admin" : "/(tabs)");
+      if (redirect) {
+        router.replace(redirect as any);
+      } else {
+        router.replace(isAdmin ? "/admin" : "/(tabs)");
+      }
     } else {
       setErrors({ general: result.error || t().auth.loginFailed });
     }

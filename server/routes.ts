@@ -1284,6 +1284,76 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
       }
     }
 
+    // ═══ Save enriched activities as POIs (dedup by googlePlaceId or name) ═══
+    console.log(`[POI] Saving POIs from ${allActivities.length} activities...`);
+    let savedCount = 0;
+    for (const act of allActivities) {
+      try {
+        // Skip activities without useful data
+        if (!act.title || (!act.latitude && !act.address)) continue;
+
+        // Extract place name from title
+        const placeName = extractPlaceName(act.title);
+        if (!placeName || placeName.length < 3) continue;
+
+        // Dedup: check by googlePlaceId first, then by name
+        let existingPoi = null;
+        if (act.googlePlaceId) {
+          existingPoi = await storage.getPoiByGooglePlaceId(act.googlePlaceId);
+        }
+        if (!existingPoi) {
+          existingPoi = await storage.getPoiByName(placeName);
+        }
+
+        if (existingPoi) {
+          // Update existing POI if new data is better
+          const updates: Record<string, any> = {};
+          if (act.rating && (!existingPoi.rating || act.rating > (existingPoi.rating || 0))) updates.rating = act.rating;
+          if (act.reviewCount && act.reviewCount > (existingPoi.reviewCount || 0)) updates.reviewCount = act.reviewCount;
+          if (act.address && !existingPoi.address) updates.address = act.address;
+          if (act.latitude && act.longitude && (!existingPoi.latitude || existingPoi.latitude === 0)) {
+            updates.latitude = act.latitude;
+            updates.longitude = act.longitude;
+          }
+          if (Object.keys(updates).length > 0) {
+            await storage.updatePoi(existingPoi.id, updates);
+          }
+          continue;
+        }
+
+        // Map activityType to POI type
+        const poiTypeMap: Record<string, string> = {
+          food: "restaurant",
+          sightseeing: "attraction",
+          shopping: "shopping",
+          transport: "other",
+          other: "other",
+        };
+
+        await storage.createPoi({
+          name: placeName,
+          type: poiTypeMap[act.activityType] || "attraction",
+          address: act.address || "",
+          latitude: act.latitude || 0,
+          longitude: act.longitude || 0,
+          rating: act.rating || 0,
+          reviewCount: act.reviewCount || 0,
+          openHours: act.openHours || undefined,
+          estimatedCost: act.estimatedCost || undefined,
+          description: act.description || "",
+          images: act.thumbnail ? [act.thumbnail] : [],
+          googlePlaceId: act.googlePlaceId || undefined,
+          tags: [],
+          isActive: true,
+          source: "ai_generated",
+        });
+        savedCount++;
+      } catch (err) {
+        console.warn(`[POI] Failed to save POI for "${act.title}":`, err);
+      }
+    }
+    console.log(`[POI] Saved ${savedCount} new POIs to database`);
+
     return res.json(parsed);
   } catch (error) {
     console.error("Generate itinerary error:", error);
@@ -1758,6 +1828,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/notifications/:id", async (req, res) => {
     const ok = await storage.deleteNotification(req.params.id);
     if (!ok) return res.status(404).json({ error: "Notification not found" });
+    res.json({ ok: true });
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // CRUD: POIs
+  // ══════════════════════════════════════════════════════════════
+  app.get("/api/pois", async (req, res) => {
+    const destinationId = req.query.destinationId as string;
+    if (destinationId) {
+      const items = await storage.getPoisByDestination(destinationId);
+      return res.json(items);
+    }
+    const items = await storage.getPois();
+    res.json(items);
+  });
+
+  app.get("/api/pois/:id", async (req, res) => {
+    const poi = await storage.getPoi(req.params.id);
+    if (!poi) return res.status(404).json({ error: "POI not found" });
+    res.json(poi);
+  });
+
+  app.post("/api/pois", async (req, res) => {
+    try {
+      const poi = await storage.createPoi(req.body);
+      res.status(201).json(poi);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/pois/:id", async (req, res) => {
+    const poi = await storage.updatePoi(req.params.id, req.body);
+    if (!poi) return res.status(404).json({ error: "POI not found" });
+    res.json(poi);
+  });
+
+  app.delete("/api/pois/:id", async (req, res) => {
+    const ok = await storage.deletePoi(req.params.id);
+    if (!ok) return res.status(404).json({ error: "POI not found" });
     res.json({ ok: true });
   });
 

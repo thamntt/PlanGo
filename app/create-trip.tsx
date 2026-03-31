@@ -122,11 +122,15 @@ export default function CreateTripScreen() {
     return allLocationNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
   }, [startingPoint, allLocationNames]);
 
+  const sortedDestinationNames = useMemo(() => {
+    return [...destinationNames].sort((a, b) => a.localeCompare(b, "vi"));
+  }, [destinationNames]);
+
   const destSuggestions = useMemo(() => {
-    if (!destination.trim()) return allLocationNames.slice(0, 8);
+    if (!destination.trim()) return sortedDestinationNames.slice(0, 8);
     const q = destination.toLowerCase().trim();
-    return allLocationNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
-  }, [destination, allLocationNames]);
+    return sortedDestinationNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
+  }, [destination, sortedDestinationNames]);
 
   const clearError = (field: keyof FormErrors) => {
     if (errors[field]) setErrors((e) => ({ ...e, [field]: undefined }));
@@ -149,7 +153,11 @@ export default function CreateTripScreen() {
   const validate = (): boolean => {
     const newErrors: FormErrors = {};
     const destErr = validateRequired(destination, t().createTrip.destination);
-    if (destErr) newErrors.destination = destErr;
+    if (destErr) {
+      newErrors.destination = destErr;
+    } else if (!destinationNames.some((n) => n.toLowerCase() === destination.trim().toLowerCase())) {
+      newErrors.destination = "Vui lòng chọn điểm đến có trong hệ thống";
+    }
     const startErr = validateDate(startDate, t().createTrip.startDate);
     if (startErr) newErrors.startDate = startErr;
     const endErr = validateDate(endDate, t().createTrip.endDate);

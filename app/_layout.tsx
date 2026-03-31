@@ -28,8 +28,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === "(auth)";
+    const inJoinGroup = segments[0] === "join";
 
-    if (!user && !inAuthGroup) {
+    if (!user && !inAuthGroup && !inJoinGroup) {
       router.replace("/(auth)/login");
     } else if (user && inAuthGroup) {
       router.replace(isAdmin ? "/admin" : "/(tabs)");

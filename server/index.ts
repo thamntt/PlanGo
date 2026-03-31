@@ -213,6 +213,79 @@ function configureExpoAndLanding(app: express.Application) {
     next();
   });
 
+  // Handle /join/:code deep link for shared trips
+  app.get("/join/:code", (req: Request, res: Response) => {
+    const code = req.params.code;
+    const forwardedProto = req.header("x-forwarded-proto");
+    const protocol = forwardedProto || req.protocol || "https";
+    const forwardedHost = req.header("x-forwarded-host");
+    const host = forwardedHost || req.get("host") || "";
+    const deepLink = `exp+plango://join/${code}`;
+
+    const html = `<!doctype html>
+<html>
+<head>
+  <title>${appName} - Tham gia chuyến đi</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 32px 20px; text-align: center; background: #fff; color: #222; line-height: 1.5; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .wrapper { max-width: 420px; margin: 0 auto; }
+    .icon { font-size: 56px; margin-bottom: 16px; }
+    h1 { font-size: 24px; font-weight: 600; margin: 0 0 8px; }
+    .subtitle { font-size: 15px; color: #666; margin-bottom: 24px; }
+    .code-box { background: #f5f5f5; border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-bottom: 24px; font-family: monospace; font-size: 18px; letter-spacing: 2px; word-break: break-all; }
+    .btn { display: block; width: 100%; padding: 14px; font-size: 16px; font-weight: 600; border: none; border-radius: 12px; cursor: pointer; text-decoration: none; margin-bottom: 12px; transition: opacity 0.15s; text-align: center; }
+    .btn:hover { opacity: 0.9; }
+    .btn-primary { background: #0066FF; color: #fff; }
+    .separator { color: #999; font-size: 13px; margin: 16px 0; }
+    .qr-wrapper { background: #fff; border: 1px solid #eee; border-radius: 12px; padding: 16px; margin: 16px auto; width: fit-content; }
+    .help-text { font-size: 13px; color: #999; margin-top: 16px; }
+    .help-text a { color: #0066FF; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0d0d0d; color: #e0e0e0; }
+      h1 { color: #f5f5f5; }
+      .subtitle { color: #888; }
+      .code-box { background: #1a1a1a; border-color: #333; color: #e0e0e0; }
+      .btn-primary { background: #0055DD; }
+      .separator { color: #666; }
+      .qr-wrapper { background: #1a1a1a; border-color: #333; }
+      .help-text { color: #666; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="icon">✈️</div>
+    <h1>Bạn được mời tham gia chuyến đi!</h1>
+    <p class="subtitle">Mở ứng dụng ${appName} để tham gia</p>
+    <div class="code-box">${code}</div>
+    <a href="${deepLink}" class="btn btn-primary">Mở trong ứng dụng</a>
+    <div class="separator">hoặc quét mã QR bên dưới bằng Expo Go</div>
+    <div class="qr-wrapper" id="qr-code"></div>
+    <p class="help-text">Chưa có ứng dụng? Tải <a href="https://apps.apple.com/app/id982107779">App Store</a> hoặc <a href="https://play.google.com/store/apps/details?id=host.exp.exponent">Google Play</a></p>
+  </div>
+  <script src="https://unpkg.com/qr-code-styling@1.6.0/lib/qr-code-styling.js"><\/script>
+  <script>
+    (function() {
+      var ua = navigator.userAgent;
+      var isAndroid = /Android/i.test(ua);
+      var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      if (isAndroid || isIOS) { window.location.href = "${deepLink}"; }
+      try {
+        var qr = new QRCodeStyling({ width: 200, height: 200, data: "${deepLink}", dotsOptions: { color: "#333", type: "rounded" }, backgroundOptions: { color: "#fff" }, cornersSquareOptions: { type: "extra-rounded" }, cornersDotOptions: { type: "dot" }, qrOptions: { errorCorrectionLevel: "H" } });
+        qr.append(document.getElementById("qr-code"));
+      } catch(e) {}
+    })();
+  <\/script>
+</body>
+</html>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(html);
+  });
+
   app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
   app.use(express.static(path.resolve(process.cwd(), "static-build")));
 
@@ -251,6 +324,41 @@ function setupErrorHandler(app: express.Application) {
   app.get("/api/status", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
+
+  // Auto-create pois table if missing
+  try {
+    const { pool } = await import("./db");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pois (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        destination_id TEXT DEFAULT '',
+        name TEXT NOT NULL,
+        type TEXT DEFAULT 'attraction',
+        address TEXT DEFAULT '',
+        latitude REAL DEFAULT 0,
+        longitude REAL DEFAULT 0,
+        rating REAL DEFAULT 0,
+        review_count INTEGER DEFAULT 0,
+        open_hours TEXT,
+        opening_hours JSONB DEFAULT '[]',
+        price_level INTEGER,
+        estimated_cost INTEGER,
+        estimated_duration TEXT,
+        description TEXT DEFAULT '',
+        images JSONB DEFAULT '[]',
+        google_place_id TEXT,
+        google_photos JSONB DEFAULT '[]',
+        google_reviews JSONB DEFAULT '[]',
+        tags JSONB DEFAULT '[]',
+        is_active BOOLEAN DEFAULT true,
+        source TEXT DEFAULT 'manual',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    console.log("✅ POIs table ready");
+  } catch (err) {
+    console.warn("⚠️ Could not auto-create pois table:", err);
+  }
 
   const server = await registerRoutes(app);
 
