@@ -635,17 +635,6 @@ export default function ItineraryDetailScreen() {
         await addNotification({ userId: itinerary.userId, title: t().notifications.tripStarted, message: `${itinerary.title} đã bắt đầu!`, type: "info", itineraryId: itinerary.id });
       } else if (nextStatus === "completed") {
         await addNotification({ userId: itinerary.userId, title: t().notifications.tripCompleted, message: `${itinerary.title} đã hoàn thành!`, type: "success", itineraryId: itinerary.id });
-        const mainDest = destinations.find((d) => d.name === itinerary.destination);
-        if (mainDest) {
-          const alreadyReviewed = reviews.some((r) => r.destinationId === mainDest.id && r.userId === user?.id);
-          if (!alreadyReviewed) {
-            setTimeout(() => {
-              setReviewRating(5);
-              setReviewComment("");
-              setReviewModal({ activityId: "", dayIdx: 0, destinationId: mainDest.id });
-            }, 600);
-          }
-        }
       }
     };
     if (Platform.OS === "web") {
@@ -708,6 +697,39 @@ export default function ItineraryDetailScreen() {
       ? destinations.find((d) => d.id === activity.destinationId)
       : destinations.find((d) => d.name === activity.title);
     return linkedDest?.id;
+  };
+
+  // Find the POI that matches this activity (by poiId, googlePlaceId, or name)
+  const getActivityPoiInfo = (activity: ItineraryActivity): { poiId: string; poiName: string } | null => {
+    // Priority 1: activity has a direct poiId
+    if (activity.poiId) {
+      const poi = pois.find((p) => p.id === activity.poiId);
+      if (poi) return { poiId: poi.id, poiName: poi.name };
+    }
+    // Priority 2: match by googlePlaceId
+    if (activity.googlePlaceId) {
+      const poi = pois.find((p) => p.googlePlaceId === activity.googlePlaceId);
+      if (poi) return { poiId: poi.id, poiName: poi.name };
+    }
+    // Priority 3: match by normalized name
+    const normalize = (s: string) => s.toLowerCase().replace(/^(tham quan|ăn sáng tại|ăn trưa tại|ăn tối tại|khám phá)\s+/i, "").trim();
+    const actName = normalize(activity.title);
+    if (actName.length > 2) {
+      const poi = pois.find((p) => normalize(p.name) === actName || p.name.toLowerCase() === actName);
+      if (poi) return { poiId: poi.id, poiName: poi.name };
+    }
+    return null;
+  };
+
+  // Get reviews from OTHER users for the same POI
+  const getOtherUsersPoiReviews = (activity: ItineraryActivity) => {
+    const poiInfo = getActivityPoiInfo(activity);
+    if (!poiInfo) return [];
+    return reviews.filter((r) => {
+      if (r.userId === user?.id) return false; // exclude own reviews
+      if (r.poiId === poiInfo.poiId) return true;
+      return false;
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   };
 
   const toggleActivityComplete = async (dayIdx: number, activityId: string) => {
@@ -819,13 +841,30 @@ export default function ItineraryDetailScreen() {
   const submitActivityReview = async () => {
     if (!reviewModal || !reviewComment.trim()) return;
     const taggedComment = reviewModal.activityId ? `${reviewComment.trim()} [activity:${reviewModal.activityId}]` : reviewComment.trim();
+    
+    // Find matching POI for this activity
+    let poiId = "";
+    let poiName = "";
+    if (reviewModal.activityId) {
+      const activity = itinerary.days[reviewModal.dayIdx]?.activities.find((a) => a.id === reviewModal.activityId);
+      if (activity) {
+        const poiInfo = getActivityPoiInfo(activity);
+        if (poiInfo) {
+          poiId = poiInfo.poiId;
+          poiName = poiInfo.poiName;
+        }
+      }
+    }
+    
     if (reviewModal.editReviewId) {
-      await updateReview(reviewModal.editReviewId, { rating: reviewRating, comment: taggedComment });
+      await updateReview(reviewModal.editReviewId, { rating: reviewRating, comment: taggedComment, poiId, poiName });
     } else {
       await addReview({
         userId: user!.id,
         userName: user!.fullName,
-        destinationId: reviewModal.destinationId || "activity_" + reviewModal.activityId,
+        destinationId: reviewModal.destinationId || "",
+        poiId,
+        poiName,
         activityId: reviewModal.activityId,
         activityTitle: reviewModal.activityTitle,
         itineraryId: itinerary.id,
@@ -1695,6 +1734,54 @@ export default function ItineraryDetailScreen() {
                               );
                             }
                             return null;
+                          })()}
+
+                          {/* Other users' POI reviews */}
+                          {(() => {
+                            const otherReviews = getOtherUsersPoiReviews(activity);
+                            if (otherReviews.length === 0) return null;
+                            return (
+                              <View style={{ marginHorizontal: 12, marginBottom: 8 }}>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 4 }}>
+                                  <Ionicons name="people-outline" size={13} color={colors.textTertiary} />
+                                  <Text style={{ fontSize: 11, fontFamily: "Inter_500Medium", color: colors.textTertiary }}>
+                                    Đánh giá từ người khác ({otherReviews.length})
+                                  </Text>
+                                </View>
+                                {otherReviews.slice(0, 2).map((r) => {
+                                  const cleanComment = r.comment
+                                    .replace(/\s*\[activity:[^\]]+\]/g, "")
+                                    .replace(/\s*\[resetBefore:[^\]]+\]/g, "")
+                                    .trim();
+                                  return (
+                                    <View key={r.id} style={{ flexDirection: "row", gap: 8, paddingVertical: 4, paddingHorizontal: 6, borderRadius: 8, backgroundColor: colors.inputBg, marginBottom: 4 }}>
+                                      <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primary + "30", alignItems: "center", justifyContent: "center" }}>
+                                        <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: colors.primary }}>{r.userName.charAt(0).toUpperCase()}</Text>
+                                      </View>
+                                      <View style={{ flex: 1 }}>
+                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                                          <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: colors.text }} numberOfLines={1}>{r.userName}</Text>
+                                          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                                            <Ionicons name="star" size={10} color="#F59E0B" />
+                                            <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#F59E0B" }}>{r.rating}</Text>
+                                          </View>
+                                        </View>
+                                        {cleanComment ? (
+                                          <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 1 }} numberOfLines={2}>{cleanComment}</Text>
+                                        ) : null}
+                                      </View>
+                                    </View>
+                                  );
+                                })}
+                                {otherReviews.length > 2 && (
+                                  <Pressable onPress={() => { setExpandedReviewIds(new Set()); setShowAllUserReviews(false); setActivityDetailModal(activity); }}>
+                                    <Text style={{ fontSize: 11, fontFamily: "Inter_500Medium", color: colors.primary, textAlign: "center", marginTop: 2 }}>
+                                      Xem thêm {otherReviews.length - 2} đánh giá ›
+                                    </Text>
+                                  </Pressable>
+                                )}
+                              </View>
+                            );
                           })()}
 
                           {getActivityNotes(activity).length > 0 && (

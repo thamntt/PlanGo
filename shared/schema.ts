@@ -129,6 +129,8 @@ export const reviews = pgTable("reviews", {
   userId: text("user_id").notNull(),
   userName: text("user_name").default(""),
   destinationId: text("destination_id").default(""),
+  poiId: text("poi_id").default(""),
+  poiName: text("poi_name").default(""),
   activityId: text("activity_id"),
   activityTitle: text("activity_title"),
   itineraryId: text("itinerary_id"),

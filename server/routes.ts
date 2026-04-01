@@ -217,7 +217,7 @@ async function searchPlacesNominatim(query: string, language: string) {
   }
 }
 
-// SerpAPI Google Maps search — enrichment for Goong/Nominatim results
+// SerpAPI Google Maps search — PRIMARY search provider
 async function searchPlacesSerpApi(query: string) {
   const apiKey = getSerpApiKey();
   if (!apiKey) return null;
@@ -232,7 +232,7 @@ async function searchPlacesSerpApi(query: string) {
     });
 
     const url = `${SERPAPI_BASE}?${params.toString()}`;
-    console.log(`[SerpAPI] Searching places: "${query}"`);
+    console.log(`[SerpAPI] 🔍 Searching places: "${query}"`);
     const response = await fetch(url);
     if (!response.ok) {
       console.warn(`[SerpAPI] Search failed (${response.status})`);
@@ -242,8 +242,161 @@ async function searchPlacesSerpApi(query: string) {
     const data = await response.json();
     const results = data.local_results || [];
 
-    const places = results.slice(0, 10).map((r: any) => ({
-      placeId: r.place_id || "",
+    const places = results.slice(0, 10).map((r: any) => {
+      // Collect all available photos: thumbnail + images array
+      const photos: { name: string; attributions: string[] }[] = [];
+      if (r.thumbnail) {
+        photos.push({ name: r.thumbnail, attributions: ["Google Maps"] });
+      }
+      // SerpAPI may return additional images in r.images array
+      if (r.images && Array.isArray(r.images)) {
+        r.images.slice(0, 4).forEach((img: any) => {
+          const imgUrl = typeof img === "string" ? img : img?.thumbnail || img?.image;
+          if (imgUrl && imgUrl !== r.thumbnail) {
+            photos.push({ name: imgUrl, attributions: ["Google Maps"] });
+          }
+        });
+      }
+
+      return {
+        placeId: r.place_id || "",
+        dataId: r.data_id || "",
+        name: r.title || "",
+        address: r.address || "",
+        latitude: r.gps_coordinates?.latitude || 0,
+        longitude: r.gps_coordinates?.longitude || 0,
+        rating: r.rating || 0,
+        reviewCount: r.reviews || 0,
+        types: r.type ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
+        primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
+        primaryTypeDisplay: r.type || "Địa điểm",
+        editorialSummary: r.description || "",
+        photos,
+        website: r.website || "",
+        phone: r.phone || "",
+        openNow: r.open_state === "Open" ? true : r.open_state === "Closed" ? false : null,
+      };
+    });
+
+    console.log(`[SerpAPI] ✅ Search "${query}" → ${places.length} results`);
+    return { places };
+  } catch (error) {
+    console.warn(`[SerpAPI] Search error:`, error);
+    return null;
+  }
+}
+
+// SerpAPI Place Details — fetch detailed info for a single place
+async function getPlaceDetailsSerpApi(placeId: string, language: string) {
+  const apiKey = getSerpApiKey();
+  if (!apiKey) return null;
+
+  try {
+    // Search by place_id via google_maps engine
+    const params = new URLSearchParams({
+      engine: "google_maps",
+      q: placeId,
+      hl: language || "vi",
+      type: "search",
+      api_key: apiKey,
+    });
+
+    const url = `${SERPAPI_BASE}?${params.toString()}`;
+    console.log(`[SerpAPI] 🔍 Fetching details for: "${placeId}"`);
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.warn(`[SerpAPI] Details failed (${response.status})`);
+      return null;
+    }
+
+    const data = await response.json();
+    const results = data.local_results || [];
+    if (results.length === 0) return null;
+
+    const r = results[0];
+
+    // Collect photos
+    const photos: { name: string; attributions: string[] }[] = [];
+    if (r.thumbnail) {
+      photos.push({ name: r.thumbnail, attributions: ["Google Maps"] });
+    }
+    if (r.images && Array.isArray(r.images)) {
+      r.images.slice(0, 4).forEach((img: any) => {
+        const imgUrl = typeof img === "string" ? img : img?.thumbnail || img?.image;
+        if (imgUrl && imgUrl !== r.thumbnail) {
+          photos.push({ name: imgUrl, attributions: ["Google Maps"] });
+        }
+      });
+    }
+
+    // Try to fetch HD photos via google_maps_photos engine if data_id available
+    const dataId = r.data_id;
+    if (dataId) {
+      try {
+        const photoParams = new URLSearchParams({
+          engine: "google_maps_photos",
+          data_id: dataId,
+          hl: language || "vi",
+          api_key: apiKey,
+        });
+        const photoUrl = `${SERPAPI_BASE}?${photoParams.toString()}`;
+        const photoRes = await fetch(photoUrl);
+        if (photoRes.ok) {
+          const photoData = await photoRes.json();
+          const hdPhotos = photoData.photos || [];
+          hdPhotos.slice(0, 5).forEach((p: any) => {
+            const imgUrl = p.image || p.thumbnail;
+            if (imgUrl) {
+              photos.push({ name: imgUrl, attributions: ["Google Maps"] });
+            }
+          });
+          console.log(`[SerpAPI] 📸 Got ${hdPhotos.length} HD photos for "${r.title}"`);
+        }
+      } catch {
+        // HD photos are optional, continue without them
+      }
+    }
+
+    // Fetch reviews via SerpAPI
+    let reviews: any[] = [];
+    if (r.place_id) {
+      try {
+        const reviewParams = new URLSearchParams({
+          engine: "google_maps_reviews",
+          place_id: r.place_id,
+          hl: language || "vi",
+          api_key: apiKey,
+        });
+        const reviewUrl = `${SERPAPI_BASE}?${reviewParams.toString()}`;
+        const reviewRes = await fetch(reviewUrl);
+        if (reviewRes.ok) {
+          const reviewData = await reviewRes.json();
+          reviews = (reviewData.reviews || []).slice(0, 5).map((rv: any) => ({
+            author: rv.user?.name || "",
+            rating: rv.rating || 0,
+            text: rv.snippet || rv.extracted_snippet?.original || "",
+            time: rv.date || "",
+            profilePhoto: rv.user?.thumbnail || "",
+          }));
+        }
+      } catch {
+        // Reviews are optional
+      }
+    }
+
+    // Parse opening hours
+    const openingHours: string[] = [];
+    if (r.operating_hours) {
+      for (const [day, hours] of Object.entries(r.operating_hours)) {
+        openingHours.push(`${day}: ${hours}`);
+      }
+    } else if (r.hours) {
+      openingHours.push(r.hours);
+    }
+
+    const result = {
+      placeId: r.place_id || placeId,
+      dataId: dataId || "",
       name: r.title || "",
       address: r.address || "",
       latitude: r.gps_coordinates?.latitude || 0,
@@ -254,14 +407,65 @@ async function searchPlacesSerpApi(query: string) {
       primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
       primaryTypeDisplay: r.type || "Địa điểm",
       editorialSummary: r.description || "",
-      photos: r.thumbnail ? [{ name: r.thumbnail, attributions: ["Google Maps"] }] : [],
+      website: r.website || "",
+      phone: r.phone || "",
+      priceLevel: r.price ? r.price.length : null,
+      photos: photos.slice(0, 5),
+      reviews,
+      openingHours,
+      openNow: r.open_state === "Open" ? true : r.open_state === "Closed" ? false : null,
+    };
+
+    console.log(`[SerpAPI] ✅ Details for "${result.name}" — ★${result.rating} (${result.reviewCount} reviews), ${photos.length} photos`);
+    return result;
+  } catch (error) {
+    console.warn(`[SerpAPI] Details error:`, error);
+    return null;
+  }
+}
+
+// SerpAPI HD Photos — fetch high-quality photos for a place by data_id
+async function getSerpPhotos(req: Request, res: Response) {
+  const dataId = req.params.dataId as string;
+
+  if (!dataId) {
+    return res.status(400).json({ error: "dataId parameter is required" });
+  }
+
+  const apiKey = getSerpApiKey();
+  if (!apiKey) {
+    return res.status(501).json({ error: "SERPAPI_KEY not configured" });
+  }
+
+  try {
+    const params = new URLSearchParams({
+      engine: "google_maps_photos",
+      data_id: dataId,
+      hl: "vi",
+      api_key: apiKey,
+    });
+
+    const url = `${SERPAPI_BASE}?${params.toString()}`;
+    console.log(`[SerpAPI] 📸 Fetching photos for data_id=${dataId}`);
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn(`[SerpAPI] Photos failed (${response.status}):`, errorText);
+      return res.status(response.status).json({ error: "SerpAPI photos request failed" });
+    }
+
+    const data = await response.json();
+    const photos = (data.photos || []).map((p: any) => ({
+      thumbnail: p.thumbnail || "",
+      image: p.image || p.thumbnail || "",
     }));
 
-    console.log(`[SerpAPI] Search "${query}" → ${places.length} results`);
-    return { places };
+    console.log(`[SerpAPI] ✅ Got ${photos.length} photos for data_id=${dataId}`);
+    return res.json({ photos });
   } catch (error) {
-    console.warn(`[SerpAPI] Search error:`, error);
-    return null;
+    console.error("[SerpAPI] Photos error:", error);
+    return res.status(500).json({ error: "Failed to fetch photos" });
   }
 }
 
@@ -308,15 +512,15 @@ async function searchPlaces(req: Request, res: Response) {
     return res.status(400).json({ error: "Query parameter is required" });
   }
 
-  // Cách 1: Google
-  const googleResult = await searchPlacesGoogle(query, language);
-  if (googleResult) return res.json(googleResult);
-
-  // Cách 2: SerpAPI Google Maps search (ưu tiên hơn Goong vì có rating, review)
+  // Cách 1: SerpAPI (ưu tiên — có rating, review, thumbnail, data_id)
   const serpResult = await searchPlacesSerpApi(query);
   if (serpResult && serpResult.places && serpResult.places.length > 0) {
     return res.json(serpResult);
   }
+
+  // Cách 2: Google (fallback)
+  const googleResult = await searchPlacesGoogle(query, language);
+  if (googleResult) return res.json(googleResult);
 
   // Cách 3: Goong
   const goongResult = await searchPlacesGoong(query, language);
@@ -534,15 +738,19 @@ async function getPlaceDetails(req: Request, res: Response) {
     return res.status(400).json({ error: "placeId parameter is required" });
   }
 
-  // Cách 1: Google
+  // Cách 1: SerpAPI (ưu tiên — có ảnh HD, reviews, rating)
+  const serpResult = await getPlaceDetailsSerpApi(placeId, language);
+  if (serpResult) return res.json(serpResult);
+
+  // Cách 2: Google (fallback)
   const googleResult = await getPlaceDetailsGoogle(placeId, language);
   if (googleResult) return res.json(googleResult);
 
-  // Cách 2: Goong
+  // Cách 3: Goong
   const goongResult = await getPlaceDetailsGoong(placeId, language);
   if (goongResult) return res.json(goongResult);
 
-  // Cách 3: Nominatim
+  // Cách 4: Nominatim
   const nominatimResult = await getPlaceDetailsNominatim(placeId, language);
   if (nominatimResult) return res.json(nominatimResult);
 
@@ -798,22 +1006,53 @@ async function getDirections(req: Request, res: Response) {
 async function getPlacePhoto(req: Request, res: Response) {
   const photoName = req.query.name as string;
   const maxWidth = parseInt(req.query.maxWidth as string) || 800;
+  const dataId = req.query.data_id as string; // Optional: SerpAPI data_id for HD photos
 
-  if (!photoName) {
-    return res.status(400).json({ error: "Photo name parameter is required" });
+  if (!photoName && !dataId) {
+    return res.status(400).json({ error: "Photo name or data_id parameter is required" });
   }
 
-  // If photoName is already a direct URL (e.g. from SerpAPI thumbnail), just redirect
-  if (photoName.startsWith("http")) {
+  // If photoName is already a direct URL (e.g. from SerpAPI thumbnail/image), just redirect
+  if (photoName && photoName.startsWith("http")) {
     return res.redirect(photoName);
   }
 
-  const apiKey = getGoogleKey();
-
   try {
-    // If photoName looks like a Google Places photo resource name
-    if (apiKey && photoName.startsWith("places/")) {
-      const url = `${GOOGLE_PLACES_BASE}/${photoName}/media?maxWidthPx=${maxWidth}&key=${apiKey}`;
+    // Priority 1: If data_id provided, fetch HD photo from SerpAPI google_maps_photos
+    if (dataId) {
+      const serpKey = getSerpApiKey();
+      if (serpKey) {
+        try {
+          const params = new URLSearchParams({
+            engine: "google_maps_photos",
+            data_id: dataId,
+            hl: "vi",
+            api_key: serpKey,
+          });
+          const serpUrl = `${SERPAPI_BASE}?${params.toString()}`;
+          const serpRes = await fetch(serpUrl);
+          if (serpRes.ok) {
+            const serpData = await serpRes.json();
+            const photos = serpData.photos || [];
+            if (photos.length > 0) {
+              // Redirect to the first HD image
+              const hdUrl = photos[0].image || photos[0].thumbnail;
+              if (hdUrl) {
+                console.log(`[SerpAPI] 📸 Serving HD photo from data_id=${dataId}`);
+                return res.redirect(hdUrl);
+              }
+            }
+          }
+        } catch {
+          console.warn(`[SerpAPI] HD photo fetch failed for data_id=${dataId}, trying fallbacks...`);
+        }
+      }
+    }
+
+    // Priority 2: Google Places photo (if it's a Google resource name)
+    const googleKey = getGoogleKey();
+    if (photoName && googleKey && photoName.startsWith("places/")) {
+      const url = `${GOOGLE_PLACES_BASE}/${photoName}/media?maxWidthPx=${maxWidth}&key=${googleKey}`;
       const response = await fetch(url, { redirect: "follow" });
 
       if (response.ok) {
@@ -827,8 +1066,9 @@ async function getPlacePhoto(req: Request, res: Response) {
       console.warn(`[Google] Photo failed, trying Unsplash fallback...`);
     }
 
-    // Fallback to Unsplash for non-Google photo names or failed Google fetch
-    const url = `https://source.unsplash.com/${maxWidth}x${Math.round(maxWidth * 0.66)}/?${encodeURIComponent(photoName + " travel landscape")}`;
+    // Priority 3: Fallback to Unsplash
+    const searchTerm = photoName || "travel landscape";
+    const url = `https://source.unsplash.com/${maxWidth}x${Math.round(maxWidth * 0.66)}/?${encodeURIComponent(searchTerm + " travel landscape")}`;
     const response = await fetch(url, { redirect: "follow" });
 
     if (!response.ok) {
@@ -1367,19 +1607,22 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
 
 async function getProviderStatus(req: Request, res: Response) {
   const provider = getActiveProvider();
+  const hasSerpApi = !!getSerpApiKey();
   const hasGoogle = !!getGoogleKey();
   const hasGoong = !!getGoongKey();
 
   return res.json({
-    activeProvider: provider,
+    activeProvider: hasSerpApi ? "serpapi" : provider,
     providers: {
-      google: { available: hasGoogle, name: "Google Maps Platform" },
-      goong: { available: hasGoong, name: "Goong Maps" },
+      serpapi: { available: hasSerpApi, name: "SerpAPI Google Maps (PRIMARY)", primary: true },
+      google: { available: hasGoogle, name: "Google Maps Platform (fallback)" },
+      goong: { available: hasGoong, name: "Goong Maps (fallback)" },
       free: { available: true, name: "OpenStreetMap + OSRM (miễn phí)" },
     },
     fallbackChain: [
-      hasGoogle ? "✅ Google Maps" : "❌ Google Maps (no key)",
-      hasGoong ? "✅ Goong Maps" : "❌ Goong Maps (no key)",
+      hasSerpApi ? "✅ SerpAPI (PRIMARY — search, details, photos, reviews)" : "❌ SerpAPI (no key)",
+      hasGoogle ? "✅ Google Maps (fallback)" : "❌ Google Maps (no key)",
+      hasGoong ? "✅ Goong Maps (fallback)" : "❌ Goong Maps (no key)",
       "✅ Nominatim + OSRM (always available)",
     ],
   });
@@ -1571,18 +1814,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Log active provider on startup
   const provider = getActiveProvider();
   console.log(`\n🗺️  Map Provider: ${provider.toUpperCase()}`);
-  console.log(`   Google: ${getGoogleKey() ? "✅ configured" : "❌ not configured"}`);
-  console.log(`   Goong:  ${getGoongKey() ? "✅ configured" : "❌ not configured"}`);
+  console.log(`   🔑 SerpAPI: ${getSerpApiKey() ? "✅ configured (PRIMARY)" : "❌ not configured"}`);
+  console.log(`   Google: ${getGoogleKey() ? "✅ configured (fallback)" : "❌ not configured"}`);
+  console.log(`   Goong:  ${getGoongKey() ? "✅ configured (fallback)" : "❌ not configured"}`);
   console.log(`   Free:   ✅ always available (Nominatim + OSRM)\n`);
   console.log(`   💾 Database: PostgreSQL (Drizzle ORM)\n`);
 
   // Provider status
   app.get("/api/places/provider", getProviderStatus);
 
-  // Places search routes (with fallback)
+  // Places search routes (SerpAPI → Google → Goong → Nominatim)
   app.get("/api/places/search", searchPlaces);
   app.get("/api/places/details/:placeId", getPlaceDetails);
   app.get("/api/places/photo", getPlacePhoto);
+
+  // SerpAPI HD Photos by data_id
+  app.get("/api/places/serp-photos/:dataId", getSerpPhotos);
 
   // Geocode & directions (with fallback)
   app.get("/api/places/geocode", geocodeAddress);
@@ -1758,8 +2005,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/reviews", async (req, res) => {
     const userId = req.query.userId as string;
     const destinationId = req.query.destinationId as string;
+    const poiId = req.query.poiId as string;
     if (userId) {
       const items = await storage.getReviewsByUser(userId);
+      return res.json(items);
+    }
+    if (poiId) {
+      const items = await storage.getReviewsByPoi(poiId);
       return res.json(items);
     }
     if (destinationId) {

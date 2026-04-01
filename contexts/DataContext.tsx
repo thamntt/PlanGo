@@ -117,6 +117,8 @@ function mapReview(r: any): Review {
     userId: r.userId ?? r.user_id ?? "",
     userName: r.userName ?? r.user_name ?? "",
     destinationId: r.destinationId ?? r.destination_id ?? "",
+    poiId: r.poiId ?? r.poi_id ?? "",
+    poiName: r.poiName ?? r.poi_name ?? "",
     activityId: r.activityId ?? r.activity_id,
     activityTitle: r.activityTitle ?? r.activity_title,
     itineraryId: r.itineraryId ?? r.itinerary_id,
@@ -478,23 +480,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const res = await apiRequest("POST", "/api/reviews", review);
     const created = mapReview(await res.json());
     setReviews((prev) => [...prev, created]);
-
-    // Update destination rating
-    if (review.destinationId) {
-      try {
-        const allRevsRes = await apiRequest("GET", `/api/reviews?destinationId=${review.destinationId}`);
-        const destReviews = ((await allRevsRes.json()) as any[]).map(mapReview);
-        const avgRating = destReviews.reduce((sum, r) => sum + r.rating, 0) / destReviews.length;
-        await apiRequest("PUT", `/api/destinations/${review.destinationId}`, {
-          rating: Math.round(avgRating * 10) / 10,
-          reviewCount: destReviews.length,
-        });
-        setDestinations((prev) =>
-          prev.map((d) => d.id === review.destinationId ? { ...d, rating: Math.round(avgRating * 10) / 10, reviewCount: destReviews.length } : d)
-        );
-      } catch { }
-    }
-
     return created;
   }, []);
 
@@ -502,48 +487,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const res = await apiRequest("PUT", `/api/reviews/${id}`, data);
     const updated = mapReview(await res.json());
     setReviews((prev) => prev.map((r) => (r.id === id ? updated : r)));
-
-    // Update destination rating
-    if (updated.destinationId) {
-      try {
-        const allRevsRes = await apiRequest("GET", `/api/reviews?destinationId=${updated.destinationId}`);
-        const destReviews = ((await allRevsRes.json()) as any[]).map(mapReview);
-        const avgRating = destReviews.reduce((sum, r) => sum + r.rating, 0) / destReviews.length;
-        await apiRequest("PUT", `/api/destinations/${updated.destinationId}`, {
-          rating: Math.round(avgRating * 10) / 10,
-          reviewCount: destReviews.length,
-        });
-        setDestinations((prev) =>
-          prev.map((d) => d.id === updated.destinationId ? { ...d, rating: Math.round(avgRating * 10) / 10, reviewCount: destReviews.length } : d)
-        );
-      } catch { }
-    }
   }, []);
 
   const deleteReview = useCallback(async (id: string) => {
-    // Get review before deleting to know its destinationId
-    const toDelete = reviews.find((r) => r.id === id);
     await apiRequest("DELETE", `/api/reviews/${id}`);
     setReviews((prev) => prev.filter((r) => r.id !== id));
-
-    // Update destination rating
-    if (toDelete?.destinationId) {
-      try {
-        const allRevsRes = await apiRequest("GET", `/api/reviews?destinationId=${toDelete.destinationId}`);
-        const destReviews = ((await allRevsRes.json()) as any[]).map(mapReview);
-        const avgRating = destReviews.length > 0
-          ? destReviews.reduce((sum, r) => sum + r.rating, 0) / destReviews.length
-          : 0;
-        await apiRequest("PUT", `/api/destinations/${toDelete.destinationId}`, {
-          rating: Math.round(avgRating * 10) / 10,
-          reviewCount: destReviews.length,
-        });
-        setDestinations((prev) =>
-          prev.map((d) => d.id === toDelete.destinationId ? { ...d, rating: Math.round(avgRating * 10) / 10, reviewCount: destReviews.length } : d)
-        );
-      } catch { }
-    }
-  }, [reviews]);
+  }, []);
 
   // ── Notifications ─────────────────────────
 

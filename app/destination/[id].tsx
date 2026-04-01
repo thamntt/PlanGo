@@ -56,24 +56,13 @@ export default function DestinationDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, reviews, addReview, deleteReview, itineraries } = useData();
+  const { destinations, itineraries } = useData();
 
   const destination = destinations.find((d) => d.id === id);
-  const destReviews = useMemo(() => reviews.filter((r) => r.destinationId === id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [reviews, id]);
 
-  const hasCompletedThisDestination = useMemo(() => {
-    if (!user || !id) return false;
-    return itineraries.some((itin) => {
-      if (itin.status !== "completed") return false;
-      const isMember = itin.userId === user.id || (itin.companions || []).some((c) => c.userId === user.id);
-      if (!isMember) return false;
-      return itin.destination === destination?.name;
-    });
-  }, [itineraries, user, id, destination?.name]);
 
-  const [newRating, setNewRating] = useState(5);
-  const [newComment, setNewComment] = useState("");
-  const [showReviewForm, setShowReviewForm] = useState(false);
+
+
   const [imageIndex, setImageIndex] = useState(0);
 
   // SerpAPI reviews state — must be declared before any early returns
@@ -124,23 +113,6 @@ export default function DestinationDetailScreen() {
     );
   }
 
-  const handleSubmitReview = async () => {
-    if (!newComment.trim()) {
-      Alert.alert(t().common.error, t().destination.pleaseComment);
-      return;
-    }
-    await addReview({
-      userId: user!.id,
-      userName: user!.fullName,
-      destinationId: destination.id,
-      rating: newRating,
-      comment: newComment.trim(),
-    });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setNewComment("");
-    setNewRating(5);
-    setShowReviewForm(false);
-  };
 
   const openGoogleMaps = () => {
     const query = encodeURIComponent(destination.name);
@@ -408,129 +380,7 @@ export default function DestinationDetailScreen() {
             </>
           ) : null}
 
-          <View style={styles.reviewsHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              {txt.userReviews} ({destReviews.length})
-            </Text>
-            {hasCompletedThisDestination ? (
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setShowReviewForm(!showReviewForm);
-                }}
-              >
-                <Ionicons name={showReviewForm ? "close" : "add-circle-outline"} size={24} color={colors.primary} />
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={() => {
-                  if (Platform.OS === "web") {
-                    window.alert("Hoàn thành điểm đến này trong lịch trình để có thể đánh giá.");
-                  } else {
-                    Alert.alert("Chưa thể đánh giá", "Hoàn thành điểm đến này trong lịch trình để có thể đánh giá.");
-                  }
-                }}
-              >
-                <Ionicons name="lock-closed-outline" size={22} color={colors.textTertiary} />
-              </Pressable>
-            )}
-          </View>
 
-          {showReviewForm && (
-            <View style={[styles.reviewForm, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-              <StarRating rating={newRating} onRate={setNewRating} colors={colors} />
-              <TextInput
-                style={[styles.reviewInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                placeholder={txt.writeReview}
-                placeholderTextColor={colors.textTertiary}
-                value={newComment}
-                onChangeText={setNewComment}
-                multiline
-                numberOfLines={3}
-              />
-              <Pressable
-                onPress={handleSubmitReview}
-                style={({ pressed }) => [
-                  styles.submitButton,
-                  { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-                ]}
-              >
-                <Text style={styles.submitButtonText}>{txt.submitReview}</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {destReviews.length === 0 ? (
-            <View style={styles.emptyReviews}>
-              <Ionicons name="chatbubble-outline" size={32} color={colors.textTertiary} />
-              <Text style={[styles.emptyText, { color: colors.textTertiary }]}>{txt.noReviews}</Text>
-            </View>
-          ) : (
-            destReviews.map((review) => {
-              const cleanComment = review.comment
-                .replace(/\s*\[activity:[^\]]+\]/g, "")
-                .replace(/\s*\[resetBefore:[^\]]+\]/g, "")
-                .trim();
-              const isOwn = user && review.userId === user.id;
-              return (
-                <View key={review.id} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: isOwn ? colors.primary + "40" : colors.cardBorder }]}>
-                  <View style={styles.reviewHeader}>
-                    <View style={[styles.reviewAvatar, { backgroundColor: isOwn ? colors.primary : colors.textTertiary }]}>
-                      <Text style={styles.reviewAvatarText}>{review.userName.charAt(0).toUpperCase()}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={[styles.reviewName, { color: colors.text }]}>{review.userName}</Text>
-                        {isOwn && (
-                          <View style={{ backgroundColor: colors.primary + "15", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
-                            <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: colors.primary }}>Bạn</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[styles.reviewDate, { color: colors.textTertiary }]}>
-                        {new Date(review.createdAt).toLocaleDateString("vi-VN")}
-                      </Text>
-                    </View>
-                    <StarRating rating={review.rating} size={14} colors={colors} />
-                  </View>
-                  <Text style={[styles.reviewComment, { color: colors.textSecondary }]}>{cleanComment}</Text>
-                  {isOwn && (
-                    <View style={{ flexDirection: "row", gap: 16, marginTop: 4 }}>
-                      <Pressable
-                        onPress={() => {
-                          setNewRating(review.rating);
-                          setNewComment(cleanComment);
-                          setShowReviewForm(true);
-                        }}
-                        style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                      >
-                        <Ionicons name="create-outline" size={14} color={colors.primary} />
-                        <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.primary }}>Sửa đánh giá</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          if (Platform.OS === "web") {
-                            if (window.confirm("Xóa đánh giá này?")) {
-                              deleteReview(review.id);
-                            }
-                          } else {
-                            Alert.alert("Xóa đánh giá", "Bạn có chắc muốn xóa đánh giá này?", [
-                              { text: "Hủy", style: "cancel" },
-                              { text: "Xóa", style: "destructive", onPress: () => deleteReview(review.id) },
-                            ]);
-                          }
-                        }}
-                        style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                      >
-                        <Ionicons name="trash-outline" size={14} color={colors.error} />
-                        <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.error }}>Xóa đánh giá</Text>
-                      </Pressable>
-                    </View>
-                  )}
-                </View>
-              );
-            })
-          )}
         </View>
       </ScrollView>
     </View>
