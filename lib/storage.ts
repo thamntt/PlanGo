@@ -118,6 +118,7 @@ export interface ItineraryActivity {
   googleMapsUrl?: string;
   googlePlaceId?: string;
   openHours?: string;
+  openingHours?: string[];
   thumbnail?: string;
   placeType?: string;
 }

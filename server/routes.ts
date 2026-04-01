@@ -1321,7 +1321,7 @@ QUY TẮC BẮT BUỘC:
 2. QUAN TRỌNG NHẤT: "title" PHẢI là TÊN CHÍNH XÁC của địa điểm/nhà hàng/quán ăn/khách sạn NHƯ TRÊN GOOGLE MAPS. Ví dụ: "Ăn sáng tại Nhà Hàng Hải Cảng Sầm Sơn", "Tham quan Công trời Sầm Sơn". KHÔNG ĐƯỢC dùng tên chung chung như "Ăn sáng tại quán phở", "Tham quan bãi biển".
 3. Mỗi ngày có 5-6 hoạt động: Ăn sáng → Tham quan sáng → Ăn trưa → Tham quan chiều → Ăn tối → (Hoạt động tối tùy chọn)
 4. NGÂN SÁCH: Tổng estimatedCost PHẢI trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + (totalBudget * 1.0).toLocaleString("vi-VN") + "đ" : "hợp lý"}. estimatedCost đã tính cho ${numPeople || 2} người.
-5. Thời gian: 07:00, 08:30, 12:00, 14:00, 18:00, 20:00
+5. Thời gian: Ước lượng thực tế theo giờ mở cửa thông thường (VD: Ăn sáng 07:30, Tham quan từ 08:30 hoặc 09:00 trở đi, Ăn tối 18:30). Sắp xếp logic, thời gian di chuyển hợp lý. Ghi rõ dạng HH:MM.
 6. KHÔNG CẦN cung cấp address, latitude, longitude, rating chính xác — hệ thống sẽ tự tra cứu từ Google Maps.
 ${prefsText ? `7. ƯU TIÊN: ${prefsText}` : ""}
 
@@ -1479,6 +1479,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
                 schedule.push(`${day}: ${hours}`);
               }
               act.openHours = schedule.join(" | ");
+              act.openingHours = schedule;
             } else if (match.hours && typeof match.hours === "string") {
               // Fallback: use the status string but it's less useful
               act.openHours = match.hours;
@@ -1604,6 +1605,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
           rating: act.rating || 0,
           reviewCount: act.reviewCount || 0,
           openHours: act.openHours || undefined,
+          openingHours: act.openingHours || undefined,
           estimatedCost: act.estimatedCost || undefined,
           description: act.description || "",
           images: act.thumbnail ? [act.thumbnail] : [],
