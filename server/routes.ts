@@ -287,35 +287,39 @@ async function searchPlacesSerpApi(query: string) {
 }
 
 // SerpAPI Place Details — fetch detailed info for a single place
+// Uses type=place with place_id param per SerpAPI docs: https://serpapi.com/maps-place-results
 async function getPlaceDetailsSerpApi(placeId: string, language: string) {
   const apiKey = getSerpApiKey();
   if (!apiKey) return null;
 
   try {
-    // Search by place_id via google_maps engine
+    // Use type=place with place_id parameter (correct SerpAPI usage)
     const params = new URLSearchParams({
       engine: "google_maps",
-      q: placeId,
+      place_id: placeId,
       hl: language || "vi",
-      type: "search",
+      type: "place",
       api_key: apiKey,
     });
 
     const url = `${SERPAPI_BASE}?${params.toString()}`;
-    console.log(`[SerpAPI] 🔍 Fetching details for: "${placeId}"`);
+    console.log(`[SerpAPI] 🔍 Fetching place details for place_id: "${placeId}"`);
     const response = await fetch(url);
     if (!response.ok) {
-      console.warn(`[SerpAPI] Details failed (${response.status})`);
+      console.warn(`[SerpAPI] Place details failed (${response.status})`);
       return null;
     }
 
     const data = await response.json();
-    const results = data.local_results || [];
-    if (results.length === 0) return null;
 
-    const r = results[0];
+    // type=place returns place_results (single object), not local_results (array)
+    const r = data.place_results;
+    if (!r) {
+      console.warn(`[SerpAPI] No place_results found for place_id: "${placeId}"`);
+      return null;
+    }
 
-    // Collect photos
+    // Collect photos from place_results
     const photos: { name: string; attributions: string[] }[] = [];
     if (r.thumbnail) {
       photos.push({ name: r.thumbnail, attributions: ["Google Maps"] });
@@ -357,34 +361,33 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
       }
     }
 
-    // Fetch reviews via SerpAPI
+    // Fetch reviews via SerpAPI google_maps_reviews engine
     let reviews: any[] = [];
-    if (r.place_id) {
-      try {
-        const reviewParams = new URLSearchParams({
-          engine: "google_maps_reviews",
-          place_id: r.place_id,
-          hl: language || "vi",
-          api_key: apiKey,
-        });
-        const reviewUrl = `${SERPAPI_BASE}?${reviewParams.toString()}`;
-        const reviewRes = await fetch(reviewUrl);
-        if (reviewRes.ok) {
-          const reviewData = await reviewRes.json();
-          reviews = (reviewData.reviews || []).slice(0, 5).map((rv: any) => ({
-            author: rv.user?.name || "",
-            rating: rv.rating || 0,
-            text: rv.snippet || rv.extracted_snippet?.original || "",
-            time: rv.date || "",
-            profilePhoto: rv.user?.thumbnail || "",
-          }));
-        }
-      } catch {
-        // Reviews are optional
+    const reviewPlaceId = r.place_id || placeId;
+    try {
+      const reviewParams = new URLSearchParams({
+        engine: "google_maps_reviews",
+        place_id: reviewPlaceId,
+        hl: language || "vi",
+        api_key: apiKey,
+      });
+      const reviewUrl = `${SERPAPI_BASE}?${reviewParams.toString()}`;
+      const reviewRes = await fetch(reviewUrl);
+      if (reviewRes.ok) {
+        const reviewData = await reviewRes.json();
+        reviews = (reviewData.reviews || []).slice(0, 5).map((rv: any) => ({
+          author: rv.user?.name || "",
+          rating: rv.rating || 0,
+          text: rv.snippet || rv.extracted_snippet?.original || "",
+          time: rv.date || "",
+          profilePhoto: rv.user?.thumbnail || "",
+        }));
       }
+    } catch {
+      // Reviews are optional
     }
 
-    // Parse opening hours
+    // Parse opening hours from place_results
     const openingHours: string[] = [];
     if (r.operating_hours) {
       for (const [day, hours] of Object.entries(r.operating_hours)) {
@@ -394,6 +397,10 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
       openingHours.push(r.hours);
     }
 
+    // Extract rating — place_results may use "rating" or "user_review.rating"
+    const rating = r.rating || r.user_review?.rating || 0;
+    const reviewCount = r.reviews || r.user_review?.reviews || 0;
+
     const result = {
       placeId: r.place_id || placeId,
       dataId: dataId || "",
@@ -401,12 +408,12 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
       address: r.address || "",
       latitude: r.gps_coordinates?.latitude || 0,
       longitude: r.gps_coordinates?.longitude || 0,
-      rating: r.rating || 0,
-      reviewCount: r.reviews || 0,
+      rating,
+      reviewCount,
       types: r.type ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
       primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
       primaryTypeDisplay: r.type || "Địa điểm",
-      editorialSummary: r.description || "",
+      editorialSummary: r.description || r.extensions?.join(", ") || "",
       website: r.website || "",
       phone: r.phone || "",
       priceLevel: r.price ? r.price.length : null,
@@ -416,10 +423,10 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
       openNow: r.open_state === "Open" ? true : r.open_state === "Closed" ? false : null,
     };
 
-    console.log(`[SerpAPI] ✅ Details for "${result.name}" — ★${result.rating} (${result.reviewCount} reviews), ${photos.length} photos`);
+    console.log(`[SerpAPI] ✅ Place details for "${result.name}" — ★${result.rating} (${result.reviewCount} reviews), ${photos.length} photos`);
     return result;
   } catch (error) {
-    console.warn(`[SerpAPI] Details error:`, error);
+    console.warn(`[SerpAPI] Place details error:`, error);
     return null;
   }
 }
