@@ -115,8 +115,14 @@ export default function DestinationDetailScreen() {
 
 
   const openGoogleMaps = () => {
-    const query = encodeURIComponent(destination.name);
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+    const destinationQuery = [destination.name, destination.address].filter(Boolean).join(", ");
+    if (destination.googlePlaceId && destinationQuery) {
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destinationQuery)}&destination_place_id=${destination.googlePlaceId}`);
+    } else if (destinationQuery) {
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destinationQuery)}`);
+    } else {
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}`);
+    }
   };
 
   const openGrab = () => {
@@ -369,8 +375,10 @@ export default function DestinationDetailScreen() {
 
               <Pressable
                 onPress={() => {
-                  const query = encodeURIComponent(destination.name);
-                  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+                  const searchQuery = [destination.name, destination.address].filter(Boolean).join(", ");
+                  const query = encodeURIComponent(searchQuery);
+                  const placeIdParam = destination.googlePlaceId ? `&query_place_id=${destination.googlePlaceId}` : "";
+                  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}${placeIdParam}`);
                 }}
                 style={({ pressed }) => [styles.seeMoreGoogleBtn, { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 }]}
               >

@@ -528,21 +528,28 @@ export default function ItineraryDetailScreen() {
     }
   };
 
-  const openGoogleMaps = (lat?: number, lng?: number, address?: string) => {
-    if (lat && lng) {
+  const openGoogleMaps = (opts: { lat?: number; lng?: number; address?: string; name?: string; googlePlaceId?: string }) => {
+    const { lat, lng, address, name, googlePlaceId } = opts;
+    // Build a human-readable destination query for Google Maps
+    const destinationQuery = [name, address].filter(Boolean).join(", ");
+    if (googlePlaceId && destinationQuery) {
+      // Best case: use place_id for exact place + readable name as fallback
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destinationQuery)}&destination_place_id=${googlePlaceId}`);
+    } else if (destinationQuery) {
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destinationQuery)}`);
+    } else if (lat && lng) {
       Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
-    } else if (address) {
-      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`);
     }
   };
 
-  const openGrab = (lat?: number, lng?: number) => {
+  const openGrab = (lat?: number, lng?: number, name?: string) => {
     if (lat && lng) {
       const url = Platform.OS === "ios"
         ? `grab://open?screenType=BOOKING&dropOffLatitude=${lat}&dropOffLongitude=${lng}`
         : `https://grab.onelink.me/2695613898?af_dp=grab%3A%2F%2Fopen%3FscreenType%3DBOOKING%26dropOffLatitude%3D${lat}%26dropOffLongitude%3D${lng}`;
       Linking.openURL(url).catch(() => {
-        Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
+        const fallbackDest = name ? encodeURIComponent(name) : `${lat},${lng}`;
+        Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${fallbackDest}`);
       });
     }
   };
@@ -1831,10 +1838,10 @@ export default function ItineraryDetailScreen() {
                             )}
                             {activity.latitude != null && activity.longitude != null && (
                               <>
-                                <Pressable onPress={() => openGoogleMaps(activity.latitude, activity.longitude, activity.address)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Pressable onPress={() => openGoogleMaps({ lat: activity.latitude, lng: activity.longitude, address: activity.address, name: activity.title, googlePlaceId: activity.googlePlaceId })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                   <Ionicons name="map-outline" size={14} color={colors.success} />
                                 </Pressable>
-                                <Pressable onPress={() => openGrab(activity.latitude, activity.longitude)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Pressable onPress={() => openGrab(activity.latitude, activity.longitude, activity.title)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                                   <Ionicons name="car-outline" size={14} color="#00B14F" />
                                 </Pressable>
                               </>
@@ -3944,11 +3951,12 @@ export default function ItineraryDetailScreen() {
                         onPress={() => {
                           const placeName = act.title || "";
                           const addr = act.address || "";
-                          const searchTerm = placeName + (addr ? " " + addr : "");
+                          const searchTerm = [placeName, addr].filter(Boolean).join(", ");
                           const query = searchTerm.trim()
                             ? encodeURIComponent(searchTerm.trim())
                             : `${act.latitude},${act.longitude}`;
-                          Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+                          const placeIdParam = act.googlePlaceId ? `&query_place_id=${act.googlePlaceId}` : "";
+                          Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}${placeIdParam}`);
                         }}
                         style={({ pressed }) => [actDetailStyles.moreReviewsBtn, { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 }]}
                       >
@@ -3960,14 +3968,14 @@ export default function ItineraryDetailScreen() {
                     {(act.latitude != null && act.longitude != null) && (
                       <View style={actDetailStyles.deepLinkRow}>
                         <Pressable
-                          onPress={() => openGoogleMaps(act.latitude, act.longitude, act.address)}
+                          onPress={() => openGoogleMaps({ lat: act.latitude, lng: act.longitude, address: act.address, name: act.title, googlePlaceId: act.googlePlaceId })}
                           style={({ pressed }) => [actDetailStyles.deepLinkBtn, { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 }]}
                         >
                           <Ionicons name="map" size={16} color="#fff" />
                           <Text style={actDetailStyles.deepLinkText}>{txt.openMaps}</Text>
                         </Pressable>
                         <Pressable
-                          onPress={() => openGrab(act.latitude, act.longitude)}
+                          onPress={() => openGrab(act.latitude, act.longitude, act.title)}
                           style={({ pressed }) => [actDetailStyles.deepLinkBtn, { backgroundColor: "#00B14F", opacity: pressed ? 0.9 : 1 }]}
                         >
                           <Ionicons name="car" size={16} color="#fff" />

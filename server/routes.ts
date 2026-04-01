@@ -388,12 +388,19 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
     }
 
     // Parse opening hours from place_results
+    // SerpAPI place_results.hours is an array of objects: [{"wednesday": "6:30AM–5PM"}, ...]
     const openingHours: string[] = [];
-    if (r.operating_hours) {
+    if (r.hours && Array.isArray(r.hours)) {
+      for (const dayObj of r.hours) {
+        for (const [day, hours] of Object.entries(dayObj)) {
+          openingHours.push(`${day}: ${hours}`);
+        }
+      }
+    } else if (r.operating_hours) {
       for (const [day, hours] of Object.entries(r.operating_hours)) {
         openingHours.push(`${day}: ${hours}`);
       }
-    } else if (r.hours) {
+    } else if (r.hours && typeof r.hours === "string") {
       openingHours.push(r.hours);
     }
 
@@ -1464,7 +1471,18 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
             if (match.address) act.address = match.address;
             if (match.rating) act.rating = match.rating;
             if (match.reviews) act.reviewCount = match.reviews;
-            if (match.hours) act.openHours = match.hours;
+            // match.hours from local_results is a status string ("Open ⋅ Closes 10 PM"), not schedule
+            // Use operating_hours object if available for actual schedule
+            if (match.operating_hours) {
+              const schedule: string[] = [];
+              for (const [day, hours] of Object.entries(match.operating_hours)) {
+                schedule.push(`${day}: ${hours}`);
+              }
+              act.openHours = schedule.join(" | ");
+            } else if (match.hours && typeof match.hours === "string") {
+              // Fallback: use the status string but it's less useful
+              act.openHours = match.hours;
+            }
             if (match.place_id) act.googlePlaceId = match.place_id;
             if (match.type) act.placeType = match.type;
             if (match.thumbnail) act.thumbnail = match.thumbnail;
@@ -1781,7 +1799,11 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
       description: r.description || r.type || "",
       googlePlaceId: r.place_id || "",
       thumbnail: r.thumbnail || "",
-      openHours: r.hours || "",
+      // r.hours from local_results (search) is a status string like "Open ⋅ Closes 10 PM"
+      // Use operating_hours if available for real schedule data
+      openHours: r.operating_hours
+        ? Object.entries(r.operating_hours).map(([day, hours]) => `${day}: ${hours}`).join(" | ")
+        : (typeof r.hours === "string" ? r.hours : ""),
     });
 
     let restaurants: any[] = [];
