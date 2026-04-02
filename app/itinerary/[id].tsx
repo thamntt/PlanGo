@@ -267,7 +267,7 @@ export default function ItineraryDetailScreen() {
       apiRequest("GET", "/api/users").then((res) => res.json()).then((users: any[]) => {
         const owner = users.find((u: any) => u.id === itinerary.userId);
         if (owner) setOwnerName(owner.fullName || owner.full_name || "");
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, [isOwner, user, itinerary?.userId]);
 
@@ -872,7 +872,7 @@ export default function ItineraryDetailScreen() {
     const taggedComment = reviewModal.activityId
       ? (commentText ? `${commentText} [activity:${reviewModal.activityId}]` : `[activity:${reviewModal.activityId}]`)
       : commentText;
-    
+
     // Find matching POI for this activity
     let poiId = "";
     let poiName = "";
@@ -886,7 +886,7 @@ export default function ItineraryDetailScreen() {
         }
       }
     }
-    
+
     if (reviewModal.editReviewId) {
       await updateReview(reviewModal.editReviewId, { rating: reviewRating, comment: taggedComment, poiId, poiName });
     } else {
@@ -1439,9 +1439,9 @@ export default function ItineraryDetailScreen() {
               <Ionicons name="person-add-outline" size={22} color={colors.primary} />
             </Pressable>
           )}
-          <Pressable onPress={handleShare} hitSlop={8}>
+          {/* <Pressable onPress={handleShare} hitSlop={8}>
             <Ionicons name="share-outline" size={22} color={colors.primary} />
-          </Pressable>
+          </Pressable> */}
           {isOwner ? (
             <Pressable onPress={handleDelete} hitSlop={8}>
               <Ionicons name="trash-outline" size={22} color={colors.error} />
@@ -2114,35 +2114,35 @@ export default function ItineraryDetailScreen() {
                             )}
                             {isEditing ? (
                               <View style={{ position: "relative", zIndex: summaryPaidByDropdown ? 9999 : 0 }}>
-                              <Pressable
-                                onPress={() => setSummaryPaidByDropdown(!summaryPaidByDropdown)}
-                                style={[sumStyles.cellPayer, { backgroundColor: colors.inputBg, borderColor: colors.primary, borderWidth: 1, borderRadius: 6, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 4, paddingVertical: 4, minWidth: 70 }]}
-                              >
-                                <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: editingSummaryRow.paidBy ? colors.text : colors.textTertiary }} numberOfLines={1}>
-                                  {editingSummaryRow.paidBy || txt.payer}
-                                </Text>
-                                <Ionicons name={summaryPaidByDropdown ? "chevron-up" : "chevron-down"} size={10} color={colors.textSecondary} />
-                              </Pressable>
-                              {summaryPaidByDropdown && (
-                                <View style={[styles.dropdownList, { backgroundColor: colors.card, borderColor: colors.inputBorder, position: "absolute", top: "100%", right: 0, minWidth: 160, zIndex: 9999, elevation: 10, ...(Platform.OS === "web" ? { boxShadow: "0 4px 20px rgba(0,0,0,0.25)" } as any : { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10 }) }]}>
-                                  {tripMembers.map((m) => (
-                                    <Pressable
-                                      key={m.userId}
-                                      onPress={() => {
-                                        setEditingSummaryRow({ ...editingSummaryRow, paidBy: m.userName });
-                                        setSummaryPaidByDropdown(false);
-                                      }}
-                                      style={[styles.dropdownItem, editingSummaryRow.paidBy === m.userName && { backgroundColor: colors.primary + "15" }]}
-                                    >
-                                      <Text style={[styles.dropdownItemText, { color: colors.text }]}>
-                                        {m.userName}{m.isOwner ? " 👑" : ""}
-                                      </Text>
-                                      {editingSummaryRow.paidBy === m.userName && <Ionicons name="checkmark" size={14} color={colors.primary} />}
-                                    </Pressable>
-                                  ))}
-                                </View>
-                              )}
-                            </View>
+                                <Pressable
+                                  onPress={() => setSummaryPaidByDropdown(!summaryPaidByDropdown)}
+                                  style={[sumStyles.cellPayer, { backgroundColor: colors.inputBg, borderColor: colors.primary, borderWidth: 1, borderRadius: 6, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 4, paddingVertical: 4, minWidth: 70 }]}
+                                >
+                                  <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: editingSummaryRow.paidBy ? colors.text : colors.textTertiary }} numberOfLines={1}>
+                                    {editingSummaryRow.paidBy || txt.payer}
+                                  </Text>
+                                  <Ionicons name={summaryPaidByDropdown ? "chevron-up" : "chevron-down"} size={10} color={colors.textSecondary} />
+                                </Pressable>
+                                {summaryPaidByDropdown && (
+                                  <View style={[styles.dropdownList, { backgroundColor: colors.card, borderColor: colors.inputBorder, position: "absolute", top: "100%", right: 0, minWidth: 160, zIndex: 9999, elevation: 10, ...(Platform.OS === "web" ? { boxShadow: "0 4px 20px rgba(0,0,0,0.25)" } as any : { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10 }) }]}>
+                                    {tripMembers.map((m) => (
+                                      <Pressable
+                                        key={m.userId}
+                                        onPress={() => {
+                                          setEditingSummaryRow({ ...editingSummaryRow, paidBy: m.userName });
+                                          setSummaryPaidByDropdown(false);
+                                        }}
+                                        style={[styles.dropdownItem, editingSummaryRow.paidBy === m.userName && { backgroundColor: colors.primary + "15" }]}
+                                      >
+                                        <Text style={[styles.dropdownItemText, { color: colors.text }]}>
+                                          {m.userName}{m.isOwner ? " 👑" : ""}
+                                        </Text>
+                                        {editingSummaryRow.paidBy === m.userName && <Ionicons name="checkmark" size={14} color={colors.primary} />}
+                                      </Pressable>
+                                    ))}
+                                  </View>
+                                )}
+                              </View>
                             ) : (
                               <Text style={[sumStyles.tdCell, sumStyles.cellPayer, { color: act.paidBy ? colors.textSecondary : colors.textTertiary }]} numberOfLines={1}>
                                 {act.paidBy || "—"}

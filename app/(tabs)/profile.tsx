@@ -9,6 +9,8 @@ import {
   ScrollView,
   Switch,
   Modal,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +23,7 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { PREFERENCE_OPTIONS } from "@/lib/seed-data";
 import { t } from "@/lib/i18n";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 function StatItem({ icon, value, label, colors }: { icon: string; value: number; label: string; colors: ReturnType<typeof useThemeColors> }) {
   return (
@@ -37,7 +40,7 @@ export default function ProfileScreen() {
   const { isDark, themeMode, setThemeMode } = useSettings();
   const colors = useThemeColors(isDark);
   const { user, logout, updateProfile, isAdmin, changePassword } = useAuth();
-  const { itineraries, reviews } = useData();
+  const { itineraries, reviews, updateItinerary, importItinerary } = useData();
   const txt = t();
 
   const [editing, setEditing] = useState(false);
@@ -50,6 +53,11 @@ export default function ProfileScreen() {
   const [confirmPwd, setConfirmPwd] = useState("");
   const [pwdError, setPwdError] = useState("");
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  // Join by code state
+  const [joinCode, setJoinCode] = useState("");
+  const [joinCodeStatus, setJoinCodeStatus] = useState<"idle" | "loading" | "success" | "error" | "already">("idle");
+  const [joinCodeError, setJoinCodeError] = useState("");
 
   const myTripsCount = useMemo(() => itineraries.filter((i) => i.userId === user?.id).length, [itineraries, user]);
   const myReviewsCount = useMemo(() => reviews.filter((r) => r.userId === user?.id).length, [reviews, user]);
@@ -118,6 +126,87 @@ export default function ProfileScreen() {
   };
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
+
+  const handleJoinByCode = async () => {
+    const code = joinCode.trim();
+    if (!code) {
+      if (Platform.OS === "web") alert(txt.itinerary.codeRequired);
+      else Alert.alert("", txt.itinerary.codeRequired);
+      return;
+    }
+    if (!user) return;
+    setJoinCodeStatus("loading");
+    setJoinCodeError("");
+    try {
+      const baseUrl = getApiUrl().replace(/\/$/, "");
+      const res = await fetch(`${baseUrl}/api/share/${code}`, { headers: getApiHeaders() });
+      if (!res.ok) {
+        setJoinCodeStatus("error");
+        setJoinCodeError(txt.itinerary.invalidCode);
+        return;
+      }
+      const sharedTrip = await res.json();
+
+      if (sharedTrip.userId === user.id) {
+        setJoinCodeStatus("already");
+        return;
+      }
+      if ((sharedTrip.companions || []).some((c: any) => c.userId === user.id)) {
+        setJoinCodeStatus("already");
+        return;
+      }
+
+      if (sharedTrip.status === "completed") {
+        setJoinCodeStatus("error");
+        setJoinCodeError("Không thể tham gia chuyến đi đã hoàn thành.");
+        return;
+      }
+
+      const role = sharedTrip.sharePermission || "viewer";
+      const companion = {
+        userId: user.id,
+        userName: user.fullName || user.username || "Người dùng",
+        role,
+        joinedAt: new Date().toISOString(),
+      };
+
+      try {
+        const joinRes = await fetch(`${baseUrl}/api/share/join`, {
+          method: "POST",
+          headers: { ...getApiHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ shareCode: code, companion }),
+        });
+        if (joinRes.ok) {
+          const joinData = await joinRes.json();
+          if (joinData.alreadyJoined) {
+            setJoinCodeStatus("already");
+            return;
+          }
+        }
+      } catch (e) { console.log("Failed to sync join to server:", e); }
+
+      const localTrip = itineraries.find((i) => i.id === sharedTrip.id);
+      if (localTrip) {
+        const existing = localTrip.companions || [];
+        if (existing.some((c) => c.userId === user.id)) {
+          setJoinCodeStatus("already");
+          return;
+        }
+        await updateItinerary(localTrip.id, { companions: [...existing, companion] });
+      } else {
+        const tripToSave = { ...sharedTrip, companions: [...(sharedTrip.companions || []), companion] };
+        await importItinerary(tripToSave);
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setJoinCodeStatus("success");
+      setJoinCode("");
+    } catch (err: any) {
+      console.error("Join by code error:", err);
+      setJoinCodeStatus("error");
+      setJoinCodeError(err?.message || "Không thể tham gia. Vui lòng thử lại.");
+    }
+  };
 
   const themeModes: { key: "system" | "light" | "dark"; label: string; icon: string }[] = [
     { key: "system", label: txt.settings.system, icon: "phone-portrait-outline" },
@@ -349,6 +438,85 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
           </Pressable>
         )}
+
+        {/* Join by code section */}
+        <View style={pStyles.section}>
+          <View style={pStyles.sectionHeader}>
+            <Ionicons name="enter-outline" size={18} color={colors.primary} />
+            <Text style={[pStyles.sectionTitle, { color: colors.text }]}>{txt.itinerary.joinByCode}</Text>
+          </View>
+          <View style={[pStyles.infoCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, padding: 16, gap: 12 }]}>
+            <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary }}>
+              {txt.itinerary.joinByCodeHint}
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput
+                style={[pStyles.pwdInput, {
+                  flex: 1,
+                  color: colors.text,
+                  backgroundColor: colors.inputBg,
+                  borderColor: joinCodeStatus === "error" ? colors.error : colors.inputBorder,
+                }]}
+                value={joinCode}
+                onChangeText={(v) => { setJoinCode(v); setJoinCodeStatus("idle"); }}
+                placeholder={txt.itinerary.enterCodePlaceholder}
+                placeholderTextColor={colors.textTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={joinCodeStatus !== "loading"}
+              />
+              <Pressable
+                onPress={handleJoinByCode}
+                disabled={joinCodeStatus === "loading" || !joinCode.trim()}
+                style={({ pressed }) => [{
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  backgroundColor: (!joinCode.trim() || joinCodeStatus === "loading") ? colors.textTertiary + "40" : colors.primary,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  opacity: pressed ? 0.9 : 1,
+                }]}
+              >
+                {joinCodeStatus === "loading" ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="enter-outline" size={18} color="#fff" />
+                    <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" }}>{txt.itinerary.joinTrip}</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+            {joinCodeStatus === "success" && (
+              <Pressable
+                onPress={() => {
+                  setJoinCodeStatus("idle");
+                  router.push("/(tabs)/trips");
+                }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.success + "12", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10 }}
+              >
+                <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.success, flex: 1 }}>{txt.itinerary.joinSuccess}</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.success} />
+              </Pressable>
+            )}
+            {joinCodeStatus === "already" && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.primary + "12", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10 }}>
+                <Ionicons name="information-circle" size={18} color={colors.primary} />
+                <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.primary, flex: 1 }}>{txt.itinerary.alreadyJoined}</Text>
+              </View>
+            )}
+            {joinCodeStatus === "error" && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.error + "12", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10 }}>
+                <Ionicons name="alert-circle" size={18} color={colors.error} />
+                <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: colors.error, flex: 1 }}>{joinCodeError || txt.itinerary.invalidCode}</Text>
+              </View>
+            )}
+          </View>
+        </View>
 
         <Pressable
           onPress={handleLogout}

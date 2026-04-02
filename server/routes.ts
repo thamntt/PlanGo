@@ -269,9 +269,9 @@ async function searchPlacesSerpApi(query: string) {
         longitude: r.gps_coordinates?.longitude || 0,
         rating: r.rating || 0,
         reviewCount: r.reviews || 0,
-        types: r.type ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
-        primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
-        primaryTypeDisplay: r.type || "Địa điểm",
+        types: typeof r.type === "string" ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
+        primaryType: typeof r.type === "string" ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
+        primaryTypeDisplay: (typeof r.type === "string" ? r.type : null) || "Địa điểm",
         editorialSummary: r.description || "",
         photos: extractPhotos(r),
         website: r.website || "",
@@ -340,9 +340,9 @@ async function searchPlacesSerpApi(query: string) {
         longitude: r.gps_coordinates?.longitude || 0,
         rating: r.rating || 0,
         reviewCount: r.reviews || 0,
-        types: r.type ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
-        primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
-        primaryTypeDisplay: r.type || "Địa điểm",
+        types: typeof r.type === "string" ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
+        primaryType: typeof r.type === "string" ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
+        primaryTypeDisplay: (typeof r.type === "string" ? r.type : null) || "Địa điểm",
         editorialSummary: r.description || r.extensions?.join(", ") || "",
         photos,
         website: r.website || "",
@@ -519,9 +519,9 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
       longitude: r.gps_coordinates?.longitude || 0,
       rating,
       reviewCount,
-      types: r.type ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
-      primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
-      primaryTypeDisplay: r.type || "Địa điểm",
+      types: typeof r.type === "string" ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
+      primaryType: typeof r.type === "string" ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
+      primaryTypeDisplay: (typeof r.type === "string" ? r.type : null) || "Địa điểm",
       editorialSummary: r.description || r.extensions?.join(", ") || "",
       website: r.website || "",
       phone: r.phone || "",
@@ -1369,7 +1369,7 @@ function extractPlaceName(title: string): string {
 // ══════════════════════════════════════════════════════════════
 // Helper: Extract activities from itinerary days and save as POIs
 // ══════════════════════════════════════════════════════════════
-async function extractAndSavePOIsFromItinerary(days: any[]): Promise<number> {
+async function extractAndSavePOIsFromItinerary(days: any[], destinationId?: string): Promise<number> {
   if (!days || !Array.isArray(days) || days.length === 0) return 0;
 
   let savedCount = 0;
@@ -1382,7 +1382,7 @@ async function extractAndSavePOIsFromItinerary(days: any[]): Promise<number> {
     }
   }
 
-  console.log(`[POI-Save] Extracting POIs from ${allActivities.length} activities...`);
+  console.log(`[POI-Save] Extracting POIs from ${allActivities.length} activities (destinationId=${destinationId || 'none'})...`);
 
   // Map activityType to POI type
   const poiTypeMap: Record<string, string> = {
@@ -1401,6 +1401,9 @@ async function extractAndSavePOIsFromItinerary(days: any[]): Promise<number> {
       // Extract place name from title
       const placeName = extractPlaceName(act.title);
       if (!placeName || placeName.length < 3) continue;
+
+      // Resolve the destinationId: use activity's own, fallback to passed-in
+      const resolvedDestId = act.destinationId || destinationId || "";
 
       // Dedup: check by googlePlaceId first, then by name
       let existingPoi = null;
@@ -1426,6 +1429,10 @@ async function extractAndSavePOIsFromItinerary(days: any[]): Promise<number> {
           const existing = existingPoi.openingHours as any[];
           if (!existing || existing.length === 0) updates.openingHours = act.openingHours;
         }
+        // Also update destinationId if it was missing
+        if (resolvedDestId && (!existingPoi.destinationId || existingPoi.destinationId === "")) {
+          updates.destinationId = resolvedDestId;
+        }
         if (Object.keys(updates).length > 0) {
           await storage.updatePoi(existingPoi.id, updates);
         }
@@ -1433,6 +1440,7 @@ async function extractAndSavePOIsFromItinerary(days: any[]): Promise<number> {
       }
 
       await storage.createPoi({
+        destinationId: resolvedDestId,
         name: placeName,
         type: poiTypeMap[act.activityType] || "attraction",
         address: act.address || "",
@@ -1750,8 +1758,22 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
       }
     }
 
+    // ═══ Resolve destinationId from destination name ═══
+    let resolvedDestId = "";
+    try {
+      const destRecord = await storage.getDestinationByName(destination);
+      if (destRecord) {
+        resolvedDestId = destRecord.id;
+        console.log(`[POI] Resolved destination "${destination}" → id=${resolvedDestId}`);
+      } else {
+        console.log(`[POI] No destination found for "${destination}", POIs will have empty destinationId`);
+      }
+    } catch (err) {
+      console.warn(`[POI] Failed to resolve destination:`, err);
+    }
+
     // ═══ Save enriched activities as POIs (dedup by googlePlaceId or name) ═══
-    console.log(`[POI] Saving POIs from ${allActivities.length} activities...`);
+    console.log(`[POI] Saving POIs from ${allActivities.length} activities (destinationId=${resolvedDestId || 'none'})...`);
     let savedCount = 0;
     for (const act of allActivities) {
       try {
@@ -1781,6 +1803,10 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
             updates.latitude = act.latitude;
             updates.longitude = act.longitude;
           }
+          // Also update destinationId if it was missing
+          if (resolvedDestId && (!existingPoi.destinationId || existingPoi.destinationId === "")) {
+            updates.destinationId = resolvedDestId;
+          }
           if (Object.keys(updates).length > 0) {
             await storage.updatePoi(existingPoi.id, updates);
           }
@@ -1797,6 +1823,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
         };
 
         await storage.createPoi({
+          destinationId: resolvedDestId,
           name: placeName,
           type: poiTypeMap[act.activityType] || "attraction",
           address: act.address || "",
@@ -2215,9 +2242,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Extract and save POIs from itinerary activities
       if (req.body.days && Array.isArray(req.body.days)) {
-        extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
-          console.warn("[POI-Save] Background POI extraction failed:", err)
-        );
+        // Resolve destinationId from the itinerary's destination name
+        const destName = req.body.destination || "";
+        storage.getDestinationByName(destName).then((dest) => {
+          const destId = dest?.id || "";
+          extractAndSavePOIsFromItinerary(req.body.days, destId).catch((err) =>
+            console.warn("[POI-Save] Background POI extraction failed:", err)
+          );
+        }).catch(() => {
+          extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
+            console.warn("[POI-Save] Background POI extraction failed:", err)
+          );
+        });
       }
 
       res.status(201).json(itin);
@@ -2232,9 +2268,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Extract and save POIs from updated itinerary activities
     if (req.body.days && Array.isArray(req.body.days)) {
-      extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
-        console.warn("[POI-Save] Background POI extraction failed:", err)
-      );
+      // Resolve destinationId — use req.body.destination or the stored itinerary's destination
+      const destName = req.body.destination || (itin as any).destination || "";
+      storage.getDestinationByName(destName).then((dest) => {
+        const destId = dest?.id || "";
+        extractAndSavePOIsFromItinerary(req.body.days, destId).catch((err) =>
+          console.warn("[POI-Save] Background POI extraction failed:", err)
+        );
+      }).catch(() => {
+        extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
+          console.warn("[POI-Save] Background POI extraction failed:", err)
+        );
+      });
     }
 
     res.json(itin);

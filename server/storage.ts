@@ -39,6 +39,7 @@ export interface IStorage {
 
   // Destinations
   getDestination(id: string): Promise<Destination | undefined>;
+  getDestinationByName(name: string): Promise<Destination | undefined>;
   getDestinations(): Promise<Destination[]>;
   createDestination(dest: InsertDestination): Promise<Destination>;
   updateDestination(id: string, data: Partial<Destination>): Promise<Destination | undefined>;
@@ -132,6 +133,16 @@ export class DatabaseStorage implements IStorage {
   async getDestination(id: string): Promise<Destination | undefined> {
     const [dest] = await db.select().from(destinations).where(eq(destinations.id, id));
     return dest;
+  }
+
+  async getDestinationByName(name: string): Promise<Destination | undefined> {
+    const allDests = await db.select().from(destinations);
+    const lower = name.toLowerCase().trim();
+    return allDests.find((d) =>
+      d.name?.toLowerCase().trim() === lower ||
+      d.name?.toLowerCase().includes(lower) ||
+      lower.includes(d.name?.toLowerCase() || "")
+    );
   }
 
   async getDestinations(): Promise<Destination[]> {
