@@ -12,6 +12,7 @@ import { formatVND } from "@/lib/storage";
 import { t } from "@/lib/i18n";
 import type { Itinerary } from "@/lib/storage";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
+import { setPendingRedirect } from "@/app/_layout";
 
 function getServerUrl(): string {
   return getApiUrl().replace(/\/$/, "");
@@ -44,6 +45,8 @@ export default function JoinTripScreen() {
       return;
     }
     if (!user) {
+      // Set pending redirect so AuthGate redirects back here after login
+      setPendingRedirect(`/join/${code}`);
       router.replace({ pathname: "/(auth)/login", params: { redirect: `/join/${code}` } });
       return;
     }
@@ -99,7 +102,23 @@ export default function JoinTripScreen() {
         joinedAt: new Date().toISOString(),
       };
 
-      // Check if trip exists locally (same server/database)
+      // Step 1: Notify server shared_trips table first (source of truth for shared data)
+      try {
+        const joinRes = await fetch(`${getServerUrl()}/api/share/join`, {
+          method: "POST",
+          headers: { ...getApiHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ shareCode: code, companion }),
+        });
+        if (joinRes.ok) {
+          const joinData = await joinRes.json();
+          if (joinData.alreadyJoined) {
+            setStatus("already");
+            return;
+          }
+        }
+      } catch (e) { console.log("Failed to sync join to server:", e); }
+
+      // Step 2: Update local itinerary if it exists (same database)
       const localTrip = itineraries.find((i) => i.id === sharedTrip.id);
       if (localTrip) {
         const existing = localTrip.companions || [];
@@ -109,19 +128,8 @@ export default function JoinTripScreen() {
         }
         const updated = [...existing, companion];
         await updateItinerary(localTrip.id, { companions: updated });
-      }
-
-      // Also notify server shared_trips table
-      try {
-        await fetch(`${getServerUrl()}/api/share/join`, {
-          method: "POST",
-          headers: { ...getApiHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ shareCode: code, companion }),
-        });
-      } catch (e) { console.log("Failed to sync join to server:", e); }
-
-      // If trip was from server (not local), save it locally so it appears in the user's trip list
-      if (!localTrip && sharedTrip) {
+      } else {
+        // Trip not in local state — import it so it appears in the user's trip list
         const tripToSave = { ...sharedTrip, companions: [...(sharedTrip.companions || []), companion] };
         await importItinerary(tripToSave);
       }

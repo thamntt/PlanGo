@@ -18,6 +18,7 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { validateUsername, validatePassword } from "@/lib/validation";
 import { t } from "@/lib/i18n";
+import { setPendingRedirect } from "@/app/_layout";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -50,6 +51,8 @@ export default function LoginScreen() {
     setLoading(false);
     if (result.success) {
       if (redirect) {
+        // Set pending redirect so AuthGate also knows where to go
+        setPendingRedirect(redirect);
         router.replace(redirect as any);
       } else {
         router.replace(isAdmin ? "/admin" : "/(tabs)");

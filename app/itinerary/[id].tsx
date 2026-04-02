@@ -428,30 +428,43 @@ export default function ItineraryDetailScreen() {
   };
 
   const handleGenerateLink = async () => {
-    const code = itinerary.shareCode || generateShareCode();
-    await updateItinerary(itinerary.id, {
-      shareCode: code,
-      sharePermission: sharePermission,
-      isShared: true,
-    });
-    // Sync to server so other browsers can find this trip
     try {
-      const baseUrl = getApiUrl().replace(/\/$/, "");
+      const code = itinerary.shareCode || generateShareCode();
+      // Update local itinerary first
+      await updateItinerary(itinerary.id, {
+        shareCode: code,
+        sharePermission: sharePermission,
+        isShared: true,
+      });
+      // Build the complete updated itinerary for server sync
       const updatedItinerary = { ...itinerary, shareCode: code, sharePermission, isShared: true };
-      await fetch(`${baseUrl}/api/share`, {
+      // Sync to server so other users can find this trip via share code
+      const baseUrl = getApiUrl().replace(/\/$/, "");
+      const syncRes = await fetch(`${baseUrl}/api/share`, {
         method: "POST",
         headers: { ...getApiHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ shareCode: code, itinerary: updatedItinerary }),
       });
-    } catch (e) { console.log("Failed to sync share to server:", e); }
-    const shareBaseUrl = Platform.OS === "web" ? `${window.location.protocol}//${window.location.host}` : getApiUrl().replace(/\/$/, "");
-    const link = `${shareBaseUrl}/join/${code}`;
-    await Clipboard.setStringAsync(link);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (Platform.OS === "web") {
-      alert(txt.linkCopied);
-    } else {
-      Alert.alert(txt.linkCopied);
+      if (!syncRes.ok) {
+        console.warn("Share sync failed:", syncRes.status, await syncRes.text());
+      }
+      // Build the share link
+      const shareBaseUrl = Platform.OS === "web" ? `${window.location.protocol}//${window.location.host}` : baseUrl;
+      const link = `${shareBaseUrl}/join/${code}`;
+      await Clipboard.setStringAsync(link);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS === "web") {
+        alert(txt.linkCopied);
+      } else {
+        Alert.alert(txt.linkCopied, link);
+      }
+    } catch (e: any) {
+      console.error("handleGenerateLink error:", e);
+      if (Platform.OS === "web") {
+        alert("Không thể tạo liên kết chia sẻ. Vui lòng thử lại.");
+      } else {
+        Alert.alert("Lỗi", "Không thể tạo liên kết chia sẻ. Vui lòng thử lại.");
+      }
     }
   };
 

@@ -70,6 +70,7 @@ function setupCors(app: express.Application) {
 function setupBodyParsing(app: express.Application) {
   app.use(
     express.json({
+      limit: "10mb",
       verify: (req, _res, buf) => {
         req.rawBody = buf;
       },
