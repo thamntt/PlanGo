@@ -6,9 +6,9 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Stack, useRouter, useSegments, useLocalSearchParams } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -22,14 +22,14 @@ SplashScreen.preventAutoHideAsync();
 // Global pending redirect — set by login/join screens, consumed by AuthGate
 let _pendingRedirect: string | null = null;
 export function setPendingRedirect(path: string | null) {
-  _pendingRedirect = path;
+  // Only accept valid non-empty string paths
+  _pendingRedirect = (path && typeof path === "string" && path.startsWith("/")) ? path : null;
 }
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, isLoading, isAdmin } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const didRedirect = useRef(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -41,10 +41,15 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       router.replace("/(auth)/login");
     } else if (user && inAuthGroup) {
       // Check if there is a pending redirect (e.g. from /join/[code] → login → back to /join/[code])
-      if (_pendingRedirect) {
-        const target = _pendingRedirect;
-        _pendingRedirect = null;
-        router.replace(target as any);
+      const redirect = _pendingRedirect;
+      _pendingRedirect = null; // Always clear to prevent stale redirects
+      if (redirect) {
+        try {
+          router.replace(redirect as any);
+        } catch (e) {
+          console.warn("[AuthGate] Redirect failed, going to tabs:", e);
+          router.replace(isAdmin ? "/admin" : "/(tabs)");
+        }
       } else {
         router.replace(isAdmin ? "/admin" : "/(tabs)");
       }

@@ -61,8 +61,6 @@ export default function DestinationDetailScreen() {
   const destination = destinations.find((d) => d.id === id);
 
 
-
-
   const [imageIndex, setImageIndex] = useState(0);
 
   // SerpAPI reviews state — must be declared before any early returns
@@ -387,7 +385,6 @@ export default function DestinationDetailScreen() {
               </Pressable>
             </>
           ) : null}
-
 
         </View>
       </ScrollView>

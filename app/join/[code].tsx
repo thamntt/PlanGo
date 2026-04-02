@@ -196,7 +196,7 @@ export default function JoinTripScreen() {
             <Text style={[styles.statusTitle, { color: colors.text }]}>{txt.alreadyJoined}</Text>
             <Pressable
               onPress={() => {
-                if (itinerary) router.replace({ pathname: "/itinerary/[id]", params: { id: itinerary.id } });
+                if (itinerary?.id) router.replace({ pathname: "/itinerary/[id]", params: { id: itinerary.id } });
                 else router.replace("/(tabs)/trips");
               }}
               style={[styles.actionBtn, { backgroundColor: colors.primary }]}
@@ -265,7 +265,7 @@ export default function JoinTripScreen() {
             <Text style={[styles.statusTitle, { color: colors.text }]}>{txt.joinSuccess}</Text>
             <Pressable
               onPress={() => {
-                if (itinerary) router.replace({ pathname: "/itinerary/[id]", params: { id: itinerary.id } });
+                if (itinerary?.id) router.replace({ pathname: "/itinerary/[id]", params: { id: itinerary.id } });
                 else router.replace("/(tabs)/trips");
               }}
               style={[styles.actionBtn, { backgroundColor: colors.primary }]}

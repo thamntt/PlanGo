@@ -867,8 +867,11 @@ export default function ItineraryDetailScreen() {
   };
 
   const submitActivityReview = async () => {
-    if (!reviewModal || !reviewComment.trim()) return;
-    const taggedComment = reviewModal.activityId ? `${reviewComment.trim()} [activity:${reviewModal.activityId}]` : reviewComment.trim();
+    if (!reviewModal) return;
+    const commentText = reviewComment.trim();
+    const taggedComment = reviewModal.activityId
+      ? (commentText ? `${commentText} [activity:${reviewModal.activityId}]` : `[activity:${reviewModal.activityId}]`)
+      : commentText;
     
     // Find matching POI for this activity
     let poiId = "";
@@ -2091,7 +2094,7 @@ export default function ItineraryDetailScreen() {
                       {allActivities.map((act, idx) => {
                         const isEditing = editingSummaryRow?.actId === act.id;
                         return (
-                          <View key={act.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40" }]}>
+                          <View key={act.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40", zIndex: isEditing && summaryPaidByDropdown ? 9999 : 0, overflow: "visible" as any }]}>
                             <Text style={[sumStyles.tdCell, sumStyles.cellDay, { color: colors.textSecondary }]} numberOfLines={1}>{act._dayIdx + 1}</Text>
                             <View style={sumStyles.cellName}>
                               <Text style={[sumStyles.tdCell, { color: colors.text }]} numberOfLines={1}>{act.title}</Text>
@@ -2110,10 +2113,10 @@ export default function ItineraryDetailScreen() {
                               <Text style={[sumStyles.tdCell, sumStyles.cellCost, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>{formatVND(act.actualCost || 0)}</Text>
                             )}
                             {isEditing ? (
-                              <View style={{ position: "relative" }}>
+                              <View style={{ position: "relative", zIndex: summaryPaidByDropdown ? 9999 : 0 }}>
                               <Pressable
                                 onPress={() => setSummaryPaidByDropdown(!summaryPaidByDropdown)}
-                                style={[sumStyles.inlineInput, sumStyles.cellPayer, { backgroundColor: colors.inputBg, borderColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 }]}
+                                style={[sumStyles.cellPayer, { backgroundColor: colors.inputBg, borderColor: colors.primary, borderWidth: 1, borderRadius: 6, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 4, paddingVertical: 4, minWidth: 70 }]}
                               >
                                 <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: editingSummaryRow.paidBy ? colors.text : colors.textTertiary }} numberOfLines={1}>
                                   {editingSummaryRow.paidBy || txt.payer}
@@ -2121,7 +2124,7 @@ export default function ItineraryDetailScreen() {
                                 <Ionicons name={summaryPaidByDropdown ? "chevron-up" : "chevron-down"} size={10} color={colors.textSecondary} />
                               </Pressable>
                               {summaryPaidByDropdown && (
-                                <View style={[styles.dropdownList, { backgroundColor: colors.card, borderColor: colors.inputBorder, position: "absolute", top: "100%", right: 0, minWidth: 120, zIndex: 999 }]}>
+                                <View style={[styles.dropdownList, { backgroundColor: colors.card, borderColor: colors.inputBorder, position: "absolute", top: "100%", right: 0, minWidth: 160, zIndex: 9999, elevation: 10, ...(Platform.OS === "web" ? { boxShadow: "0 4px 20px rgba(0,0,0,0.25)" } as any : { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10 }) }]}>
                                   {tripMembers.map((m) => (
                                     <Pressable
                                       key={m.userId}
@@ -4272,7 +4275,6 @@ const sumStyles = StyleSheet.create({
   container: {
     borderRadius: 16,
     borderWidth: 1,
-    overflow: "hidden",
     marginBottom: 12,
   },
   header: {
@@ -4292,7 +4294,7 @@ const sumStyles = StyleSheet.create({
     borderTopColor: "rgba(128,128,128,0.15)",
   },
   sectionTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 },
-  sectionBody: { paddingHorizontal: 10, paddingBottom: 10 },
+  sectionBody: { paddingHorizontal: 10, paddingBottom: 10, overflow: "visible" as any },
   // Budget overview
   budgetRow: {
     flexDirection: "row",
