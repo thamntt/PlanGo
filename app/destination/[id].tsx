@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -56,12 +56,19 @@ export default function DestinationDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, itineraries } = useData();
+  const { destinations, itineraries, reviews, addReview, updateReview, deleteReview } = useData();
 
   const destination = destinations.find((d) => d.id === id);
 
 
   const [imageIndex, setImageIndex] = useState(0);
+
+  // ─── User review form state ─────────────────────
+  const [userRating, setUserRating] = useState(0);
+  const [userComment, setUserComment] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
+  const [showAllUserReviews, setShowAllUserReviews] = useState(false);
 
   // SerpAPI reviews state — must be declared before any early returns
   const [serpReviews, setSerpReviews] = useState<any[]>([]);
@@ -102,6 +109,108 @@ export default function DestinationDetailScreen() {
       fetchSerpReviews(destination.googlePlaceId);
     }
   }, [destination?.googlePlaceId]);
+
+  // ─── User reviews for this destination ──────────
+  const destUserReviews = useMemo(() => {
+    if (!id) return [];
+    return reviews
+      .filter((r) => r.destinationId === id && !r.activityId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [reviews, id]);
+
+  const myExistingReview = useMemo(() => {
+    if (!user) return null;
+    return destUserReviews.find((r) => r.userId === user.id) || null;
+  }, [destUserReviews, user]);
+
+  // Rating distribution (5→1)
+  const ratingDistribution = useMemo(() => {
+    const dist = [0, 0, 0, 0, 0]; // index 0→5star, 1→4star, etc.
+    destUserReviews.forEach((r) => {
+      if (r.rating >= 1 && r.rating <= 5) dist[5 - r.rating]++;
+    });
+    return dist;
+  }, [destUserReviews]);
+
+  const averageUserRating = useMemo(() => {
+    if (destUserReviews.length === 0) return 0;
+    const sum = destUserReviews.reduce((acc, r) => acc + r.rating, 0);
+    return Math.round((sum / destUserReviews.length) * 10) / 10;
+  }, [destUserReviews]);
+
+  // Submit / update review
+  const handleSubmitReview = useCallback(async () => {
+    if (!user || userRating === 0) {
+      if (Platform.OS === "web") alert("Vui lòng chọn số sao");
+      else Alert.alert("Lỗi", "Vui lòng chọn số sao");
+      return;
+    }
+    if (!userComment.trim()) {
+      if (Platform.OS === "web") alert(t().destination.pleaseComment);
+      else Alert.alert("Lỗi", t().destination.pleaseComment);
+      return;
+    }
+    setSubmittingReview(true);
+    try {
+      if (editingReviewId) {
+        await updateReview(editingReviewId, { rating: userRating, comment: userComment.trim() });
+      } else {
+        await addReview({
+          userId: user.id,
+          userName: user.fullName || user.username,
+          destinationId: id!,
+          rating: userRating,
+          comment: userComment.trim(),
+        });
+      }
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setUserRating(0);
+      setUserComment("");
+      setEditingReviewId(null);
+    } catch (err) {
+      console.warn("Review submit error:", err);
+      if (Platform.OS === "web") alert("Không thể gửi đánh giá");
+      else Alert.alert("Lỗi", "Không thể gửi đánh giá");
+    } finally {
+      setSubmittingReview(false);
+    }
+  }, [user, userRating, userComment, editingReviewId, id, addReview, updateReview]);
+
+  const handleEditReview = useCallback((review: typeof destUserReviews[0]) => {
+    setEditingReviewId(review.id);
+    setUserRating(review.rating);
+    setUserComment(review.comment);
+  }, []);
+
+  const handleDeleteReview = useCallback(async (reviewId: string) => {
+    const doDelete = async () => {
+      try {
+        await deleteReview(reviewId);
+        if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (editingReviewId === reviewId) {
+          setEditingReviewId(null);
+          setUserRating(0);
+          setUserComment("");
+        }
+      } catch (err) {
+        console.warn("Delete review error:", err);
+      }
+    };
+    if (Platform.OS === "web") {
+      if (confirm(t().itinerary.deleteReviewConfirm)) await doDelete();
+    } else {
+      Alert.alert(t().itinerary.deleteReview, t().itinerary.deleteReviewConfirm, [
+        { text: t().common.cancel, style: "cancel" },
+        { text: t().common.delete, style: "destructive", onPress: doDelete },
+      ]);
+    }
+  }, [deleteReview, editingReviewId]);
+
+  const cancelEdit = useCallback(() => {
+    setEditingReviewId(null);
+    setUserRating(0);
+    setUserComment("");
+  }, []);
 
   if (!destination) {
     return (
@@ -386,6 +495,107 @@ export default function DestinationDetailScreen() {
             </>
           ) : null}
 
+          {/* ═══════ User Reviews Section ═══════ */}
+          <View style={{ marginTop: 16 }}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t().destination.userReviews}</Text>
+
+            {/* Rating Summary */}
+            {destUserReviews.length > 0 && (
+              <View style={[styles.ratingSummaryCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                <View style={styles.ratingSummaryLeft}>
+                  <Text style={[styles.ratingSummaryBig, { color: colors.text }]}>{averageUserRating}</Text>
+                  <StarRating rating={Math.round(averageUserRating)} size={18} colors={colors} />
+                  <Text style={[styles.ratingSummaryCount, { color: colors.textTertiary }]}>
+                    {destUserReviews.length} {t().itinerary.activityReviewCount}
+                  </Text>
+                </View>
+                <View style={styles.ratingSummaryRight}>
+                  {[5, 4, 3, 2, 1].map((star, idx) => {
+                    const count = ratingDistribution[idx];
+                    const pct = destUserReviews.length > 0 ? (count / destUserReviews.length) * 100 : 0;
+                    return (
+                      <View key={star} style={styles.ratingBarRow}>
+                        <Text style={[styles.ratingBarLabel, { color: colors.textTertiary }]}>{star}</Text>
+                        <Ionicons name="star" size={10} color={colors.star} />
+                        <View style={[styles.ratingBarTrack, { backgroundColor: colors.inputBg }]}>
+                          <View style={[styles.ratingBarFill, { width: `${pct}%`, backgroundColor: colors.star }]} />
+                        </View>
+                        <Text style={[styles.ratingBarCount, { color: colors.textTertiary }]}>{count}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+
+
+            {/* User Reviews List */}
+            {destUserReviews.length === 0 ? (
+              <View style={styles.emptyReviews}>
+                <Ionicons name="chatbubble-ellipses-outline" size={32} color={colors.textTertiary} />
+                <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{t().destination.noReviews}</Text>
+              </View>
+            ) : (
+              <>
+                {(showAllUserReviews ? destUserReviews : destUserReviews.slice(0, 3)).map((review) => {
+                  const isOwn = user?.id === review.userId;
+                  const dateStr = new Date(review.createdAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+                  const avatarColors = ["#6C5CE7", "#00B894", "#E17055", "#0984E3", "#FDCB6E", "#E84393"];
+                  const avatarBg = avatarColors[review.userName.charCodeAt(0) % avatarColors.length];
+                  return (
+                    <View key={review.id} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderLeftWidth: 3, borderLeftColor: isOwn ? colors.primary : colors.accent }]}>
+                      <View style={styles.reviewHeader}>
+                        <View style={[styles.reviewAvatar, { backgroundColor: avatarBg }]}>
+                          <Text style={styles.reviewAvatarText}>{review.userName.charAt(0).toUpperCase()}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <Text style={[styles.reviewName, { color: colors.text }]}>{review.userName}</Text>
+                            {isOwn && (
+                              <View style={{ backgroundColor: colors.primary + "18", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8 }}>
+                                <Text style={{ fontSize: 9, fontFamily: "Inter_600SemiBold", color: colors.primary }}>{t().itinerary.you}</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={[styles.reviewDate, { color: colors.textTertiary }]}>{dateStr}</Text>
+                        </View>
+                        <StarRating rating={review.rating} size={14} colors={colors} />
+                      </View>
+                      {review.comment.length > 0 && (
+                        <Text style={[styles.reviewComment, { color: colors.textSecondary }]}>{review.comment}</Text>
+                      )}
+                      {isOwn && (
+                        <View style={{ flexDirection: "row", gap: 12, marginTop: 6 }}>
+                          <Pressable onPress={() => handleEditReview(review)} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            <Ionicons name="create-outline" size={14} color={colors.primary} />
+                            <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: colors.primary }}>{t().itinerary.editReview}</Text>
+                          </Pressable>
+                          <Pressable onPress={() => handleDeleteReview(review.id)} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            <Ionicons name="trash-outline" size={14} color="#E17055" />
+                            <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: "#E17055" }}>{t().itinerary.deleteReview}</Text>
+                          </Pressable>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {destUserReviews.length > 3 && (
+                  <Pressable
+                    onPress={() => setShowAllUserReviews((v) => !v)}
+                    style={({ pressed }) => [styles.seeMoreGoogleBtn, { backgroundColor: colors.inputBg, opacity: pressed ? 0.8 : 1 }]}
+                  >
+                    <Ionicons name={showAllUserReviews ? "chevron-up" : "chatbubbles-outline"} size={16} color={colors.primary} />
+                    <Text style={[styles.seeMoreGoogleText, { color: colors.primary }]}>
+                      {showAllUserReviews ? t().itinerary.seeLess : t().itinerary.moreReviews(destUserReviews.length - 3)}
+                    </Text>
+                  </Pressable>
+                )}
+              </>
+            )}
+          </View>
+
         </View>
       </ScrollView>
     </View>
@@ -491,4 +701,15 @@ const styles = StyleSheet.create({
   sourceBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, alignSelf: "flex-start", marginTop: 2 },
   sourceText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   notFound: { fontSize: 16, fontFamily: "Inter_500Medium" },
+  ratingSummaryCard: { borderRadius: 14, borderWidth: 1, padding: 16, flexDirection: "row", gap: 16, marginBottom: 8 },
+  ratingSummaryLeft: { alignItems: "center", justifyContent: "center", minWidth: 70, gap: 4 },
+  ratingSummaryBig: { fontSize: 36, fontFamily: "Inter_700Bold" },
+  ratingSummaryCount: { fontSize: 11, fontFamily: "Inter_400Regular" },
+  ratingSummaryRight: { flex: 1, justifyContent: "center", gap: 3 },
+  ratingBarRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  ratingBarLabel: { fontSize: 11, fontFamily: "Inter_500Medium", width: 12, textAlign: "right" },
+  ratingBarTrack: { flex: 1, height: 6, borderRadius: 3, overflow: "hidden" },
+  ratingBarFill: { height: "100%", borderRadius: 3 },
+  ratingBarCount: { fontSize: 11, fontFamily: "Inter_500Medium", width: 18, textAlign: "right" },
+  reviewFormTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
 });
