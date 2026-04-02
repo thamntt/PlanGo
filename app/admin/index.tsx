@@ -294,7 +294,7 @@ export default function AdminDashboard() {
   const mapUser = (u: any): UserData => ({
     id: u.id, username: u.username, password: u.password || "",
     email: u.email || "", fullName: u.fullName || u.full_name || "",
-    avatar: u.avatar || "",
+    phone: u.phone || "", avatar: u.avatar || "",
     role: u.role || "user", isLocked: u.isLocked ?? u.is_locked ?? false,
     preferences: u.preferences || [], createdAt: u.createdAt || u.created_at || "",
   });
@@ -624,7 +624,7 @@ export default function AdminDashboard() {
           if (userDetailId) { setUserDetailId(null); return; }
           if (destDetailId) { setDestDetailId(null); return; }
           if (reviewDetailId) { setReviewDetailId(null); return; }
-          router.back();
+          router.canGoBack() ? router.back() : router.replace("/(tabs)");
         }}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>

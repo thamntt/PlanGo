@@ -399,7 +399,7 @@ export default function CreateTripScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)")}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>{isEditing ? t().itinerary.editTrip : t().createTrip.title}</Text>

@@ -145,7 +145,7 @@ export default function DestinationDetailScreen() {
         <View style={{ position: "relative" }}>
           <Image source={{ uri: destination.images[imageIndex] }} style={styles.heroImage} contentFit="cover" />
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)")}
             style={[styles.backBtn, { top: insets.top + webTopInset + 8 }]}
           >
             <Ionicons name="arrow-back" size={22} color="#fff" />
