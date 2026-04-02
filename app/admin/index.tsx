@@ -172,13 +172,34 @@ export default function AdminDashboard() {
     setGoogleResults([]);
     setGoogleQuery("");
     // Load full details for reviews, photos, and more accurate rating
+    let finalPhotos = place.photos || [];
     const details = await getPlaceDetails(place.placeId);
     if (details) {
       if (details.rating > 0) setDestRating(details.rating);
       if (details.reviewCount > 0) setDestReviewCount(details.reviewCount);
-      if (details.editorialSummary) setDestDesc(prev => prev || details.editorialSummary);
+      if (details.editorialSummary) setDestDesc(prev => prev || String(details.editorialSummary || ""));
       setDestGoogleReviews(details.reviews || []);
-      if (details.photos && details.photos.length > 0) setDestGooglePhotos(details.photos);
+      if (details.photos && details.photos.length > 0) {
+        finalPhotos = details.photos;
+        setDestGooglePhotos(details.photos);
+      }
+    }
+    // Fallback: if still no photos (common for cities), try to search for images by name
+    if (finalPhotos.length === 0 && place.name) {
+      try {
+        const imgResults = await searchPlaces(`${place.name} du lịch`);
+        if (imgResults.length > 0) {
+          const photosFromSearch: {name: string; attributions: string[]}[] = [];
+          for (const r of imgResults) {
+            if (r.photos && r.photos.length > 0) {
+              photosFromSearch.push(...r.photos);
+            }
+          }
+          if (photosFromSearch.length > 0) {
+            setDestGooglePhotos(photosFromSearch.slice(0, 5));
+          }
+        }
+      } catch { /* optional fallback */ }
     }
   };
 
@@ -474,7 +495,7 @@ export default function AdminDashboard() {
     if (!dest) return;
     setEditingDestId(id);
     setDestName(dest.name);
-    setDestDesc(dest.description);
+    setDestDesc(typeof dest.description === "string" ? dest.description : "");
     setDestAddr(dest.address);
     setDestCategory(dest.category);
     setDestLat(dest.latitude?.toString() || "");
@@ -535,7 +556,7 @@ export default function AdminDashboard() {
     if (editingDestId) {
       const updates: Record<string, any> = {
         name: destName.trim(),
-        description: destDesc.trim() || "Một điểm đến tuyệt vời",
+        description: (typeof destDesc === "string" ? destDesc.trim() : String(destDesc || "").trim()) || "Một điểm đến tuyệt vời",
         address: destAddr.trim(),
         category: destCategory,
       };
@@ -552,7 +573,7 @@ export default function AdminDashboard() {
     } else {
       await addDestination({
         name: destName.trim(),
-        description: destDesc.trim() || "Một điểm đến tuyệt vời",
+        description: (typeof destDesc === "string" ? destDesc.trim() : String(destDesc || "").trim()) || "Một điểm đến tuyệt vời",
         images: destGooglePhotos.length > 0 ? destGooglePhotos.slice(0, 3).map(p => p.name.startsWith("http") ? p.name : getPhotoUrl(p.name)) : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
         category: destCategory,
         address: destAddr.trim(),

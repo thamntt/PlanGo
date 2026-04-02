@@ -24,13 +24,17 @@ export default function JoinTripScreen() {
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const { itineraries, updateItinerary, importItinerary, isLoading } = useData();
-  const [status, setStatus] = useState<"loading" | "found" | "invalid" | "joined" | "already">("loading");
+  const [status, setStatus] = useState<"loading" | "found" | "invalid" | "joined" | "already" | "error">("loading");
   const [sharedTrip, setSharedTrip] = useState<Itinerary | null>(null);
+  const [joinError, setJoinError] = useState("");
 
   const txt = t().itinerary;
 
   // First check local data, then fallback to server API
   useEffect(() => {
+    // Don't overwrite terminal states (joined/error)
+    if (status === "joined" || status === "error") return;
+
     if (isLoading) {
       setStatus("loading");
       return;
@@ -86,43 +90,49 @@ export default function JoinTripScreen() {
     if (!sharedTrip || !user || status !== "found") return;
     setStatus("loading");
 
-    const role = sharedTrip.sharePermission || "viewer";
-    const companion = {
-      userId: user.id,
-      userName: user.fullName,
-      role,
-      joinedAt: new Date().toISOString(),
-    };
-
-    // Check if trip exists locally (same browser)
-    const localTrip = itineraries.find((i) => i.id === sharedTrip.id);
-    if (localTrip) {
-      const existing = localTrip.companions || [];
-      if (existing.some((c) => c.userId === user.id)) {
-        setStatus("already");
-        return;
-      }
-      const updated = [...existing, companion];
-      await updateItinerary(localTrip.id, { companions: updated });
-    }
-
-    // Also notify server
     try {
-      await fetch(`${getServerUrl()}/api/share/join`, {
-        method: "POST",
-        headers: { ...getApiHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ shareCode: code, companion }),
-      });
-    } catch (e) { console.log("Failed to sync join to server:", e); }
+      const role = sharedTrip.sharePermission || "viewer";
+      const companion = {
+        userId: user.id,
+        userName: user.fullName || user.username || "Người dùng",
+        role,
+        joinedAt: new Date().toISOString(),
+      };
 
-    // If trip was from server (not local), save it locally so it appears in the user's trip list
-    if (!localTrip && sharedTrip) {
-      const tripToSave = { ...sharedTrip, companions: [...(sharedTrip.companions || []), companion] };
-      await importItinerary(tripToSave);
+      // Check if trip exists locally (same server/database)
+      const localTrip = itineraries.find((i) => i.id === sharedTrip.id);
+      if (localTrip) {
+        const existing = localTrip.companions || [];
+        if (existing.some((c) => c.userId === user.id)) {
+          setStatus("already");
+          return;
+        }
+        const updated = [...existing, companion];
+        await updateItinerary(localTrip.id, { companions: updated });
+      }
+
+      // Also notify server shared_trips table
+      try {
+        await fetch(`${getServerUrl()}/api/share/join`, {
+          method: "POST",
+          headers: { ...getApiHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ shareCode: code, companion }),
+        });
+      } catch (e) { console.log("Failed to sync join to server:", e); }
+
+      // If trip was from server (not local), save it locally so it appears in the user's trip list
+      if (!localTrip && sharedTrip) {
+        const tripToSave = { ...sharedTrip, companions: [...(sharedTrip.companions || []), companion] };
+        await importItinerary(tripToSave);
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setStatus("joined");
+    } catch (err: any) {
+      console.error("Join trip error:", err);
+      setJoinError(err?.message || "Không thể tham gia chuyến đi. Vui lòng thử lại.");
+      setStatus("error");
     }
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setStatus("joined");
   };
 
   const itinerary = sharedTrip;
@@ -152,6 +162,22 @@ export default function JoinTripScreen() {
               style={[styles.actionBtn, { backgroundColor: colors.primary }]}
             >
               <Text style={styles.actionBtnText}>{t().common.back}</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {status === "error" && (
+          <View style={styles.centerContent}>
+            <Ionicons name="close-circle-outline" size={64} color={colors.error} />
+            <Text style={[styles.statusTitle, { color: colors.text }]}>Lỗi tham gia</Text>
+            <Text style={{ fontSize: 14, fontFamily: "Inter_400Regular", color: colors.textSecondary, textAlign: "center" }}>
+              {joinError}
+            </Text>
+            <Pressable
+              onPress={() => { setStatus("found"); setJoinError(""); }}
+              style={[styles.actionBtn, { backgroundColor: colors.primary }]}
+            >
+              <Text style={styles.actionBtnText}>Thử lại</Text>
             </Pressable>
           </View>
         )}

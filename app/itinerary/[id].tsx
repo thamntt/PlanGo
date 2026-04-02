@@ -642,6 +642,14 @@ export default function ItineraryDetailScreen() {
         await addNotification({ userId: itinerary.userId, title: t().notifications.tripStarted, message: `${itinerary.title} đã bắt đầu!`, type: "info", itineraryId: itinerary.id });
       } else if (nextStatus === "completed") {
         await addNotification({ userId: itinerary.userId, title: t().notifications.tripCompleted, message: `${itinerary.title} đã hoàn thành!`, type: "success", itineraryId: itinerary.id });
+        // Auto-open destination review modal
+        const dest = destinations.find((d) => d.name.toLowerCase() === itinerary.destination.toLowerCase());
+        const alreadyReviewed = dest && reviews.some((r) => r.userId === user?.id && r.destinationId === dest.id && r.itineraryId === itinerary.id && !r.activityId);
+        if (dest && !alreadyReviewed) {
+          setReviewRating(5);
+          setReviewComment("");
+          setReviewModal({ activityId: "", dayIdx: 0, destinationId: dest.id, activityTitle: dest.name });
+        }
       }
     };
     if (Platform.OS === "web") {
@@ -1863,8 +1871,8 @@ export default function ItineraryDetailScreen() {
                                 <Ionicons name="trash-outline" size={14} color={colors.error} />
                               </Pressable>
                             )}
-                            {/* Review: active(completed) or completed status */}
-                            {itinerary.status !== "draft" && activity.isCompleted && !getActivityReview(activity.id) && (
+                            {/* Review: active(completed activity) or completed trip (all activities) */}
+                            {itinerary.status !== "draft" && (itinerary.status === "completed" || activity.isCompleted) && !getActivityReview(activity.id) && (
                               <Pressable onPress={() => openReviewModal(activity.id, dayIdx)} style={[styles.miniBtn, { backgroundColor: colors.primary + "15" }]}>
                                 <Ionicons name="star-outline" size={14} color={colors.primary} />
                               </Pressable>
@@ -1887,8 +1895,8 @@ export default function ItineraryDetailScreen() {
                         <Text style={[styles.addExpenseText, { color: colors.primary }]}>{txt.addPlace}</Text>
                       </Pressable>
                     )}
-                    {/* Delete day: active, only if no completed activities */}
-                    {canEdit && itinerary.status === "active" && itinerary.days.length > 1 && !day.activities.some(a => a.isCompleted) && (
+                    {/* Delete day: draft or active, only if no completed activities */}
+                    {canEdit && (itinerary.status === "draft" || itinerary.status === "active") && itinerary.days.length > 1 && !day.activities.some(a => a.isCompleted) && (
                       <Pressable
                         onPress={() => {
                           const doDelete = async () => {
@@ -1916,8 +1924,8 @@ export default function ItineraryDetailScreen() {
                 )}
               </View>
             ))}
-            {/* Add Day button: active trips */}
-            {canEdit && itinerary.status === "active" && (
+            {/* Add Day button: draft or active trips */}
+            {canEdit && (itinerary.status === "draft" || itinerary.status === "active") && (
               <Pressable
                 onPress={async () => {
                   const newDayNum = itinerary.days.length + 1;
@@ -3994,12 +4002,20 @@ export default function ItineraryDetailScreen() {
       <Modal visible={!!reviewModal} transparent animationType="fade" onRequestClose={() => setReviewModal(null)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            {!reviewModal?.activityId && !reviewModal?.editReviewId && (
+              <View style={{ alignItems: "center", marginBottom: 8 }}>
+                <Ionicons name="trophy" size={36} color="#F59E0B" />
+                <Text style={{ fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 4, textAlign: "center" }}>
+                  🎉 Chuyến đi hoàn thành! Hãy đánh giá trải nghiệm của bạn.
+                </Text>
+              </View>
+            )}
             <Text style={[styles.modalTitle, { color: colors.text }]}>
               {reviewModal?.editReviewId
                 ? txt.editReview
                 : reviewModal?.activityId
                   ? `${txt.reviewActivity}: ${itinerary.days[reviewModal.dayIdx]?.activities.find((a) => a.id === reviewModal.activityId)?.title || ""}`
-                  : `Đánh giá: ${destinations.find((d) => d.id === reviewModal?.destinationId)?.name || ""}`}
+                  : `Đánh giá chuyến đi: ${destinations.find((d) => d.id === reviewModal?.destinationId)?.name || itinerary.destination}`}
             </Text>
             <View style={styles.ratingRow}>
               {[1, 2, 3, 4, 5].map((star) => (

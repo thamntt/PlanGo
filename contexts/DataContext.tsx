@@ -451,12 +451,37 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const importItinerary = useCallback(async (itin: Itinerary) => {
-    // Check if already exists
+    // Check if already exists on server
     try {
-      await apiRequest("GET", `/api/itineraries/${itin.id}`);
-      return; // already exists
+      const existingRes = await apiRequest("GET", `/api/itineraries/${itin.id}`);
+      const existing = mapItinerary(await existingRes.json());
+      // Trip exists on server — update companions if the import has newer data
+      if (itin.companions && itin.companions.length > 0) {
+        const mergedCompanions = [...(existing.companions || [])];
+        for (const c of itin.companions) {
+          if (!mergedCompanions.some((mc) => mc.userId === c.userId)) {
+            mergedCompanions.push(c);
+          }
+        }
+        if (mergedCompanions.length > (existing.companions || []).length) {
+          const res = await apiRequest("PUT", `/api/itineraries/${itin.id}`, { companions: mergedCompanions });
+          const updated = mapItinerary(await res.json());
+          setItineraries((prev) => {
+            if (prev.some((i) => i.id === itin.id)) {
+              return prev.map((i) => (i.id === itin.id ? updated : i));
+            }
+            return [...prev, updated];
+          });
+          return;
+        }
+      }
+      // Ensure it's in local state even if no companion update needed
+      setItineraries((prev) => {
+        if (prev.some((i) => i.id === itin.id)) return prev;
+        return [...prev, existing];
+      });
     } catch {
-      // not found, create it
+      // not found on server, create it
       const res = await apiRequest("POST", "/api/itineraries", itin);
       const created = mapItinerary(await res.json());
       setItineraries((prev) => [...prev, created]);

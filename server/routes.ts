@@ -242,13 +242,12 @@ async function searchPlacesSerpApi(query: string) {
     const data = await response.json();
     const results = data.local_results || [];
 
-    const places = results.slice(0, 10).map((r: any) => {
-      // Collect all available photos: thumbnail + images array
+    // Helper to extract photos from a SerpAPI result object
+    const extractPhotos = (r: any): { name: string; attributions: string[] }[] => {
       const photos: { name: string; attributions: string[] }[] = [];
       if (r.thumbnail) {
         photos.push({ name: r.thumbnail, attributions: ["Google Maps"] });
       }
-      // SerpAPI may return additional images in r.images array
       if (r.images && Array.isArray(r.images)) {
         r.images.slice(0, 4).forEach((img: any) => {
           const imgUrl = typeof img === "string" ? img : img?.thumbnail || img?.image;
@@ -257,7 +256,10 @@ async function searchPlacesSerpApi(query: string) {
           }
         });
       }
+      return photos;
+    };
 
+    const places = results.slice(0, 10).map((r: any) => {
       return {
         placeId: r.place_id || "",
         dataId: r.data_id || "",
@@ -271,14 +273,87 @@ async function searchPlacesSerpApi(query: string) {
         primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
         primaryTypeDisplay: r.type || "Địa điểm",
         editorialSummary: r.description || "",
-        photos,
+        photos: extractPhotos(r),
         website: r.website || "",
         phone: r.phone || "",
         openNow: r.open_state === "Open" ? true : r.open_state === "Closed" ? false : null,
       };
     });
 
-    console.log(`[SerpAPI] ✅ Search "${query}" → ${places.length} results`);
+    // If no local_results, check place_results (SerpAPI returns this for cities/regions)
+    if (places.length === 0 && data.place_results) {
+      const r = data.place_results;
+      let photos = extractPhotos(r);
+
+      // For cities/regions, try fetching photos via google_maps_photos if data_id available
+      if (photos.length === 0 && r.data_id) {
+        try {
+          const photoParams = new URLSearchParams({
+            engine: "google_maps_photos",
+            data_id: r.data_id,
+            hl: "vi",
+            api_key: apiKey,
+          });
+          const photoRes = await fetch(`${SERPAPI_BASE}?${photoParams.toString()}`);
+          if (photoRes.ok) {
+            const photoData = await photoRes.json();
+            (photoData.photos || []).slice(0, 5).forEach((p: any) => {
+              const imgUrl = p.image || p.thumbnail;
+              if (imgUrl) photos.push({ name: imgUrl, attributions: ["Google Maps"] });
+            });
+            console.log(`[SerpAPI] 📸 Got ${photos.length} photos for city "${r.title}" via google_maps_photos`);
+          }
+        } catch { /* photos are optional */ }
+      }
+
+      // Fallback: search Google Images for city photos (SerpAPI google engine with tbm=isch)
+      if (photos.length === 0) {
+        try {
+          const imgParams = new URLSearchParams({
+            engine: "google_images",
+            q: `${r.title || query} thành phố du lịch`,
+            hl: "vi",
+            num: "5",
+            api_key: apiKey,
+          });
+          const imgRes = await fetch(`${SERPAPI_BASE}?${imgParams.toString()}`);
+          if (imgRes.ok) {
+            const imgData = await imgRes.json();
+            (imgData.images_results || []).slice(0, 5).forEach((img: any) => {
+              if (img.original) {
+                photos.push({ name: img.original, attributions: ["Google Images"] });
+              } else if (img.thumbnail) {
+                photos.push({ name: img.thumbnail, attributions: ["Google Images"] });
+              }
+            });
+            console.log(`[SerpAPI] 🖼️ Got ${photos.length} photos for "${r.title}" via google_images`);
+          }
+        } catch { /* image search is optional */ }
+      }
+
+      places.push({
+        placeId: r.place_id || "",
+        dataId: r.data_id || "",
+        name: r.title || "",
+        address: r.address || "",
+        latitude: r.gps_coordinates?.latitude || 0,
+        longitude: r.gps_coordinates?.longitude || 0,
+        rating: r.rating || 0,
+        reviewCount: r.reviews || 0,
+        types: r.type ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
+        primaryType: r.type ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
+        primaryTypeDisplay: r.type || "Địa điểm",
+        editorialSummary: r.description || r.extensions?.join(", ") || "",
+        photos,
+        website: r.website || "",
+        phone: r.phone || "",
+        openNow: null,
+      });
+      console.log(`[SerpAPI] ✅ Search "${query}" → found city/region result from place_results (${photos.length} photos)`);
+    } else {
+      console.log(`[SerpAPI] ✅ Search "${query}" → ${places.length} results`);
+    }
+
     return { places };
   } catch (error) {
     console.warn(`[SerpAPI] Search error:`, error);
@@ -358,6 +433,33 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
         }
       } catch {
         // HD photos are optional, continue without them
+      }
+    }
+
+    // Fallback: if still no photos (common for cities/regions), use Google Images search
+    if (photos.length === 0) {
+      try {
+        const imgParams = new URLSearchParams({
+          engine: "google_images",
+          q: `${r.title || ""} thành phố du lịch`,
+          hl: language || "vi",
+          num: "5",
+          api_key: apiKey,
+        });
+        const imgRes = await fetch(`${SERPAPI_BASE}?${imgParams.toString()}`);
+        if (imgRes.ok) {
+          const imgData = await imgRes.json();
+          (imgData.images_results || []).slice(0, 5).forEach((img: any) => {
+            if (img.original) {
+              photos.push({ name: img.original, attributions: ["Google Images"] });
+            } else if (img.thumbnail) {
+              photos.push({ name: img.thumbnail, attributions: ["Google Images"] });
+            }
+          });
+          console.log(`[SerpAPI] 🖼️ Got ${photos.length} fallback photos for "${r.title}" via google_images`);
+        }
+      } catch {
+        // Image search is optional
       }
     }
 
@@ -1256,6 +1358,109 @@ async function removeCompanion(req: Request, res: Response) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Helper: strip Vietnamese activity prefixes to get actual place name
+// ══════════════════════════════════════════════════════════════
+function extractPlaceName(title: string): string {
+  return title
+    .replace(/^(Ăn sáng|Ăn trưa|Ăn tối|Ăn chiều|Nghỉ trưa|Nghỉ đêm|Nghỉ ngơi|Check-in|Check-out|Tham quan|Khám phá|Trải nghiệm|Dạo chơi|Đi bộ|Di chuyển|Mua sắm|Thưởng thức|Ghé thăm|Uống cà phê|Cà phê|Cafe)\s*(tại|ở|đến|quanh|trong|trên|vào|lúc)?\s*/i, "")
+    .trim();
+}
+
+// ══════════════════════════════════════════════════════════════
+// Helper: Extract activities from itinerary days and save as POIs
+// ══════════════════════════════════════════════════════════════
+async function extractAndSavePOIsFromItinerary(days: any[]): Promise<number> {
+  if (!days || !Array.isArray(days) || days.length === 0) return 0;
+
+  let savedCount = 0;
+  const allActivities: any[] = [];
+
+  for (const day of days) {
+    if (!day.activities || !Array.isArray(day.activities)) continue;
+    for (const act of day.activities) {
+      allActivities.push(act);
+    }
+  }
+
+  console.log(`[POI-Save] Extracting POIs from ${allActivities.length} activities...`);
+
+  // Map activityType to POI type
+  const poiTypeMap: Record<string, string> = {
+    food: "restaurant",
+    sightseeing: "attraction",
+    shopping: "shopping",
+    transport: "other",
+    other: "other",
+  };
+
+  for (const act of allActivities) {
+    try {
+      // Skip activities without useful data
+      if (!act.title || (!act.latitude && !act.address)) continue;
+
+      // Extract place name from title
+      const placeName = extractPlaceName(act.title);
+      if (!placeName || placeName.length < 3) continue;
+
+      // Dedup: check by googlePlaceId first, then by name
+      let existingPoi = null;
+      if (act.googlePlaceId) {
+        existingPoi = await storage.getPoiByGooglePlaceId(act.googlePlaceId);
+      }
+      if (!existingPoi) {
+        existingPoi = await storage.getPoiByName(placeName);
+      }
+
+      if (existingPoi) {
+        // Update existing POI if new data is better
+        const updates: Record<string, any> = {};
+        if (act.rating && (!existingPoi.rating || act.rating > (existingPoi.rating || 0))) updates.rating = act.rating;
+        if (act.reviewCount && act.reviewCount > (existingPoi.reviewCount || 0)) updates.reviewCount = act.reviewCount;
+        if (act.address && !existingPoi.address) updates.address = act.address;
+        if (act.latitude && act.longitude && (!existingPoi.latitude || existingPoi.latitude === 0)) {
+          updates.latitude = act.latitude;
+          updates.longitude = act.longitude;
+        }
+        if (act.openHours && !existingPoi.openHours) updates.openHours = act.openHours;
+        if (act.openingHours && Array.isArray(act.openingHours) && act.openingHours.length > 0) {
+          const existing = existingPoi.openingHours as any[];
+          if (!existing || existing.length === 0) updates.openingHours = act.openingHours;
+        }
+        if (Object.keys(updates).length > 0) {
+          await storage.updatePoi(existingPoi.id, updates);
+        }
+        continue;
+      }
+
+      await storage.createPoi({
+        name: placeName,
+        type: poiTypeMap[act.activityType] || "attraction",
+        address: act.address || "",
+        latitude: act.latitude || 0,
+        longitude: act.longitude || 0,
+        rating: act.rating || 0,
+        reviewCount: act.reviewCount || 0,
+        openHours: act.openHours || undefined,
+        openingHours: act.openingHours || undefined,
+        estimatedCost: act.estimatedCost || undefined,
+        description: act.description || "",
+        images: act.thumbnail ? [act.thumbnail] : [],
+        googlePlaceId: act.googlePlaceId || undefined,
+        tags: [],
+        isActive: true,
+        source: "itinerary_saved",
+      });
+      savedCount++;
+    } catch (err) {
+      console.warn(`[POI-Save] Failed to save POI for "${act.title}":`, err);
+    }
+  }
+
+  console.log(`[POI-Save] Saved ${savedCount} new POIs to database`);
+  return savedCount;
+}
+
+// ══════════════════════════════════════════════════════════════
 // AI ITINERARY GENERATION (with fallback geocoding)
 // ══════════════════════════════════════════════════════════════
 
@@ -1426,12 +1631,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
     }
     const locationBias = destLat && destLng ? `@${destLat},${destLng},14z` : "";
 
-    // Helper: strip Vietnamese activity prefixes to get the actual place name
-    const extractPlaceName = (title: string): string => {
-      return title
-        .replace(/^(Ăn sáng|Ăn trưa|Ăn tối|Ăn chiều|Nghỉ trưa|Nghỉ đêm|Nghỉ ngơi|Check-in|Check-out|Tham quan|Khám phá|Trải nghiệm|Dạo chơi|Đi bộ|Di chuyển|Mua sắm|Thưởng thức|Ghé thăm|Uống cà phê|Cà phê|Cafe)\s*(tại|ở|đến|quanh|trong|trên|vào|lúc)?\s*/i, "")
-        .trim();
-    };
+    // extractPlaceName is now a top-level function (reused by itinerary save POI logic)
 
     // Run sequentially to avoid SerpAPI rate limits
     for (const act of allActivities) {
@@ -2012,6 +2212,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/itineraries", async (req, res) => {
     try {
       const itin = await storage.createItinerary(req.body);
+
+      // Extract and save POIs from itinerary activities
+      if (req.body.days && Array.isArray(req.body.days)) {
+        extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
+          console.warn("[POI-Save] Background POI extraction failed:", err)
+        );
+      }
+
       res.status(201).json(itin);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -2021,6 +2229,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/itineraries/:id", async (req, res) => {
     const itin = await storage.updateItinerary(req.params.id, req.body);
     if (!itin) return res.status(404).json({ error: "Itinerary not found" });
+
+    // Extract and save POIs from updated itinerary activities
+    if (req.body.days && Array.isArray(req.body.days)) {
+      extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
+        console.warn("[POI-Save] Background POI extraction failed:", err)
+      );
+    }
+
     res.json(itin);
   });
 
