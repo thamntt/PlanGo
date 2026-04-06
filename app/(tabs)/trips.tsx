@@ -77,7 +77,6 @@ function TripCard({ item, colors, onDelete, isJoined }: { item: Itinerary; color
       <View style={styles.cardBottom}>
         <Text style={[styles.budgetText, { color: colors.primary }]}>{item.budget}</Text>
         <View style={styles.cardActions}>
-          {item.isShared && <Ionicons name="share-social-outline" size={18} color={colors.primary} />}
           {isJoined && (
             <View style={[styles.joinedBadge, { backgroundColor: colors.primary + "20" }]}>
               <Ionicons name="people" size={12} color={colors.primary} />

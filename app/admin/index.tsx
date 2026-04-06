@@ -632,7 +632,14 @@ export default function AdminDashboard() {
   ];
 
   const selectedUser = userDetailId ? users.find((u) => u.id === userDetailId) : null;
-  const userTrips = selectedUser ? itineraries.filter((i) => i.userId === selectedUser.id) : [];
+  const userTrips = selectedUser
+    ? itineraries.filter(
+        (i) =>
+          i.userId === selectedUser.id ||
+          (i.companions || []).some((c) => c.userId === selectedUser.id)
+      )
+    : [];
+  const userOwnedTrips = selectedUser ? itineraries.filter((i) => i.userId === selectedUser.id) : [];
   const userReviews = selectedUser ? reviews.filter((r) => r.userId === selectedUser.id) : [];
   const selectedDest = destDetailId ? destinations.find((d) => d.id === destDetailId) : null;
   const selectedReview = reviewDetailId ? reviews.find((r) => r.id === reviewDetailId) : null;
@@ -704,7 +711,7 @@ export default function AdminDashboard() {
                 </View>
                 <View style={s.infoRow}>
                   <Ionicons name="map-outline" size={16} color={colors.textSecondary} />
-                  <Text style={[s.infoText, { color: colors.text }]}>{txt.tripsCount}: {userTrips.length}</Text>
+                  <Text style={[s.infoText, { color: colors.text }]}>{txt.tripsCount}: {userTrips.length} ({userOwnedTrips.length} chủ sở hữu, {userTrips.length - userOwnedTrips.length} tham gia)</Text>
                 </View>
               </View>
               {selectedUser.id !== currentUser?.id && (
@@ -807,7 +814,7 @@ export default function AdminDashboard() {
                         <Ionicons name="wallet-outline" size={20} color="#10B981" />
                       </View>
                       <Text style={[s.statValue, { color: colors.text, fontSize: 22 }]}>
-                        {formatVND(userTrips.reduce((sum, t) => sum + (t.totalBudget || 0), 0))}
+                        {formatVND(userOwnedTrips.reduce((sum, t) => sum + (t.totalBudget || 0), 0))}
                       </Text>
                       <Text style={[s.statLabel, { color: colors.textSecondary }]}>Tổng ngân sách</Text>
                     </View>
@@ -816,7 +823,21 @@ export default function AdminDashboard() {
                         <Ionicons name="cash-outline" size={20} color="#EF4444" />
                       </View>
                       <Text style={[s.statValue, { color: colors.text, fontSize: 22 }]}>
-                        {formatVND(userTrips.reduce((sum, t) => sum + (t.spentAmount || 0), 0))}
+                        {formatVND(userTrips.reduce((sum, trip) => {
+                          // Activity costs paid by this user
+                          const activitySpent = trip.days.reduce((ds, day) =>
+                            ds + day.activities.reduce((as, act) =>
+                              as + (act.paidBy === selectedUser.fullName ? (act.actualCost || 0) : 0), 0), 0);
+                          // Expenses paid by this user
+                          const expensePaid = (trip.expenses || []).reduce((es, exp) =>
+                            es + (exp.paidByUserId === selectedUser.id ? exp.amount : 0), 0);
+                          // Splits owed by this user
+                          const splitOwed = (trip.expenses || []).reduce((es, exp) => {
+                            const split = (exp.splits || []).find(s => s.userId === selectedUser.id);
+                            return es + (split && exp.paidByUserId !== selectedUser.id ? split.amount : 0);
+                          }, 0);
+                          return sum + activitySpent + expensePaid + splitOwed;
+                        }, 0))}
                       </Text>
                       <Text style={[s.statLabel, { color: colors.textSecondary }]}>Đã chi tiêu</Text>
                     </View>
