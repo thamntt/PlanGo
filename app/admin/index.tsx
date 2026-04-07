@@ -810,33 +810,18 @@ export default function AdminDashboard() {
                       <Text style={[s.statLabel, { color: colors.textSecondary }]}>Đánh giá</Text>
                     </View>
                     <View style={[s.statCard, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder, width: "47%" as any }]}>
-                      <View style={[s.statIcon, { backgroundColor: "#10B98120" }]}>
-                        <Ionicons name="wallet-outline" size={20} color="#10B981" />
-                      </View>
-                      <Text style={[s.statValue, { color: colors.text, fontSize: 22 }]}>
-                        {formatVND(userOwnedTrips.reduce((sum, t) => sum + (t.totalBudget || 0), 0))}
-                      </Text>
-                      <Text style={[s.statLabel, { color: colors.textSecondary }]}>Tổng ngân sách</Text>
-                    </View>
-                    <View style={[s.statCard, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder, width: "47%" as any }]}>
                       <View style={[s.statIcon, { backgroundColor: "#EF444420" }]}>
                         <Ionicons name="cash-outline" size={20} color="#EF4444" />
                       </View>
                       <Text style={[s.statValue, { color: colors.text, fontSize: 22 }]}>
                         {formatVND(userTrips.reduce((sum, trip) => {
-                          // Activity costs paid by this user
-                          const activitySpent = trip.days.reduce((ds, day) =>
-                            ds + day.activities.reduce((as, act) =>
-                              as + (act.paidBy === selectedUser.fullName ? (act.actualCost || 0) : 0), 0), 0);
-                          // Expenses paid by this user
-                          const expensePaid = (trip.expenses || []).reduce((es, exp) =>
-                            es + (exp.paidByUserId === selectedUser.id ? exp.amount : 0), 0);
-                          // Splits owed by this user
-                          const splitOwed = (trip.expenses || []).reduce((es, exp) => {
+                          // Only count the user's own split amount in each expense
+                          const expenseSpent = (trip.expenses || []).reduce((es, exp) => {
                             const split = (exp.splits || []).find(s => s.userId === selectedUser.id);
-                            return es + (split && exp.paidByUserId !== selectedUser.id ? split.amount : 0);
+                            if (split) return es + split.amount;
+                            return es;
                           }, 0);
-                          return sum + activitySpent + expensePaid + splitOwed;
+                          return sum + expenseSpent;
                         }, 0))}
                       </Text>
                       <Text style={[s.statLabel, { color: colors.textSecondary }]}>Đã chi tiêu</Text>
@@ -900,11 +885,22 @@ export default function AdminDashboard() {
                   </View>
                 ) : (
                   userReviews.map((r) => {
-                    const dest = destinations.find((d) => d.id === r.destinationId);
+                    // Resolve display title: activity → POI → destination
+                    const reviewTitle = r.activityTitle || r.poiName || destinations.find((d) => d.id === r.destinationId)?.name || "—";
+                    // Resolve trip context subtitle
+                    const tripContext = r.itineraryId ? itineraries.find((i) => i.id === r.itineraryId) : null;
+                    const reviewSubtitle = tripContext
+                      ? `${tripContext.destination} • ${tripContext.title}`
+                      : r.destinationId && !r.activityId && !r.poiId
+                        ? destinations.find((d) => d.id === r.destinationId)?.address || ""
+                        : "";
                     return (
                       <View key={r.id} style={[s.itemCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
                         <View style={{ flex: 1 }}>
-                          <Text style={[s.itemTitle, { color: colors.text }]}>{dest?.name || "—"}</Text>
+                          <Text style={[s.itemTitle, { color: colors.text }]}>{reviewTitle}</Text>
+                          {!!reviewSubtitle && (
+                            <Text style={[s.itemSub, { color: colors.textSecondary, marginBottom: 2 }]} numberOfLines={1}>{reviewSubtitle}</Text>
+                          )}
                           <View style={s.ratingRow}>
                             {[1, 2, 3, 4, 5].map((star) => (
                               <Ionicons key={star} name={star <= r.rating ? "star" : "star-outline"} size={14} color="#F59E0B" />

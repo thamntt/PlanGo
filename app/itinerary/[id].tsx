@@ -600,6 +600,7 @@ export default function ItineraryDetailScreen() {
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const startParts = itinerary.startDate.split("/");
       const start = startParts.length === 3 ? new Date(parseInt(startParts[2]), parseInt(startParts[1]) - 1, parseInt(startParts[0])) : new Date(itinerary.startDate);
+      start.setHours(0, 0, 0, 0);
       if (today < start) {
         const msg = `Chỉ có thể bắt đầu chuyến đi từ ngày ${itinerary.startDate}`;
         if (Platform.OS === "web") { window.alert(msg); } else { Alert.alert("", msg); }
