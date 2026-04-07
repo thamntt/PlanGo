@@ -1327,11 +1327,14 @@ export default function ItineraryDetailScreen() {
     const splits = buildSplits(amount);
 
     let newExpenses = [...expenses];
+    // Track if we need to also update days (when editing a linked expense)
+    let newDays = itinerary.days;
     if (expenseModal.editId) {
       const idx = newExpenses.findIndex((e) => e.id === expenseModal.editId);
       if (idx !== -1) {
+        const oldExpense = newExpenses[idx];
         newExpenses[idx] = {
-          ...newExpenses[idx],
+          ...oldExpense,
           title: expenseTitle.trim(),
           amount,
           type: expenseType,
@@ -1340,6 +1343,21 @@ export default function ItineraryDetailScreen() {
           splitType: expenseSplitType,
           splits,
         };
+        // If this expense is linked to an activity, sync actualCost + paidBy back to the activity
+        const linkedActivityId = oldExpense.activityId;
+        if (linkedActivityId) {
+          newDays = itinerary.days.map((day) => ({
+            ...day,
+            activities: day.activities.map((act) => {
+              if (act.id !== linkedActivityId) return act;
+              return {
+                ...act,
+                actualCost: amount,
+                paidBy: expensePaidBy.trim() || undefined,
+              };
+            }),
+          }));
+        }
       }
     } else {
       newExpenses.push({
@@ -1355,8 +1373,8 @@ export default function ItineraryDetailScreen() {
       });
     }
 
-    const newSpent = recalcSpent(itinerary.days, newExpenses);
-    await updateItinerary(itinerary.id, { expenses: newExpenses, spentAmount: newSpent });
+    const newSpent = recalcSpent(newDays, newExpenses);
+    await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
 
     if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
       await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning", itineraryId: itinerary.id });
@@ -3799,15 +3817,26 @@ export default function ItineraryDetailScreen() {
                     )}
 
                     {(() => {
-                      if (!linkedDest) return null;
                       const actId = act.id;
+                      // Find linked POI for this activity
+                      const actPoiInfo = getActivityPoiInfo(act);
+                      const actPoiId = actPoiInfo?.poiId;
+
                       const destUserReviews = reviews
                         .filter((r) => {
-                          if (r.destinationId !== linkedDest.id) return false;
-                          // Show only reviews for this specific activity, or general destination reviews (no activity tag)
+                          // Match by activityId field (new way)
+                          if (r.activityId && r.activityId === actId) return true;
+                          // Match by [activity:xxx] tag in comment (legacy)
                           const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
-                          if (activityTag) return activityTag[1] === actId;
-                          return true; // general destination review (no tag)
+                          if (activityTag && activityTag[1] === actId) return true;
+                          // Match by poiId
+                          if (actPoiId && r.poiId === actPoiId) return true;
+                          // Match by destinationId (general destination reviews)
+                          if (linkedDest && r.destinationId === linkedDest.id) {
+                            // Only include if no specific activity/poi tag (general review)
+                            if (!activityTag && !r.activityId && !r.poiId) return true;
+                          }
+                          return false;
                         })
                         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
