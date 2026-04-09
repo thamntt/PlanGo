@@ -59,7 +59,7 @@ const DataContext = createContext<DataContextValue | null>(null);
 // ═══════════════════════════════════════════
 function mapDestination(d: any): Destination {
   return {
-    id: d.id,
+    id: (d.destinationId || d.id)?.toString() || "",
     name: d.name || "",
     description: d.description || "",
     images: d.images || [],
@@ -67,8 +67,8 @@ function mapDestination(d: any): Destination {
     address: d.address || "",
     latitude: d.latitude || 0,
     longitude: d.longitude || 0,
-    rating: d.rating || 0,
-    reviewCount: d.reviewCount ?? d.review_count ?? 0,
+    rating: d.rating ? Number(d.rating) : 0,
+    reviewCount: d.reviewCount ?? d.review_count ?? d.reviewCounts ?? 0,
     priceRange: d.priceRange ?? d.price_range,
     tags: d.tags || [],
     openHours: d.openHours ?? d.open_hours,
@@ -87,8 +87,8 @@ function mapDestination(d: any): Destination {
 
 function mapItinerary(i: any): Itinerary {
   return {
-    id: i.id,
-    userId: i.userId ?? i.user_id ?? "",
+    id: (i.tripId || i.id)?.toString() || "",
+    userId: (i.ownerId || i.userId || i.user_id)?.toString() || "",
     title: i.title || "",
     destination: i.destination || "",
     startDate: i.startDate ?? i.start_date ?? "",
@@ -102,7 +102,7 @@ function mapItinerary(i: any): Itinerary {
     days: i.days || [],
     expenses: i.expenses || [],
     companions: i.companions || [],
-    shareCode: i.shareCode ?? i.share_code,
+    shareCode: i.shareCode ?? i.share_code ?? i.invitationToken,
     sharePermission: i.sharePermission ?? i.share_permission,
     status: i.status || "draft",
     resetCount: i.resetCount ?? i.reset_count ?? 0,
@@ -113,16 +113,16 @@ function mapItinerary(i: any): Itinerary {
 
 function mapReview(r: any): Review {
   return {
-    id: r.id,
-    userId: r.userId ?? r.user_id ?? "",
+    id: (r.reviewId || r.id)?.toString() || `${r.userId}-${r.tripId}`,
+    userId: (r.userId ?? r.user_id ?? "")?.toString(),
     userName: r.userName ?? r.user_name ?? "",
-    destinationId: r.destinationId ?? r.destination_id ?? "",
-    poiId: r.poiId ?? r.poi_id ?? "",
+    destinationId: (r.destinationId ?? r.destination_id ?? "")?.toString(),
+    poiId: (r.poiId ?? r.poi_id ?? "")?.toString(),
     poiName: r.poiName ?? r.poi_name ?? "",
-    activityId: r.activityId ?? r.activity_id,
+    activityId: (r.activityId ?? r.activity_id)?.toString(),
     activityTitle: r.activityTitle ?? r.activity_title,
-    itineraryId: r.itineraryId ?? r.itinerary_id,
-    rating: r.rating || 0,
+    itineraryId: (r.itineraryId ?? r.itinerary_id ?? r.tripId)?.toString(),
+    rating: r.rating ? Number(r.rating) : 0,
     comment: r.comment || "",
     createdAt: r.createdAt ?? r.created_at ?? new Date().toISOString(),
   };
@@ -130,12 +130,12 @@ function mapReview(r: any): Review {
 
 function mapNotification(n: any): Notification {
   return {
-    id: n.id,
-    userId: n.userId ?? n.user_id ?? "",
+    id: (n.notificationId || n.id)?.toString() || "",
+    userId: (n.userId ?? n.user_id ?? "")?.toString(),
     title: n.title || "",
     message: n.message || "",
     type: n.type || "info",
-    itineraryId: n.itineraryId ?? n.itinerary_id,
+    itineraryId: (n.itineraryId ?? n.itinerary_id ?? n.tripId)?.toString(),
     createdAt: n.createdAt ?? n.created_at ?? new Date().toISOString(),
     isRead: n.isRead ?? n.is_read ?? false,
   };
@@ -143,19 +143,19 @@ function mapNotification(n: any): Notification {
 
 function mapPoi(p: any): POI {
   return {
-    id: p.id,
-    destinationId: p.destinationId ?? p.destination_id ?? "",
+    id: (p.poiId || p.id)?.toString() || "",
+    destinationId: (p.destinationId ?? p.destination_id ?? "")?.toString(),
     name: p.name || "",
     type: p.type || "attraction",
     address: p.address || "",
-    latitude: p.latitude || 0,
-    longitude: p.longitude || 0,
-    rating: p.rating || 0,
-    reviewCount: p.reviewCount ?? p.review_count ?? 0,
+    latitude: p.latitude ? Number(p.latitude) : 0,
+    longitude: p.longitude ? Number(p.longitude) : 0,
+    rating: p.rating ? Number(p.rating) : 0,
+    reviewCount: p.reviewCounts ?? p.reviewCount ?? p.review_count ?? 0,
     openHours: p.openHours ?? p.open_hours,
     openingHours: p.openingHours ?? p.opening_hours ?? [],
     priceLevel: p.priceLevel ?? p.price_level,
-    estimatedCost: p.estimatedCost ?? p.estimated_cost,
+    estimatedCost: p.estimatedCost ? Number(p.estimatedCost) : undefined,
     estimatedDuration: p.estimatedDuration ?? p.estimated_duration,
     description: p.description || "",
     images: p.images || [],

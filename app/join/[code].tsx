@@ -73,7 +73,8 @@ export default function JoinTripScreen() {
           setStatus("invalid");
           return;
         }
-        const trip = await res.json();
+        const tripJson = await res.json();
+        const trip = tripJson.data || tripJson;
         setSharedTrip(trip);
         if (trip.userId === user.id) {
           setStatus("already");
@@ -110,7 +111,8 @@ export default function JoinTripScreen() {
           body: JSON.stringify({ shareCode: code, companion }),
         });
         if (joinRes.ok) {
-          const joinData = await joinRes.json();
+          const joinDataJson = await joinRes.json();
+          const joinData = joinDataJson.data || joinDataJson;
           if (joinData.alreadyJoined) {
             setStatus("already");
             return;
