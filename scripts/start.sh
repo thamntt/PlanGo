@@ -20,6 +20,6 @@ else
 fi
 
 # Start Express server
-echo "Starting Express server on port ${PORT:-5000}..."
+echo "Starting Express server on port ${PORT:-5001}..."
 export NODE_ENV=production
 exec node server_dist/index.js

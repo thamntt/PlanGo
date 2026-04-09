@@ -35,7 +35,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 # Domain cho Expo app kết nối đến server backend
 # ⚠️ Xem hướng dẫn bên dưới để cấu hình đúng
-EXPO_PUBLIC_DOMAIN=192.168.x.x:5000
+EXPO_PUBLIC_DOMAIN=192.168.x.x:5001
 ```
 
 > **Lưu ý**: Nếu không có `GEMINI_API_KEY`, tính năng gợi ý lịch trình AI sẽ fallback về logic local.
@@ -86,13 +86,13 @@ Tìm dòng **IPv4 Address** (thường dạng `192.168.x.x`)
 #### Bước 2: Cập nhật `.env`
 
 ```env
-EXPO_PUBLIC_DOMAIN=192.168.x.x:5000
+EXPO_PUBLIC_DOMAIN=192.168.x.x:5001
 ```
 
 #### Bước 3: Mở tường lửa Windows (chạy CMD Admin, chỉ cần làm 1 lần)
 
 ```bash
-netsh advfirewall firewall add rule name="Expo Dev Server Port 5000" dir=in action=allow protocol=TCP localport=5000
+netsh advfirewall firewall add rule name="Expo Dev Server Port 5001" dir=in action=allow protocol=TCP localport=5001
 netsh advfirewall firewall add rule name="Expo Metro Bundler 8081" dir=in action=allow protocol=TCP localport=8081
 ```
 
@@ -141,7 +141,7 @@ npm run expo:dev
 
 | Lệnh | Mô tả |
 |-------|-------|
-| `npm run dev` | Chạy server Express (port 5000) |
+| `npm run dev` | Chạy server Express (port 5001) |
 | `npm run expo:dev` | Chạy Expo web dev (localhost, port 8081) |
 | `npx expo start --lan` | Chạy Expo trên LAN (cho điện thoại) |
 | `npx expo start --tunnel` | Chạy Expo qua tunnel (không cần cùng WiFi) |

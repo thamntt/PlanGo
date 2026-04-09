@@ -31,7 +31,7 @@ RUN npm install -g esbuild && esbuild server/index.ts --platform=node --packages
 RUN chmod +x scripts/start.sh
 
 # Railway sets PORT automatically
-EXPOSE ${PORT:-5000}
+EXPOSE ${PORT:-5001}
 
 # Start script: builds Expo static bundles (needs RAILWAY_PUBLIC_DOMAIN) then starts server
 CMD ["sh", "scripts/start.sh"]

@@ -1,7 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 /**
- * Gets the base URL for the Express API server (e.g., "http://192.168.1.20:5000")
+ * Gets the base URL for the Express API server (e.g., "http://192.168.1.20:5001")
  * @returns {string} The API base URL
  */
 export function getApiUrl(): string {

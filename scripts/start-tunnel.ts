@@ -3,12 +3,12 @@
  * Usage: npm run tunnel
  *
  * This will:
- * 1. Start a tunnel pointing to port 5000
+ * 1. Start a tunnel pointing to port 5001
  * 2. Print the public URL
  * 3. Tell you what to put in .env
  */
 
-const port = parseInt(process.env.PORT || "5000", 10);
+const port = parseInt(process.env.PORT || "5001", 10);
 
 async function startTunnel() {
   try {
@@ -52,7 +52,7 @@ async function startTunnel() {
     console.log("\nMake sure localtunnel is installed:");
     console.log("  npm install -D localtunnel");
     console.log("\nOr try manually:");
-    console.log("  npx localtunnel --port 5000");
+    console.log("  npx localtunnel --port 5001");
     process.exit(1);
   }
 }

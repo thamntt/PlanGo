@@ -9,7 +9,8 @@ import { storage } from "./storage";
 // Google Maps Platform APIs
 const GOOGLE_PLACES_BASE = "https://places.googleapis.com/v1";
 const GOOGLE_GEOCODE_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
-const GOOGLE_DIRECTIONS_BASE = "https://maps.googleapis.com/maps/api/directions/json";
+const GOOGLE_DIRECTIONS_BASE =
+  "https://maps.googleapis.com/maps/api/directions/json";
 
 // Goong Maps APIs
 const GOONG_BASE = "https://rsapi.goong.io";
@@ -71,7 +72,8 @@ async function searchPlacesGoogle(query: string, language: string) {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.types,places.primaryType,places.primaryTypeDisplayName,places.editorialSummary,places.photos",
+        "X-Goog-FieldMask":
+          "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.types,places.primaryType,places.primaryTypeDisplayName,places.editorialSummary,places.photos",
       },
       body: JSON.stringify({
         textQuery: query,
@@ -81,7 +83,9 @@ async function searchPlacesGoogle(query: string, language: string) {
     });
 
     if (!response.ok) {
-      console.warn(`[Google] Search failed (${response.status}), trying fallback...`);
+      console.warn(
+        `[Google] Search failed (${response.status}), trying fallback...`,
+      );
       return null;
     }
 
@@ -104,7 +108,9 @@ async function searchPlacesGoogle(query: string, language: string) {
       editorialSummary: place.editorialSummary?.text || "",
       photos: (place.photos || []).slice(0, 3).map((p: any) => ({
         name: p.name || "",
-        attributions: (p.authorAttributions || []).map((a: any) => a.displayName || "Google"),
+        attributions: (p.authorAttributions || []).map(
+          (a: any) => a.displayName || "Google",
+        ),
       })),
     }));
 
@@ -125,7 +131,9 @@ async function searchPlacesGoong(query: string, language: string) {
     const response = await fetch(url);
 
     if (!response.ok) {
-      console.warn(`[Goong] Search failed (${response.status}), trying fallback...`);
+      console.warn(
+        `[Goong] Search failed (${response.status}), trying fallback...`,
+      );
       return null;
     }
 
@@ -153,7 +161,7 @@ async function searchPlacesGoong(query: string, language: string) {
                 longitude = loc.lng || 0;
               }
             }
-          } catch { }
+          } catch {}
         }
 
         return {
@@ -170,7 +178,7 @@ async function searchPlacesGoong(query: string, language: string) {
           editorialSummary: "",
           photos: [],
         };
-      })
+      }),
     );
 
     console.log(`[Goong] Search "${query}" → ${places.length} results`);
@@ -243,14 +251,17 @@ async function searchPlacesSerpApi(query: string) {
     const results = data.local_results || [];
 
     // Helper to extract photos from a SerpAPI result object
-    const extractPhotos = (r: any): { name: string; attributions: string[] }[] => {
+    const extractPhotos = (
+      r: any,
+    ): { name: string; attributions: string[] }[] => {
       const photos: { name: string; attributions: string[] }[] = [];
       if (r.thumbnail) {
         photos.push({ name: r.thumbnail, attributions: ["Google Maps"] });
       }
       if (r.images && Array.isArray(r.images)) {
         r.images.slice(0, 4).forEach((img: any) => {
-          const imgUrl = typeof img === "string" ? img : img?.thumbnail || img?.image;
+          const imgUrl =
+            typeof img === "string" ? img : img?.thumbnail || img?.image;
           if (imgUrl && imgUrl !== r.thumbnail) {
             photos.push({ name: imgUrl, attributions: ["Google Maps"] });
           }
@@ -269,14 +280,26 @@ async function searchPlacesSerpApi(query: string) {
         longitude: r.gps_coordinates?.longitude || 0,
         rating: r.rating || 0,
         reviewCount: r.reviews || 0,
-        types: typeof r.type === "string" ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
-        primaryType: typeof r.type === "string" ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
-        primaryTypeDisplay: (typeof r.type === "string" ? r.type : null) || "Địa điểm",
+        types:
+          typeof r.type === "string"
+            ? [r.type.toLowerCase().replace(/\s+/g, "_")]
+            : [],
+        primaryType:
+          typeof r.type === "string"
+            ? r.type.toLowerCase().replace(/\s+/g, "_")
+            : "other",
+        primaryTypeDisplay:
+          (typeof r.type === "string" ? r.type : null) || "Địa điểm",
         editorialSummary: r.description || "",
         photos: extractPhotos(r),
         website: r.website || "",
         phone: r.phone || "",
-        openNow: r.open_state === "Open" ? true : r.open_state === "Closed" ? false : null,
+        openNow:
+          r.open_state === "Open"
+            ? true
+            : r.open_state === "Closed"
+              ? false
+              : null,
       };
     });
 
@@ -294,16 +317,23 @@ async function searchPlacesSerpApi(query: string) {
             hl: "vi",
             api_key: apiKey,
           });
-          const photoRes = await fetch(`${SERPAPI_BASE}?${photoParams.toString()}`);
+          const photoRes = await fetch(
+            `${SERPAPI_BASE}?${photoParams.toString()}`,
+          );
           if (photoRes.ok) {
             const photoData = await photoRes.json();
             (photoData.photos || []).slice(0, 5).forEach((p: any) => {
               const imgUrl = p.image || p.thumbnail;
-              if (imgUrl) photos.push({ name: imgUrl, attributions: ["Google Maps"] });
+              if (imgUrl)
+                photos.push({ name: imgUrl, attributions: ["Google Maps"] });
             });
-            console.log(`[SerpAPI] 📸 Got ${photos.length} photos for city "${r.title}" via google_maps_photos`);
+            console.log(
+              `[SerpAPI] 📸 Got ${photos.length} photos for city "${r.title}" via google_maps_photos`,
+            );
           }
-        } catch { /* photos are optional */ }
+        } catch {
+          /* photos are optional */
+        }
       }
 
       // Fallback: search Google Images for city photos (SerpAPI google engine with tbm=isch)
@@ -321,14 +351,24 @@ async function searchPlacesSerpApi(query: string) {
             const imgData = await imgRes.json();
             (imgData.images_results || []).slice(0, 5).forEach((img: any) => {
               if (img.original) {
-                photos.push({ name: img.original, attributions: ["Google Images"] });
+                photos.push({
+                  name: img.original,
+                  attributions: ["Google Images"],
+                });
               } else if (img.thumbnail) {
-                photos.push({ name: img.thumbnail, attributions: ["Google Images"] });
+                photos.push({
+                  name: img.thumbnail,
+                  attributions: ["Google Images"],
+                });
               }
             });
-            console.log(`[SerpAPI] 🖼️ Got ${photos.length} photos for "${r.title}" via google_images`);
+            console.log(
+              `[SerpAPI] 🖼️ Got ${photos.length} photos for "${r.title}" via google_images`,
+            );
           }
-        } catch { /* image search is optional */ }
+        } catch {
+          /* image search is optional */
+        }
       }
 
       places.push({
@@ -340,16 +380,25 @@ async function searchPlacesSerpApi(query: string) {
         longitude: r.gps_coordinates?.longitude || 0,
         rating: r.rating || 0,
         reviewCount: r.reviews || 0,
-        types: typeof r.type === "string" ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
-        primaryType: typeof r.type === "string" ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
-        primaryTypeDisplay: (typeof r.type === "string" ? r.type : null) || "Địa điểm",
+        types:
+          typeof r.type === "string"
+            ? [r.type.toLowerCase().replace(/\s+/g, "_")]
+            : [],
+        primaryType:
+          typeof r.type === "string"
+            ? r.type.toLowerCase().replace(/\s+/g, "_")
+            : "other",
+        primaryTypeDisplay:
+          (typeof r.type === "string" ? r.type : null) || "Địa điểm",
         editorialSummary: r.description || r.extensions?.join(", ") || "",
         photos,
         website: r.website || "",
         phone: r.phone || "",
         openNow: null,
       });
-      console.log(`[SerpAPI] ✅ Search "${query}" → found city/region result from place_results (${photos.length} photos)`);
+      console.log(
+        `[SerpAPI] ✅ Search "${query}" → found city/region result from place_results (${photos.length} photos)`,
+      );
     } else {
       console.log(`[SerpAPI] ✅ Search "${query}" → ${places.length} results`);
     }
@@ -378,7 +427,9 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
     });
 
     const url = `${SERPAPI_BASE}?${params.toString()}`;
-    console.log(`[SerpAPI] 🔍 Fetching place details for place_id: "${placeId}"`);
+    console.log(
+      `[SerpAPI] 🔍 Fetching place details for place_id: "${placeId}"`,
+    );
     const response = await fetch(url);
     if (!response.ok) {
       console.warn(`[SerpAPI] Place details failed (${response.status})`);
@@ -390,7 +441,9 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
     // type=place returns place_results (single object), not local_results (array)
     const r = data.place_results;
     if (!r) {
-      console.warn(`[SerpAPI] No place_results found for place_id: "${placeId}"`);
+      console.warn(
+        `[SerpAPI] No place_results found for place_id: "${placeId}"`,
+      );
       return null;
     }
 
@@ -401,7 +454,8 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
     }
     if (r.images && Array.isArray(r.images)) {
       r.images.slice(0, 4).forEach((img: any) => {
-        const imgUrl = typeof img === "string" ? img : img?.thumbnail || img?.image;
+        const imgUrl =
+          typeof img === "string" ? img : img?.thumbnail || img?.image;
         if (imgUrl && imgUrl !== r.thumbnail) {
           photos.push({ name: imgUrl, attributions: ["Google Maps"] });
         }
@@ -429,7 +483,9 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
               photos.push({ name: imgUrl, attributions: ["Google Maps"] });
             }
           });
-          console.log(`[SerpAPI] 📸 Got ${hdPhotos.length} HD photos for "${r.title}"`);
+          console.log(
+            `[SerpAPI] 📸 Got ${hdPhotos.length} HD photos for "${r.title}"`,
+          );
         }
       } catch {
         // HD photos are optional, continue without them
@@ -451,12 +507,20 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
           const imgData = await imgRes.json();
           (imgData.images_results || []).slice(0, 5).forEach((img: any) => {
             if (img.original) {
-              photos.push({ name: img.original, attributions: ["Google Images"] });
+              photos.push({
+                name: img.original,
+                attributions: ["Google Images"],
+              });
             } else if (img.thumbnail) {
-              photos.push({ name: img.thumbnail, attributions: ["Google Images"] });
+              photos.push({
+                name: img.thumbnail,
+                attributions: ["Google Images"],
+              });
             }
           });
-          console.log(`[SerpAPI] 🖼️ Got ${photos.length} fallback photos for "${r.title}" via google_images`);
+          console.log(
+            `[SerpAPI] 🖼️ Got ${photos.length} fallback photos for "${r.title}" via google_images`,
+          );
         }
       } catch {
         // Image search is optional
@@ -519,9 +583,16 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
       longitude: r.gps_coordinates?.longitude || 0,
       rating,
       reviewCount,
-      types: typeof r.type === "string" ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
-      primaryType: typeof r.type === "string" ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
-      primaryTypeDisplay: (typeof r.type === "string" ? r.type : null) || "Địa điểm",
+      types:
+        typeof r.type === "string"
+          ? [r.type.toLowerCase().replace(/\s+/g, "_")]
+          : [],
+      primaryType:
+        typeof r.type === "string"
+          ? r.type.toLowerCase().replace(/\s+/g, "_")
+          : "other",
+      primaryTypeDisplay:
+        (typeof r.type === "string" ? r.type : null) || "Địa điểm",
       editorialSummary: r.description || r.extensions?.join(", ") || "",
       website: r.website || "",
       phone: r.phone || "",
@@ -529,10 +600,17 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
       photos: photos.slice(0, 5),
       reviews,
       openingHours,
-      openNow: r.open_state === "Open" ? true : r.open_state === "Closed" ? false : null,
+      openNow:
+        r.open_state === "Open"
+          ? true
+          : r.open_state === "Closed"
+            ? false
+            : null,
     };
 
-    console.log(`[SerpAPI] ✅ Place details for "${result.name}" — ★${result.rating} (${result.reviewCount} reviews), ${photos.length} photos`);
+    console.log(
+      `[SerpAPI] ✅ Place details for "${result.name}" — ★${result.rating} (${result.reviewCount} reviews), ${photos.length} photos`,
+    );
     return result;
   } catch (error) {
     console.warn(`[SerpAPI] Place details error:`, error);
@@ -568,7 +646,9 @@ async function getSerpPhotos(req: Request, res: Response) {
     if (!response.ok) {
       const errorText = await response.text();
       console.warn(`[SerpAPI] Photos failed (${response.status}):`, errorText);
-      return res.status(response.status).json({ error: "SerpAPI photos request failed" });
+      return res
+        .status(response.status)
+        .json({ error: "SerpAPI photos request failed" });
     }
 
     const data = await response.json();
@@ -577,7 +657,9 @@ async function getSerpPhotos(req: Request, res: Response) {
       image: p.image || p.thumbnail || "",
     }));
 
-    console.log(`[SerpAPI] ✅ Got ${photos.length} photos for data_id=${dataId}`);
+    console.log(
+      `[SerpAPI] ✅ Got ${photos.length} photos for data_id=${dataId}`,
+    );
     return res.json({ photos });
   } catch (error) {
     console.error("[SerpAPI] Photos error:", error);
@@ -586,17 +668,22 @@ async function getSerpPhotos(req: Request, res: Response) {
 }
 
 // Helper: enrich Goong/Nominatim results with SerpAPI rating data
-async function enrichWithSerpApiRatings(places: any[], query: string): Promise<any[]> {
+async function enrichWithSerpApiRatings(
+  places: any[],
+  query: string,
+): Promise<any[]> {
   const hasZeroRating = places.some((p: any) => p.rating === 0);
   if (!hasZeroRating || places.length === 0) return places;
 
   const serpResult = await searchPlacesSerpApi(query);
-  if (!serpResult || !serpResult.places || serpResult.places.length === 0) return places;
+  if (!serpResult || !serpResult.places || serpResult.places.length === 0)
+    return places;
 
   const serpPlaces = serpResult.places;
 
   // Match by normalized name similarity
-  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F\u1E00-\u1EFF]/gi, "");
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F\u1E00-\u1EFF]/gi, "");
 
   return places.map((place: any) => {
     if (place.rating > 0) return place; // already has rating
@@ -604,7 +691,11 @@ async function enrichWithSerpApiRatings(places: any[], query: string): Promise<a
     // Find best match in SerpAPI results
     const match = serpPlaces.find((sp: any) => {
       const spNorm = normalize(sp.name);
-      return spNorm.includes(normName) || normName.includes(spNorm) || spNorm === normName;
+      return (
+        spNorm.includes(normName) ||
+        normName.includes(spNorm) ||
+        spNorm === normName
+      );
     });
     if (match) {
       return {
@@ -613,7 +704,10 @@ async function enrichWithSerpApiRatings(places: any[], query: string): Promise<a
         reviewCount: match.reviewCount || place.reviewCount,
         // Also save the Google Place ID for future SerpAPI reviews lookup
         placeId: match.placeId || place.placeId,
-        primaryTypeDisplay: match.primaryTypeDisplay !== "Địa điểm" ? match.primaryTypeDisplay : place.primaryTypeDisplay,
+        primaryTypeDisplay:
+          match.primaryTypeDisplay !== "Địa điểm"
+            ? match.primaryTypeDisplay
+            : place.primaryTypeDisplay,
       };
     }
     return place;
@@ -662,13 +756,16 @@ async function getPlaceDetailsGoogle(placeId: string, language: string) {
     const response = await fetch(url, {
       headers: {
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "id,displayName,formattedAddress,location,rating,userRatingCount,types,primaryType,primaryTypeDisplayName,editorialSummary,photos,websiteUri,nationalPhoneNumber,priceLevel,reviews,regularOpeningHours,currentOpeningHours",
+        "X-Goog-FieldMask":
+          "id,displayName,formattedAddress,location,rating,userRatingCount,types,primaryType,primaryTypeDisplayName,editorialSummary,photos,websiteUri,nationalPhoneNumber,priceLevel,reviews,regularOpeningHours,currentOpeningHours",
         "Accept-Language": language,
       },
     });
 
     if (!response.ok) {
-      console.warn(`[Google] Details failed (${response.status}), trying fallback...`);
+      console.warn(
+        `[Google] Details failed (${response.status}), trying fallback...`,
+      );
       return null;
     }
 
@@ -698,10 +795,14 @@ async function getPlaceDetailsGoogle(placeId: string, language: string) {
       editorialSummary: place.editorialSummary?.text || "",
       website: place.websiteUri || "",
       phone: place.nationalPhoneNumber || "",
-      priceLevel: place.priceLevel ? (priceLevelMap[place.priceLevel] ?? null) : null,
+      priceLevel: place.priceLevel
+        ? (priceLevelMap[place.priceLevel] ?? null)
+        : null,
       photos: (place.photos || []).slice(0, 5).map((p: any) => ({
         name: p.name || "",
-        attributions: (p.authorAttributions || []).map((a: any) => a.displayName || "Google"),
+        attributions: (p.authorAttributions || []).map(
+          (a: any) => a.displayName || "Google",
+        ),
       })),
       reviews: (place.reviews || []).slice(0, 5).map((r: any) => ({
         author: r.authorAttribution?.displayName || "",
@@ -728,7 +829,9 @@ async function getPlaceDetailsGoong(placeId: string, language: string) {
     const response = await fetch(url);
 
     if (!response.ok) {
-      console.warn(`[Goong] Details failed (${response.status}), trying fallback...`);
+      console.warn(
+        `[Goong] Details failed (${response.status}), trying fallback...`,
+      );
       return null;
     }
 
@@ -754,7 +857,7 @@ async function getPlaceDetailsGoong(placeId: string, language: string) {
       priceLevel: place.price_level ?? null,
       photos: (place.photos || []).slice(0, 5).map((p: any) => ({
         name: p.photo_reference || "",
-        attributions: (p.html_attributions || []),
+        attributions: p.html_attributions || [],
       })),
       reviews: (place.reviews || []).slice(0, 5).map((r: any) => ({
         author: r.author_name || "",
@@ -979,7 +1082,11 @@ async function geocodeAddress(req: Request, res: Response) {
 // DIRECTIONS — Google → Goong → OSRM
 // ══════════════════════════════════════════════════════════════
 
-async function directionsGoogle(origin: string, destination: string, vehicle: string) {
+async function directionsGoogle(
+  origin: string,
+  destination: string,
+  vehicle: string,
+) {
   const apiKey = getGoogleKey();
   if (!apiKey) return null;
 
@@ -1000,12 +1107,16 @@ async function directionsGoogle(origin: string, destination: string, vehicle: st
   }
 }
 
-async function directionsGoong(origin: string, destination: string, vehicle: string) {
+async function directionsGoong(
+  origin: string,
+  destination: string,
+  vehicle: string,
+) {
   const apiKey = getGoongKey();
   if (!apiKey) return null;
 
   try {
-    const goongVehicle = vehicle === "walking" ? "bike" : (vehicle || "car");
+    const goongVehicle = vehicle === "walking" ? "bike" : vehicle || "car";
     const url = `${GOONG_BASE}/Direction?api_key=${apiKey}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&vehicle=${goongVehicle}`;
     const response = await fetch(url);
     if (!response.ok) return null;
@@ -1066,21 +1177,35 @@ async function directionsOSRM(origin: string, destination: string) {
     const route = data.routes[0];
     const result = {
       status: "OK",
-      routes: [{
-        legs: route.legs.map((leg: any) => ({
-          distance: { text: `${(leg.distance / 1000).toFixed(1)} km`, value: leg.distance },
-          duration: { text: `${Math.round(leg.duration / 60)} phút`, value: leg.duration },
-          steps: (leg.steps || []).map((step: any) => ({
-            distance: { text: `${Math.round(step.distance)} m`, value: step.distance },
-            duration: { text: `${Math.round(step.duration / 60)} phút`, value: step.duration },
-            html_instructions: step.name || "",
-            maneuver: { location: step.maneuver?.location },
+      routes: [
+        {
+          legs: route.legs.map((leg: any) => ({
+            distance: {
+              text: `${(leg.distance / 1000).toFixed(1)} km`,
+              value: leg.distance,
+            },
+            duration: {
+              text: `${Math.round(leg.duration / 60)} phút`,
+              value: leg.duration,
+            },
+            steps: (leg.steps || []).map((step: any) => ({
+              distance: {
+                text: `${Math.round(step.distance)} m`,
+                value: step.distance,
+              },
+              duration: {
+                text: `${Math.round(step.duration / 60)} phút`,
+                value: step.duration,
+              },
+              html_instructions: step.name || "",
+              maneuver: { location: step.maneuver?.location },
+            })),
           })),
-        })),
-        overview_polyline: {
-          points: "", // OSRM uses GeoJSON, not encoded polyline
+          overview_polyline: {
+            points: "", // OSRM uses GeoJSON, not encoded polyline
+          },
         },
-      }],
+      ],
     };
 
     console.log(`[OSRM] Directions ${origin} → ${destination}`);
@@ -1097,7 +1222,9 @@ async function getDirections(req: Request, res: Response) {
   const vehicle = (req.query.vehicle as string) || "car";
 
   if (!origin || !destination) {
-    return res.status(400).json({ error: "origin and destination are required" });
+    return res
+      .status(400)
+      .json({ error: "origin and destination are required" });
   }
 
   // Cách 1: Google
@@ -1125,7 +1252,9 @@ async function getPlacePhoto(req: Request, res: Response) {
   const dataId = req.query.data_id as string; // Optional: SerpAPI data_id for HD photos
 
   if (!photoName && !dataId) {
-    return res.status(400).json({ error: "Photo name or data_id parameter is required" });
+    return res
+      .status(400)
+      .json({ error: "Photo name or data_id parameter is required" });
   }
 
   // If photoName is already a direct URL (e.g. from SerpAPI thumbnail/image), just redirect
@@ -1154,13 +1283,17 @@ async function getPlacePhoto(req: Request, res: Response) {
               // Redirect to the first HD image
               const hdUrl = photos[0].image || photos[0].thumbnail;
               if (hdUrl) {
-                console.log(`[SerpAPI] 📸 Serving HD photo from data_id=${dataId}`);
+                console.log(
+                  `[SerpAPI] 📸 Serving HD photo from data_id=${dataId}`,
+                );
                 return res.redirect(hdUrl);
               }
             }
           }
         } catch {
-          console.warn(`[SerpAPI] HD photo fetch failed for data_id=${dataId}, trying fallbacks...`);
+          console.warn(
+            `[SerpAPI] HD photo fetch failed for data_id=${dataId}, trying fallbacks...`,
+          );
         }
       }
     }
@@ -1172,7 +1305,8 @@ async function getPlacePhoto(req: Request, res: Response) {
       const response = await fetch(url, { redirect: "follow" });
 
       if (response.ok) {
-        const contentType = response.headers.get("content-type") || "image/jpeg";
+        const contentType =
+          response.headers.get("content-type") || "image/jpeg";
         res.setHeader("Content-Type", contentType);
         res.setHeader("Cache-Control", "public, max-age=86400");
 
@@ -1188,7 +1322,9 @@ async function getPlacePhoto(req: Request, res: Response) {
     const response = await fetch(url, { redirect: "follow" });
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: "Failed to fetch photo" });
+      return res
+        .status(response.status)
+        .json({ error: "Failed to fetch photo" });
     }
 
     const contentType = response.headers.get("content-type") || "image/jpeg";
@@ -1208,7 +1344,9 @@ async function getPlacePhoto(req: Request, res: Response) {
 // Used by generate-itinerary to get accurate coordinates
 // ══════════════════════════════════════════════════════════════
 
-async function internalGeocode(address: string): Promise<{ lat: number; lng: number; formattedAddress: string } | null> {
+async function internalGeocode(
+  address: string,
+): Promise<{ lat: number; lng: number; formattedAddress: string } | null> {
   // Cách 1: Google
   const googleKey = getGoogleKey();
   if (googleKey) {
@@ -1226,7 +1364,7 @@ async function internalGeocode(address: string): Promise<{ lat: number; lng: num
           };
         }
       }
-    } catch { }
+    } catch {}
   }
 
   // Cách 2: Goong
@@ -1246,7 +1384,7 @@ async function internalGeocode(address: string): Promise<{ lat: number; lng: num
           };
         }
       }
-    } catch { }
+    } catch {}
   }
 
   // Cách 3: Nominatim (miễn phí)
@@ -1265,7 +1403,7 @@ async function internalGeocode(address: string): Promise<{ lat: number; lng: num
         };
       }
     }
-  } catch { }
+  } catch {}
 
   return null;
 }
@@ -1274,7 +1412,9 @@ async function internalGeocode(address: string): Promise<{ lat: number; lng: num
 async function shareTrip(req: Request, res: Response) {
   const { shareCode, itinerary } = req.body;
   if (!shareCode || !itinerary) {
-    return res.status(400).json({ error: "shareCode and itinerary are required" });
+    return res
+      .status(400)
+      .json({ error: "shareCode and itinerary are required" });
   }
   // Upsert: update if exists, create if not
   const existing = await storage.getSharedTrip(shareCode);
@@ -1300,7 +1440,9 @@ async function getSharedTrip(req: Request, res: Response) {
 async function joinSharedTrip(req: Request, res: Response) {
   const { shareCode, companion } = req.body;
   if (!shareCode || !companion) {
-    return res.status(400).json({ error: "shareCode and companion are required" });
+    return res
+      .status(400)
+      .json({ error: "shareCode and companion are required" });
   }
   const trip = await storage.getSharedTrip(shareCode);
   if (!trip) {
@@ -1321,7 +1463,9 @@ async function joinSharedTrip(req: Request, res: Response) {
 async function updateCompanionRole(req: Request, res: Response) {
   const { shareCode, userId, role } = req.body;
   if (!shareCode || !userId || !role) {
-    return res.status(400).json({ error: "shareCode, userId, and role are required" });
+    return res
+      .status(400)
+      .json({ error: "shareCode, userId, and role are required" });
   }
   if (role !== "editor" && role !== "viewer") {
     return res.status(400).json({ error: "role must be 'editor' or 'viewer'" });
@@ -1352,7 +1496,9 @@ async function removeCompanion(req: Request, res: Response) {
     return res.status(404).json({ error: "Share code not found" });
   }
   const itinerary = trip.itinerary as any;
-  itinerary.companions = (itinerary.companions || []).filter((c: any) => c.userId !== userId);
+  itinerary.companions = (itinerary.companions || []).filter(
+    (c: any) => c.userId !== userId,
+  );
   await storage.updateSharedTrip(shareCode, { itinerary });
   return res.json({ ok: true });
 }
@@ -1362,14 +1508,20 @@ async function removeCompanion(req: Request, res: Response) {
 // ══════════════════════════════════════════════════════════════
 function extractPlaceName(title: string): string {
   return title
-    .replace(/^(Ăn sáng|Ăn trưa|Ăn tối|Ăn chiều|Nghỉ trưa|Nghỉ đêm|Nghỉ ngơi|Check-in|Check-out|Tham quan|Khám phá|Trải nghiệm|Dạo chơi|Đi bộ|Di chuyển|Mua sắm|Thưởng thức|Ghé thăm|Uống cà phê|Cà phê|Cafe)\s*(tại|ở|đến|quanh|trong|trên|vào|lúc)?\s*/i, "")
+    .replace(
+      /^(Ăn sáng|Ăn trưa|Ăn tối|Ăn chiều|Nghỉ trưa|Nghỉ đêm|Nghỉ ngơi|Check-in|Check-out|Tham quan|Khám phá|Trải nghiệm|Dạo chơi|Đi bộ|Di chuyển|Mua sắm|Thưởng thức|Ghé thăm|Uống cà phê|Cà phê|Cafe)\s*(tại|ở|đến|quanh|trong|trên|vào|lúc)?\s*/i,
+      "",
+    )
     .trim();
 }
 
 // ══════════════════════════════════════════════════════════════
 // Helper: Extract activities from itinerary days and save as POIs
 // ══════════════════════════════════════════════════════════════
-async function extractAndSavePOIsFromItinerary(days: any[], destinationId?: string): Promise<number> {
+async function extractAndSavePOIsFromItinerary(
+  days: any[],
+  destinationId?: string,
+): Promise<number> {
   if (!days || !Array.isArray(days) || days.length === 0) return 0;
 
   let savedCount = 0;
@@ -1382,7 +1534,9 @@ async function extractAndSavePOIsFromItinerary(days: any[], destinationId?: stri
     }
   }
 
-  console.log(`[POI-Save] Extracting POIs from ${allActivities.length} activities (destinationId=${destinationId || 'none'})...`);
+  console.log(
+    `[POI-Save] Extracting POIs from ${allActivities.length} activities (destinationId=${destinationId || "none"})...`,
+  );
 
   // Map activityType to POI type
   const poiTypeMap: Record<string, string> = {
@@ -1417,20 +1571,38 @@ async function extractAndSavePOIsFromItinerary(days: any[], destinationId?: stri
       if (existingPoi) {
         // Update existing POI if new data is better
         const updates: Record<string, any> = {};
-        if (act.rating && (!existingPoi.rating || act.rating > (existingPoi.rating || 0))) updates.rating = act.rating;
-        if (act.reviewCount && act.reviewCount > (existingPoi.reviewCount || 0)) updates.reviewCount = act.reviewCount;
+        if (
+          act.rating &&
+          (!existingPoi.rating || act.rating > (existingPoi.rating || 0))
+        )
+          updates.rating = act.rating;
+        if (act.reviewCount && act.reviewCount > (existingPoi.reviewCount || 0))
+          updates.reviewCount = act.reviewCount;
         if (act.address && !existingPoi.address) updates.address = act.address;
-        if (act.latitude && act.longitude && (!existingPoi.latitude || existingPoi.latitude === 0)) {
+        if (
+          act.latitude &&
+          act.longitude &&
+          (!existingPoi.latitude || existingPoi.latitude === 0)
+        ) {
           updates.latitude = act.latitude;
           updates.longitude = act.longitude;
         }
-        if (act.openHours && !existingPoi.openHours) updates.openHours = act.openHours;
-        if (act.openingHours && Array.isArray(act.openingHours) && act.openingHours.length > 0) {
+        if (act.openHours && !existingPoi.openHours)
+          updates.openHours = act.openHours;
+        if (
+          act.openingHours &&
+          Array.isArray(act.openingHours) &&
+          act.openingHours.length > 0
+        ) {
           const existing = existingPoi.openingHours as any[];
-          if (!existing || existing.length === 0) updates.openingHours = act.openingHours;
+          if (!existing || existing.length === 0)
+            updates.openingHours = act.openingHours;
         }
         // Also update destinationId if it was missing
-        if (resolvedDestId && (!existingPoi.destinationId || existingPoi.destinationId === "")) {
+        if (
+          resolvedDestId &&
+          (!existingPoi.destinationId || existingPoi.destinationId === "")
+        ) {
           updates.destinationId = resolvedDestId;
         }
         if (Object.keys(updates).length > 0) {
@@ -1473,10 +1645,21 @@ async function extractAndSavePOIsFromItinerary(days: any[], destinationId?: stri
 // ══════════════════════════════════════════════════════════════
 
 async function generateItineraryAI(req: Request, res: Response) {
-  const { destination, startDate, endDate, budget, totalBudget, numPeople, preferences, startingPoint } = req.body;
+  const {
+    destination,
+    startDate,
+    endDate,
+    budget,
+    totalBudget,
+    numPeople,
+    preferences,
+    startingPoint,
+  } = req.body;
 
   if (!destination || !startDate || !endDate) {
-    return res.status(400).json({ error: "destination, startDate, endDate are required" });
+    return res
+      .status(400)
+      .json({ error: "destination, startDate, endDate are required" });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -1485,37 +1668,61 @@ async function generateItineraryAI(req: Request, res: Response) {
   }
 
   try {
-    const prefsText = preferences && preferences.length > 0
-      ? preferences.join(", ")
-      : "";
+    const prefsText =
+      preferences && preferences.length > 0 ? preferences.join(", ") : "";
 
     // Calculate number of days
     const parseDate = (d: string) => {
       const parts = d.split(/[-/]/);
-      if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      if (parts.length === 3)
+        return new Date(
+          parseInt(parts[2]),
+          parseInt(parts[1]) - 1,
+          parseInt(parts[0]),
+        );
       return new Date(d);
     };
     const start = parseDate(startDate);
     const end = parseDate(endDate);
-    const numDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    const numDays = Math.max(
+      1,
+      Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1,
+    );
     const budgetPerDay = totalBudget ? Math.round(totalBudget / numDays) : 0;
 
     // Resolve destination to province for better AI guidance
     const destProvinceMap: Record<string, string> = {
-      "hạ long": "Quảng Ninh", "vịnh hạ long": "Quảng Ninh", "quảng ninh": "Quảng Ninh",
-      "hội an": "Quảng Nam", "quảng nam": "Quảng Nam",
-      "sa pa": "Lào Cai", "sapa": "Lào Cai", "lào cai": "Lào Cai",
-      "phú quốc": "Kiên Giang", "kiên giang": "Kiên Giang",
+      "hạ long": "Quảng Ninh",
+      "vịnh hạ long": "Quảng Ninh",
+      "quảng ninh": "Quảng Ninh",
+      "hội an": "Quảng Nam",
+      "quảng nam": "Quảng Nam",
+      "sa pa": "Lào Cai",
+      sapa: "Lào Cai",
+      "lào cai": "Lào Cai",
+      "phú quốc": "Kiên Giang",
+      "kiên giang": "Kiên Giang",
       "đà nẵng": "Đà Nẵng",
       "ninh bình": "Ninh Bình",
-      "đà lạt": "Lâm Đồng", "lâm đồng": "Lâm Đồng",
-      "huế": "Thừa Thiên Huế", "thừa thiên huế": "Thừa Thiên Huế",
-      "nha trang": "Khánh Hòa", "khánh hòa": "Khánh Hòa",
-      "phong nha": "Quảng Bình", "quảng bình": "Quảng Bình",
-      "hà nội": "Hà Nội", "hồ chí minh": "TP. Hồ Chí Minh", "sài gòn": "TP. Hồ Chí Minh",
-      "vũng tàu": "Bà Rịa - Vũng Tàu", "phan thiết": "Bình Thuận", "mũi né": "Bình Thuận",
-      "cần thơ": "Cần Thơ", "quy nhơn": "Bình Định", "buôn ma thuột": "Đắk Lắk",
-      "hải phòng": "Hải Phòng", "cát bà": "Hải Phòng",
+      "đà lạt": "Lâm Đồng",
+      "lâm đồng": "Lâm Đồng",
+      huế: "Thừa Thiên Huế",
+      "thừa thiên huế": "Thừa Thiên Huế",
+      "nha trang": "Khánh Hòa",
+      "khánh hòa": "Khánh Hòa",
+      "phong nha": "Quảng Bình",
+      "quảng bình": "Quảng Bình",
+      "hà nội": "Hà Nội",
+      "hồ chí minh": "TP. Hồ Chí Minh",
+      "sài gòn": "TP. Hồ Chí Minh",
+      "vũng tàu": "Bà Rịa - Vũng Tàu",
+      "phan thiết": "Bình Thuận",
+      "mũi né": "Bình Thuận",
+      "cần thơ": "Cần Thơ",
+      "quy nhơn": "Bình Định",
+      "buôn ma thuột": "Đắk Lắk",
+      "hải phòng": "Hải Phòng",
+      "cát bà": "Hải Phòng",
     };
     const destKey = destination.toLowerCase().trim();
     const province = destProvinceMap[destKey] || destination;
@@ -1567,46 +1774,64 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         systemInstruction: {
-          parts: [{ text: `Bạn là chuyên gia du lịch Việt Nam. CHỈ gợi ý địa điểm tại ${destination} thuộc ${province}. TUYỆT ĐỐI KHÔNG gợi ý địa điểm ở tỉnh/thành phố khác. QUAN TRỌNG: Mỗi hoạt động PHẢI dùng TÊN CHÍNH XÁC của nhà hàng/quán ăn/điểm tham quan NHƯ TRÊN GOOGLE MAPS để hệ thống có thể tra cứu thông tin. Không dùng tên chung chung.` }]
+          parts: [
+            {
+              text: `Bạn là chuyên gia du lịch Việt Nam. CHỈ gợi ý địa điểm tại ${destination} thuộc ${province}. TUYỆT ĐỐI KHÔNG gợi ý địa điểm ở tỉnh/thành phố khác. QUAN TRỌNG: Mỗi hoạt động PHẢI dùng TÊN CHÍNH XÁC của nhà hàng/quán ăn/điểm tham quan NHƯ TRÊN GOOGLE MAPS để hệ thống có thể tra cứu thông tin. Không dùng tên chung chung.`,
+            },
+          ],
         },
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
+        contents: [
+          {
+            parts: [{ text: prompt }],
+          },
+        ],
         generationConfig: {
           temperature: 0.3,
           maxOutputTokens: 8192,
           responseMimeType: "application/json",
-        }
-      })
+        },
+      }),
     });
 
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text();
       console.error("Gemini API error:", geminiResponse.status, errorText);
-      return res.status(502).json({ error: "Gemini API error", details: errorText });
+      return res
+        .status(502)
+        .json({ error: "Gemini API error", details: errorText });
     }
 
     const geminiData = await geminiResponse.json();
     const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!textContent) {
-      console.error("Gemini returned empty response:", JSON.stringify(geminiData));
+      console.error(
+        "Gemini returned empty response:",
+        JSON.stringify(geminiData),
+      );
       return res.status(502).json({ error: "Gemini returned empty response" });
     }
 
     // Parse JSON from response (handle potential markdown code blocks)
     let parsed;
     try {
-      const jsonStr = textContent.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+      const jsonStr = textContent
+        .replace(/```json\s*/g, "")
+        .replace(/```\s*/g, "")
+        .trim();
       parsed = JSON.parse(jsonStr);
     } catch (parseErr) {
       console.error("Failed to parse Gemini response:", textContent);
-      return res.status(502).json({ error: "Failed to parse AI response", raw: textContent });
+      return res
+        .status(502)
+        .json({ error: "Failed to parse AI response", raw: textContent });
     }
 
     // Validate structure
     if (!parsed.days || !Array.isArray(parsed.days)) {
-      return res.status(502).json({ error: "Invalid AI response structure", raw: parsed });
+      return res
+        .status(502)
+        .json({ error: "Invalid AI response structure", raw: parsed });
     }
 
     // Post-process: add IDs, defaults, Google Maps URLs, and budget scaling
@@ -1615,7 +1840,8 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
     for (const day of parsed.days) {
       if (!day.activities) day.activities = [];
       for (const act of day.activities) {
-        act.id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+        act.id =
+          Date.now().toString() + Math.random().toString(36).substr(2, 9);
         act.isCompleted = false;
         act.estimatedCost = act.estimatedCost || 0;
         act.activityType = act.activityType || "sightseeing";
@@ -1628,10 +1854,13 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
 
     // ═══ SerpAPI Enrichment: Search each activity on Google Maps for real data ═══
     const serpApiKey = getSerpApiKey();
-    console.log(`[Enrich] Enriching ${allActivities.length} activities with SerpAPI...`);
+    console.log(
+      `[Enrich] Enriching ${allActivities.length} activities with SerpAPI...`,
+    );
 
     // First, get destination coordinates for location bias (@lat,lng,zoom)
-    let destLat = 0, destLng = 0;
+    let destLat = 0,
+      destLng = 0;
     const destGeo = await internalGeocode(destination);
     if (destGeo) {
       destLat = destGeo.lat;
@@ -1647,7 +1876,10 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
 
       // Extract the actual place name for better search
       const placeName = extractPlaceName(act.title);
-      const searchQuery = placeName.length > 3 ? `${placeName} ${destination}` : `${act.title} ${destination}`;
+      const searchQuery =
+        placeName.length > 3
+          ? `${placeName} ${destination}`
+          : `${act.title} ${destination}`;
 
       try {
         const params = new URLSearchParams({
@@ -1672,7 +1904,10 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
             // Take the best match (first result)
             const match = results[0];
             // Update activity with real data from SerpAPI
-            if (match.gps_coordinates?.latitude && match.gps_coordinates?.longitude) {
+            if (
+              match.gps_coordinates?.latitude &&
+              match.gps_coordinates?.longitude
+            ) {
               act.latitude = match.gps_coordinates.latitude;
               act.longitude = match.gps_coordinates.longitude;
             }
@@ -1683,7 +1918,9 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
             // Use operating_hours object if available for actual schedule
             if (match.operating_hours) {
               const schedule: string[] = [];
-              for (const [day, hours] of Object.entries(match.operating_hours)) {
+              for (const [day, hours] of Object.entries(
+                match.operating_hours,
+              )) {
                 schedule.push(`${day}: ${hours}`);
               }
               act.openHours = schedule.join(" | ");
@@ -1697,16 +1934,21 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
             if (match.thumbnail) act.thumbnail = match.thumbnail;
             // Enrich description with Google Maps info
             if (match.title) {
-              act.description = `${match.title} — ★ ${match.rating || "N/A"}/5${match.reviews ? ` (${match.reviews} đánh giá)` : ""}. ${act.description || ""}`.trim();
+              act.description =
+                `${match.title} — ★ ${match.rating || "N/A"}/5${match.reviews ? ` (${match.reviews} đánh giá)` : ""}. ${act.description || ""}`.trim();
             }
             // Generate Google Maps URL
             act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
-            console.log(`[Enrich] ✅ "${act.title}" → ${match.title} | ${match.address} (${match.rating}★, ${match.reviews || 0} reviews)`);
+            console.log(
+              `[Enrich] ✅ "${act.title}" → ${match.title} | ${match.address} (${match.rating}★, ${match.reviews || 0} reviews)`,
+            );
           } else {
             console.log(`[Enrich] ⚠️ No results for: "${searchQuery}"`);
           }
         } else {
-          console.warn(`[Enrich] ❌ SerpAPI HTTP ${serpRes.status} for: "${searchQuery}"`);
+          console.warn(
+            `[Enrich] ❌ SerpAPI HTTP ${serpRes.status} for: "${searchQuery}"`,
+          );
         }
       } catch (err) {
         console.warn(`[Enrich] ❌ SerpAPI error for "${act.title}":`, err);
@@ -1718,7 +1960,13 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
 
     // Fallback geocoding for activities that SerpAPI missed
     for (const act of allActivities) {
-      if (act.latitude && act.longitude && act.latitude !== 0 && act.longitude !== 0) continue;
+      if (
+        act.latitude &&
+        act.longitude &&
+        act.latitude !== 0 &&
+        act.longitude !== 0
+      )
+        continue;
       // No coordinates yet — try geocoding
       if (act.address) {
         const geo = await internalGeocode(act.address);
@@ -1742,7 +1990,9 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
         act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.title + " " + act.address)}`;
       }
     }
-    console.log(`[Enrich] Complete — all ${allActivities.length} activities processed`);
+    console.log(
+      `[Enrich] Complete — all ${allActivities.length} activities processed`,
+    );
 
     // Budget scaling: if total is way off budget, scale proportionally
     if (totalBudget && totalEstimated > 0) {
@@ -1752,7 +2002,8 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
         const scale = targetTotal / totalEstimated;
         for (const day of parsed.days) {
           for (const act of day.activities) {
-            act.estimatedCost = Math.round(act.estimatedCost * scale / 1000) * 1000;
+            act.estimatedCost =
+              Math.round((act.estimatedCost * scale) / 1000) * 1000;
           }
         }
       }
@@ -1764,16 +2015,22 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
       const destRecord = await storage.getDestinationByName(destination);
       if (destRecord) {
         resolvedDestId = destRecord.id;
-        console.log(`[POI] Resolved destination "${destination}" → id=${resolvedDestId}`);
+        console.log(
+          `[POI] Resolved destination "${destination}" → id=${resolvedDestId}`,
+        );
       } else {
-        console.log(`[POI] No destination found for "${destination}", POIs will have empty destinationId`);
+        console.log(
+          `[POI] No destination found for "${destination}", POIs will have empty destinationId`,
+        );
       }
     } catch (err) {
       console.warn(`[POI] Failed to resolve destination:`, err);
     }
 
     // ═══ Save enriched activities as POIs (dedup by googlePlaceId or name) ═══
-    console.log(`[POI] Saving POIs from ${allActivities.length} activities (destinationId=${resolvedDestId || 'none'})...`);
+    console.log(
+      `[POI] Saving POIs from ${allActivities.length} activities (destinationId=${resolvedDestId || "none"})...`,
+    );
     let savedCount = 0;
     for (const act of allActivities) {
       try {
@@ -1796,15 +2053,31 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
         if (existingPoi) {
           // Update existing POI if new data is better
           const updates: Record<string, any> = {};
-          if (act.rating && (!existingPoi.rating || act.rating > (existingPoi.rating || 0))) updates.rating = act.rating;
-          if (act.reviewCount && act.reviewCount > (existingPoi.reviewCount || 0)) updates.reviewCount = act.reviewCount;
-          if (act.address && !existingPoi.address) updates.address = act.address;
-          if (act.latitude && act.longitude && (!existingPoi.latitude || existingPoi.latitude === 0)) {
+          if (
+            act.rating &&
+            (!existingPoi.rating || act.rating > (existingPoi.rating || 0))
+          )
+            updates.rating = act.rating;
+          if (
+            act.reviewCount &&
+            act.reviewCount > (existingPoi.reviewCount || 0)
+          )
+            updates.reviewCount = act.reviewCount;
+          if (act.address && !existingPoi.address)
+            updates.address = act.address;
+          if (
+            act.latitude &&
+            act.longitude &&
+            (!existingPoi.latitude || existingPoi.latitude === 0)
+          ) {
             updates.latitude = act.latitude;
             updates.longitude = act.longitude;
           }
           // Also update destinationId if it was missing
-          if (resolvedDestId && (!existingPoi.destinationId || existingPoi.destinationId === "")) {
+          if (
+            resolvedDestId &&
+            (!existingPoi.destinationId || existingPoi.destinationId === "")
+          ) {
             updates.destinationId = resolvedDestId;
           }
           if (Object.keys(updates).length > 0) {
@@ -1868,13 +2141,19 @@ async function getProviderStatus(req: Request, res: Response) {
   return res.json({
     activeProvider: hasSerpApi ? "serpapi" : provider,
     providers: {
-      serpapi: { available: hasSerpApi, name: "SerpAPI Google Maps (PRIMARY)", primary: true },
+      serpapi: {
+        available: hasSerpApi,
+        name: "SerpAPI Google Maps (PRIMARY)",
+        primary: true,
+      },
       google: { available: hasGoogle, name: "Google Maps Platform (fallback)" },
       goong: { available: hasGoong, name: "Goong Maps (fallback)" },
       free: { available: true, name: "OpenStreetMap + OSRM (miễn phí)" },
     },
     fallbackChain: [
-      hasSerpApi ? "✅ SerpAPI (PRIMARY — search, details, photos, reviews)" : "❌ SerpAPI (no key)",
+      hasSerpApi
+        ? "✅ SerpAPI (PRIMARY — search, details, photos, reviews)"
+        : "❌ SerpAPI (no key)",
       hasGoogle ? "✅ Google Maps (fallback)" : "❌ Google Maps (no key)",
       hasGoong ? "✅ Goong Maps (fallback)" : "❌ Goong Maps (no key)",
       "✅ Nominatim + OSRM (always available)",
@@ -1911,25 +2190,31 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     }
 
     const url = `${SERPAPI_BASE}?${params.toString()}`;
-    console.log(`[SerpAPI] Fetching reviews for place_id=${placeId}${nextPageToken ? " (next page)" : ""}`);
+    console.log(
+      `[SerpAPI] Fetching reviews for place_id=${placeId}${nextPageToken ? " (next page)" : ""}`,
+    );
 
     const response = await fetch(url);
     if (!response.ok) {
       const errorText = await response.text();
       console.warn(`[SerpAPI] Reviews failed (${response.status}):`, errorText);
-      return res.status(response.status).json({ error: "SerpAPI request failed", details: errorText });
+      return res
+        .status(response.status)
+        .json({ error: "SerpAPI request failed", details: errorText });
     }
 
     const data = await response.json();
 
     // Map response to our format
-    const placeInfo = data.place_info ? {
-      title: data.place_info.title || "",
-      address: data.place_info.address || "",
-      rating: data.place_info.rating || 0,
-      totalReviews: data.place_info.reviews || 0,
-      type: data.place_info.type || "",
-    } : null;
+    const placeInfo = data.place_info
+      ? {
+          title: data.place_info.title || "",
+          address: data.place_info.address || "",
+          rating: data.place_info.rating || 0,
+          totalReviews: data.place_info.reviews || 0,
+          type: data.place_info.type || "",
+        }
+      : null;
 
     const reviews = (data.reviews || []).map((r: any) => ({
       reviewId: r.review_id || "",
@@ -1943,15 +2228,22 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
       isoDate: r.iso_date || "",
       likes: r.likes || 0,
       images: r.images || [],
-      response: r.response ? {
-        snippet: r.response.snippet || r.response.extracted_snippet?.original || "",
-        date: r.response.date || "",
-      } : null,
+      response: r.response
+        ? {
+            snippet:
+              r.response.snippet ||
+              r.response.extracted_snippet?.original ||
+              "",
+            date: r.response.date || "",
+          }
+        : null,
     }));
 
     const nextToken = data.serpapi_pagination?.next_page_token || null;
 
-    console.log(`[SerpAPI] Got ${reviews.length} reviews for "${placeInfo?.title || placeId}"`);
+    console.log(
+      `[SerpAPI] Got ${reviews.length} reviews for "${placeInfo?.title || placeId}"`,
+    );
     return res.json({
       placeInfo,
       reviews,
@@ -2024,15 +2316,21 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
       longitude: r.gps_coordinates?.longitude || 0,
       rating: r.rating || 0,
       reviewCount: r.reviews || 0,
-      estimatedCost: r.price ? parseInt(r.price.replace(/[^0-9]/g, "")) || 0 : 0,
+      estimatedCost: r.price
+        ? parseInt(r.price.replace(/[^0-9]/g, "")) || 0
+        : 0,
       description: r.description || r.type || "",
       googlePlaceId: r.place_id || "",
       thumbnail: r.thumbnail || "",
       // r.hours from local_results (search) is a status string like "Open ⋅ Closes 10 PM"
       // Use operating_hours if available for real schedule data
       openHours: r.operating_hours
-        ? Object.entries(r.operating_hours).map(([day, hours]) => `${day}: ${hours}`).join(" | ")
-        : (typeof r.hours === "string" ? r.hours : ""),
+        ? Object.entries(r.operating_hours)
+            .map(([day, hours]) => `${day}: ${hours}`)
+            .join(" | ")
+        : typeof r.hours === "string"
+          ? r.hours
+          : "",
     });
 
     let restaurants: any[] = [];
@@ -2041,7 +2339,10 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
     if (restRes.ok) {
       const restData = await restRes.json();
       restaurants = (restData.local_results || [])
-        .filter((r: any) => r.gps_coordinates?.latitude && r.gps_coordinates?.longitude)
+        .filter(
+          (r: any) =>
+            r.gps_coordinates?.latitude && r.gps_coordinates?.longitude,
+        )
         .slice(0, 10)
         .map((r: any) => mapResult(r, "restaurant"));
     }
@@ -2049,7 +2350,10 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
     if (attrRes.ok) {
       const attrData = await attrRes.json();
       attractions = (attrData.local_results || [])
-        .filter((r: any) => r.gps_coordinates?.latitude && r.gps_coordinates?.longitude)
+        .filter(
+          (r: any) =>
+            r.gps_coordinates?.latitude && r.gps_coordinates?.longitude,
+        )
         .slice(0, 10)
         .map((r: any) => mapResult(r, "attraction"));
     }
@@ -2058,7 +2362,9 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
     restaurants.sort((a: any, b: any) => (b.rating || 0) - (a.rating || 0));
     attractions.sort((a: any, b: any) => (b.rating || 0) - (a.rating || 0));
 
-    console.log(`[AutoDiscover] Found ${restaurants.length} restaurants, ${attractions.length} attractions near "${query}"`);
+    console.log(
+      `[AutoDiscover] Found ${restaurants.length} restaurants, ${attractions.length} attractions near "${query}"`,
+    );
 
     return res.json({ restaurants, attractions });
   } catch (error) {
@@ -2067,14 +2373,19 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
   }
 }
 
-
 export async function registerRoutes(app: Express): Promise<Server> {
   // Log active provider on startup
   const provider = getActiveProvider();
   console.log(`\n🗺️  Map Provider: ${provider.toUpperCase()}`);
-  console.log(`   🔑 SerpAPI: ${getSerpApiKey() ? "✅ configured (PRIMARY)" : "❌ not configured"}`);
-  console.log(`   Google: ${getGoogleKey() ? "✅ configured (fallback)" : "❌ not configured"}`);
-  console.log(`   Goong:  ${getGoongKey() ? "✅ configured (fallback)" : "❌ not configured"}`);
+  console.log(
+    `   🔑 SerpAPI: ${getSerpApiKey() ? "✅ configured (PRIMARY)" : "❌ not configured"}`,
+  );
+  console.log(
+    `   Google: ${getGoogleKey() ? "✅ configured (fallback)" : "❌ not configured"}`,
+  );
+  console.log(
+    `   Goong:  ${getGoongKey() ? "✅ configured (fallback)" : "❌ not configured"}`,
+  );
   console.log(`   Free:   ✅ always available (Nominatim + OSRM)\n`);
   console.log(`   💾 Database: PostgreSQL (Drizzle ORM)\n`);
 
@@ -2148,7 +2459,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ error: "username and password are required" });
+      return res
+        .status(400)
+        .json({ error: "username and password are required" });
     }
     const user = await storage.getUserByUsername(username);
     if (!user || user.password !== password) {
@@ -2163,7 +2476,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/register", async (req, res) => {
     const { username, password, email, fullName } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ error: "username and password are required" });
+      return res
+        .status(400)
+        .json({ error: "username and password are required" });
     }
     const existing = await storage.getUserByUsername(username);
     if (existing) {
@@ -2244,16 +2559,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.body.days && Array.isArray(req.body.days)) {
         // Resolve destinationId from the itinerary's destination name
         const destName = req.body.destination || "";
-        storage.getDestinationByName(destName).then((dest) => {
-          const destId = dest?.id || "";
-          extractAndSavePOIsFromItinerary(req.body.days, destId).catch((err) =>
-            console.warn("[POI-Save] Background POI extraction failed:", err)
-          );
-        }).catch(() => {
-          extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
-            console.warn("[POI-Save] Background POI extraction failed:", err)
-          );
-        });
+        storage
+          .getDestinationByName(destName)
+          .then((dest) => {
+            const destId = dest?.id || "";
+            extractAndSavePOIsFromItinerary(req.body.days, destId).catch(
+              (err) =>
+                console.warn(
+                  "[POI-Save] Background POI extraction failed:",
+                  err,
+                ),
+            );
+          })
+          .catch(() => {
+            extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
+              console.warn("[POI-Save] Background POI extraction failed:", err),
+            );
+          });
       }
 
       res.status(201).json(itin);
@@ -2270,16 +2592,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (req.body.days && Array.isArray(req.body.days)) {
       // Resolve destinationId — use req.body.destination or the stored itinerary's destination
       const destName = req.body.destination || (itin as any).destination || "";
-      storage.getDestinationByName(destName).then((dest) => {
-        const destId = dest?.id || "";
-        extractAndSavePOIsFromItinerary(req.body.days, destId).catch((err) =>
-          console.warn("[POI-Save] Background POI extraction failed:", err)
-        );
-      }).catch(() => {
-        extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
-          console.warn("[POI-Save] Background POI extraction failed:", err)
-        );
-      });
+      storage
+        .getDestinationByName(destName)
+        .then((dest) => {
+          const destId = dest?.id || "";
+          extractAndSavePOIsFromItinerary(req.body.days, destId).catch((err) =>
+            console.warn("[POI-Save] Background POI extraction failed:", err),
+          );
+        })
+        .catch(() => {
+          extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
+            console.warn("[POI-Save] Background POI extraction failed:", err),
+          );
+        });
     }
 
     res.json(itin);
@@ -2365,7 +2690,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/notifications/:id", async (req, res) => {
     const notif = await storage.updateNotification(req.params.id, req.body);
-    if (!notif) return res.status(404).json({ error: "Notification not found" });
+    if (!notif)
+      return res.status(404).json({ error: "Notification not found" });
     res.json(notif);
   });
 
