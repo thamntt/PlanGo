@@ -299,18 +299,25 @@ function setupErrorHandler(app: express.Application) {
       status?: number;
       statusCode?: number;
       message?: string;
+      errors?: any;
     };
 
     const status = error.status || error.statusCode || 500;
     const message = error.message || "Internal Server Error";
+    const errorsDetails = error.errors || (status === 500 ? String(err) : undefined);
 
-    console.error("Internal Server Error:", err);
+    console.error(`[Global Error Handler] Status: ${status} - Message: ${message}`, err);
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    return res.status(status).json({
+      status,
+      message,
+      data: null,
+      errors: errorsDetails
+    });
   });
 }
 
@@ -325,41 +332,6 @@ function setupErrorHandler(app: express.Application) {
   app.get("/api/status", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
-
-  // Auto-create pois table if missing
-  try {
-    const { pool } = await import("./db");
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS pois (
-        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-        destination_id TEXT DEFAULT '',
-        name TEXT NOT NULL,
-        type TEXT DEFAULT 'attraction',
-        address TEXT DEFAULT '',
-        latitude REAL DEFAULT 0,
-        longitude REAL DEFAULT 0,
-        rating REAL DEFAULT 0,
-        review_count INTEGER DEFAULT 0,
-        open_hours TEXT,
-        opening_hours JSONB DEFAULT '[]',
-        price_level INTEGER,
-        estimated_cost INTEGER,
-        estimated_duration TEXT,
-        description TEXT DEFAULT '',
-        images JSONB DEFAULT '[]',
-        google_place_id TEXT,
-        google_photos JSONB DEFAULT '[]',
-        google_reviews JSONB DEFAULT '[]',
-        tags JSONB DEFAULT '[]',
-        is_active BOOLEAN DEFAULT true,
-        source TEXT DEFAULT 'manual',
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-    console.log("✅ POIs table ready");
-  } catch (err) {
-    console.warn("⚠️ Could not auto-create pois table:", err);
-  }
 
   const server = await registerRoutes(app);
 

@@ -38,18 +38,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   // Map server response to UserData shape
-  const mapUser = (u: any): UserData => ({
-    id: u.id,
-    username: u.username,
-    password: u.password || "",
-    email: u.email || u.full_name ? u.email : (u.email || ""),
-    fullName: u.fullName || u.full_name || "",
-    avatar: u.avatar || "",
-    role: u.role || "user",
-    isLocked: u.isLocked ?? u.is_locked ?? false,
-    preferences: u.preferences || [],
-    createdAt: u.createdAt || u.created_at || new Date().toISOString(),
-  });
+  const mapUser = (u: any): UserData => {
+    if (!u) return {} as UserData;
+    return {
+      id: (u.userId || u.id)?.toString() || "",
+      username: u.userName || u.username || "",
+      password: u.password || "",
+      email: u.email || "",
+      fullName: u.fullName || u.full_name || u.userName || "",
+      avatar: u.avatar || "",
+      role: u.role || "user",
+      isLocked: u.status === "locked" || u.status === "banned" || u.isLocked || u.is_locked || false,
+      preferences: u.preferences || [],
+      createdAt: u.createdAt || u.created_at || new Date().toISOString(),
+    };
+  };
 
   const loadUser = async () => {
     try {
@@ -59,7 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Re-fetch from server to get latest data
         try {
           const res = await apiRequest("GET", `/api/users/${saved.id}`);
-          const fresh = mapUser(await res.json());
+          const json = await res.json();
+          const fresh = mapUser(json);
           if (!fresh.isLocked) {
             setUser(fresh);
             await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(fresh));
@@ -88,9 +92,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Seed admin user if none exists
     try {
       const res = await apiRequest("GET", "/api/users");
-      const users = await res.json();
-      if (users.length === 0) {
+      const userList = await res.json();
+      if (Array.isArray(userList) && userList.length === 0) {
         await apiRequest("POST", "/api/auth/register", {
+          userName: SEED_ADMIN.username, // Using userName to be explicit
           username: SEED_ADMIN.username,
           password: SEED_ADMIN.password,
           email: SEED_ADMIN.email,
@@ -101,11 +106,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           username: SEED_ADMIN.username,
           password: SEED_ADMIN.password,
         });
-        const adminUser = mapUser(await loginRes.json());
+        const loginJson = await loginRes.json();
+        const adminUser = mapUser(loginJson);
         await apiRequest("PUT", `/api/users/${adminUser.id}`, { role: "admin" });
       }
-    } catch {
-      // Server might be down, skip seeding
+    } catch (err) {
+      console.log("Seed error:", err);
     }
     await loadUser();
   };
@@ -113,7 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string) => {
     try {
       const res = await apiRequest("POST", "/api/auth/login", { username, password });
-      const found = mapUser(await res.json());
+      const json = await res.json();
+      const found = mapUser(json);
       setUser(found);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(found));
       return { success: true };
@@ -128,7 +135,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (data: { username: string; password: string; email: string; fullName: string }) => {
     try {
       const res = await apiRequest("POST", "/api/auth/register", data);
-      const newUser = mapUser(await res.json());
+      const json = await res.json();
+      const newUser = mapUser(json);
       setUser(newUser);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
       return { success: true };
@@ -148,7 +156,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     try {
       const res = await apiRequest("PUT", `/api/users/${user.id}`, data);
-      const updated = mapUser(await res.json());
+      const json = await res.json();
+      const updated = mapUser(json);
       setUser(updated);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
     } catch {
@@ -163,7 +172,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const res = await apiRequest("PUT", `/api/users/${user.id}`, { password: newPassword });
-      const updated = mapUser(await res.json());
+      const json = await res.json();
+      const updated = mapUser(json);
       setUser(updated);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
       return { success: true };

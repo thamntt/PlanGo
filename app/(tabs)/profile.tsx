@@ -145,7 +145,8 @@ export default function ProfileScreen() {
         setJoinCodeError(txt.itinerary.invalidCode);
         return;
       }
-      const sharedTrip = await res.json();
+      const jsonRes = await res.json();
+      const sharedTrip = jsonRes.data || jsonRes;
 
       if (sharedTrip.userId === user.id) {
         setJoinCodeStatus("already");
@@ -177,7 +178,8 @@ export default function ProfileScreen() {
           body: JSON.stringify({ shareCode: code, companion }),
         });
         if (joinRes.ok) {
-          const joinData = await joinRes.json();
+          const joinResJson = await joinRes.json();
+          const joinData = joinResJson.data || joinResJson;
           if (joinData.alreadyJoined) {
             setJoinCodeStatus("already");
             return;

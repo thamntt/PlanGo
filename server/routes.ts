@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 import { storage } from "./storage";
+import { asyncHandler, sendResponse, AppError } from "./utils";
 
 // ══════════════════════════════════════════════════════════════
 // API Base URLs
@@ -623,12 +624,12 @@ async function getSerpPhotos(req: Request, res: Response) {
   const dataId = req.params.dataId as string;
 
   if (!dataId) {
-    return res.status(400).json({ error: "dataId parameter is required" });
+    throw new AppError(400, "dataId parameter is required");
   }
 
   const apiKey = getSerpApiKey();
   if (!apiKey) {
-    return res.status(501).json({ error: "SERPAPI_KEY not configured" });
+    throw new AppError(501, "SERPAPI_KEY not configured");
   }
 
   try {
@@ -663,7 +664,7 @@ async function getSerpPhotos(req: Request, res: Response) {
     return res.json({ photos });
   } catch (error) {
     console.error("[SerpAPI] Photos error:", error);
-    return res.status(500).json({ error: "Failed to fetch photos" });
+    throw new AppError(500, "Failed to fetch photos");
   }
 }
 
@@ -719,7 +720,7 @@ async function searchPlaces(req: Request, res: Response) {
   const language = (req.query.language as string) || "vi";
 
   if (!query) {
-    return res.status(400).json({ error: "Query parameter is required" });
+    throw new AppError(400, "Query parameter is required");
   }
 
   // Cách 1: SerpAPI (ưu tiên — có rating, review, thumbnail, data_id)
@@ -954,7 +955,7 @@ async function getPlaceDetails(req: Request, res: Response) {
   const language = (req.query.language as string) || "vi";
 
   if (!placeId) {
-    return res.status(400).json({ error: "placeId parameter is required" });
+    throw new AppError(400, "placeId parameter is required");
   }
 
   // Cách 1: SerpAPI (ưu tiên — có ảnh HD, reviews, rating)
@@ -973,7 +974,7 @@ async function getPlaceDetails(req: Request, res: Response) {
   const nominatimResult = await getPlaceDetailsNominatim(placeId, language);
   if (nominatimResult) return res.json(nominatimResult);
 
-  return res.status(404).json({ error: "Place not found" });
+  throw new AppError(404, "Place not found");
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1062,7 +1063,7 @@ async function geocodeAddress(req: Request, res: Response) {
   const address = req.query.address as string;
 
   if (!address) {
-    return res.status(400).json({ error: "address parameter is required" });
+    throw new AppError(400, "address parameter is required");
   }
 
   // Cách 1: Google
@@ -1335,7 +1336,7 @@ async function getPlacePhoto(req: Request, res: Response) {
     return res.send(Buffer.from(buffer));
   } catch (error) {
     console.error("Place photo error:", error);
-    return res.status(500).json({ error: "Failed to fetch photo" });
+    throw new AppError(500, "Failed to fetch photo");
   }
 }
 
@@ -1410,97 +1411,64 @@ async function internalGeocode(
 
 // POST /api/share — register a trip share (database-backed)
 async function shareTrip(req: Request, res: Response) {
-  const { shareCode, itinerary } = req.body;
-  if (!shareCode || !itinerary) {
-    return res
-      .status(400)
-      .json({ error: "shareCode and itinerary are required" });
+  const { tripId } = req.body;
+  if (!tripId) {
+    throw new AppError(400, "tripId is required");
   }
-  // Upsert: update if exists, create if not
-  const existing = await storage.getSharedTrip(shareCode);
-  if (existing) {
-    await storage.updateSharedTrip(shareCode, { itinerary });
-  } else {
-    await storage.createSharedTrip({ shareCode, itinerary });
-  }
-  return res.json({ ok: true });
+  const token = Math.random().toString(36).substring(7); // basic token
+  const trip = await storage.updateTrip(Number(tripId), { invitationToken: token });
+  sendResponse(res, 200, "Trip shared", { shareCode: token });
 }
 
 // GET /api/share/:code — look up a shared trip
 async function getSharedTrip(req: Request, res: Response) {
   const code = req.params.code as string;
-  const trip = await storage.getSharedTrip(code);
-  if (!trip) {
-    return res.status(404).json({ error: "Share code not found" });
-  }
-  return res.json(trip.itinerary);
+  const trip = await storage.getTripByInvitationToken(code);
+  if (!trip) throw new AppError(404, "Share code not found");
+  
+  // Return standard trip
+  sendResponse(res, 200, "Trip found", trip);
 }
 
 // POST /api/share/join — join a shared trip (update companions)
 async function joinSharedTrip(req: Request, res: Response) {
-  const { shareCode, companion } = req.body;
-  if (!shareCode || !companion) {
-    return res
-      .status(400)
-      .json({ error: "shareCode and companion are required" });
+  const { shareCode, userId } = req.body;
+  if (!shareCode || !userId) throw new AppError(400, "shareCode and userId are required");
+  
+  const trip = await storage.getTripByInvitationToken(shareCode);
+  if (!trip) throw new AppError(404, "Share code not found");
+  
+  const members = await storage.getTripMembers(trip.tripId);
+  if (members.some(m => m.userId === Number(userId))) {
+     return sendResponse(res, 200, "Already joined", { alreadyJoined: true, trip });
   }
-  const trip = await storage.getSharedTrip(shareCode);
-  if (!trip) {
-    return res.status(404).json({ error: "Share code not found" });
-  }
-  const itinerary = trip.itinerary as any;
-  const companions = itinerary.companions || [];
-  if (companions.some((c: any) => c.userId === companion.userId)) {
-    return res.json({ ok: true, alreadyJoined: true, itinerary });
-  }
-  companions.push(companion);
-  itinerary.companions = companions;
-  await storage.updateSharedTrip(shareCode, { itinerary });
-  return res.json({ ok: true, alreadyJoined: false, itinerary });
+  
+  await storage.addTripMember({ tripId: trip.tripId, userId: Number(userId), role: "viewer" });
+  sendResponse(res, 200, "Joined trip", { alreadyJoined: false, trip });
 }
 
 // PATCH /api/share/companion — update a companion's role
 async function updateCompanionRole(req: Request, res: Response) {
   const { shareCode, userId, role } = req.body;
-  if (!shareCode || !userId || !role) {
-    return res
-      .status(400)
-      .json({ error: "shareCode, userId, and role are required" });
-  }
-  if (role !== "editor" && role !== "viewer") {
-    return res.status(400).json({ error: "role must be 'editor' or 'viewer'" });
-  }
-  const trip = await storage.getSharedTrip(shareCode);
-  if (!trip) {
-    return res.status(404).json({ error: "Share code not found" });
-  }
-  const itinerary = trip.itinerary as any;
-  const companions = itinerary.companions || [];
-  const companion = companions.find((c: any) => c.userId === userId);
-  if (!companion) {
-    return res.status(404).json({ error: "Companion not found" });
-  }
-  companion.role = role;
-  await storage.updateSharedTrip(shareCode, { itinerary });
-  return res.json({ ok: true });
+  if (!shareCode || !userId || !role) throw new AppError(400, "shareCode, userId, and role are required");
+  
+  const trip = await storage.getTripByInvitationToken(shareCode);
+  if (!trip) throw new AppError(404, "Share code not found");
+  
+  await storage.updateTripMember(trip.tripId, Number(userId), { role });
+  sendResponse(res, 200, "Success", null);
 }
 
 // DELETE /api/share/companion — remove a companion
 async function removeCompanion(req: Request, res: Response) {
   const { shareCode, userId } = req.body;
-  if (!shareCode || !userId) {
-    return res.status(400).json({ error: "shareCode and userId are required" });
-  }
-  const trip = await storage.getSharedTrip(shareCode);
-  if (!trip) {
-    return res.status(404).json({ error: "Share code not found" });
-  }
-  const itinerary = trip.itinerary as any;
-  itinerary.companions = (itinerary.companions || []).filter(
-    (c: any) => c.userId !== userId,
-  );
-  await storage.updateSharedTrip(shareCode, { itinerary });
-  return res.json({ ok: true });
+  if (!shareCode || !userId) throw new AppError(400, "shareCode and userId are required");
+  
+  const trip = await storage.getTripByInvitationToken(shareCode);
+  if (!trip) throw new AppError(404, "Share code not found");
+  
+  await storage.removeTripMember(trip.tripId, Number(userId));
+  sendResponse(res, 200, "Success", null);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1520,7 +1488,7 @@ function extractPlaceName(title: string): string {
 // ══════════════════════════════════════════════════════════════
 async function extractAndSavePOIsFromItinerary(
   days: any[],
-  destinationId?: string,
+  destinationId?: number | null,
 ): Promise<number> {
   if (!days || !Array.isArray(days) || days.length === 0) return 0;
 
@@ -1557,7 +1525,7 @@ async function extractAndSavePOIsFromItinerary(
       if (!placeName || placeName.length < 3) continue;
 
       // Resolve the destinationId: use activity's own, fallback to passed-in
-      const resolvedDestId = act.destinationId || destinationId || "";
+      const resolvedDestId = act.destinationId ? Number(act.destinationId) : (destinationId ?? null);
 
       // Dedup: check by googlePlaceId first, then by name
       let existingPoi = null;
@@ -1573,62 +1541,43 @@ async function extractAndSavePOIsFromItinerary(
         const updates: Record<string, any> = {};
         if (
           act.rating &&
-          (!existingPoi.rating || act.rating > (existingPoi.rating || 0))
+          (!existingPoi.rating || parseFloat(act.rating.toString()) > parseFloat(existingPoi.rating || "0"))
         )
-          updates.rating = act.rating;
-        if (act.reviewCount && act.reviewCount > (existingPoi.reviewCount || 0))
-          updates.reviewCount = act.reviewCount;
+          updates.rating = act.rating.toString();
+        if (act.reviewCount && act.reviewCount > (existingPoi.reviewCounts || 0))
+          updates.reviewCounts = act.reviewCount;
         if (act.address && !existingPoi.address) updates.address = act.address;
         if (
           act.latitude &&
           act.longitude &&
-          (!existingPoi.latitude || existingPoi.latitude === 0)
+          (!existingPoi.latitude || existingPoi.latitude === "0")
         ) {
-          updates.latitude = act.latitude;
-          updates.longitude = act.longitude;
-        }
-        if (act.openHours && !existingPoi.openHours)
-          updates.openHours = act.openHours;
-        if (
-          act.openingHours &&
-          Array.isArray(act.openingHours) &&
-          act.openingHours.length > 0
-        ) {
-          const existing = existingPoi.openingHours as any[];
-          if (!existing || existing.length === 0)
-            updates.openingHours = act.openingHours;
+          updates.latitude = act.latitude.toString();
+          updates.longitude = act.longitude.toString();
         }
         // Also update destinationId if it was missing
         if (
-          resolvedDestId &&
-          (!existingPoi.destinationId || existingPoi.destinationId === "")
+          resolvedDestId !== null &&
+          !existingPoi.destinationId
         ) {
           updates.destinationId = resolvedDestId;
         }
         if (Object.keys(updates).length > 0) {
-          await storage.updatePoi(existingPoi.id, updates);
+          await storage.updatePoi(existingPoi.poiId, updates);
         }
         continue;
       }
 
       await storage.createPoi({
-        destinationId: resolvedDestId,
+        destinationId: resolvedDestId !== null ? resolvedDestId : undefined,
         name: placeName,
-        type: poiTypeMap[act.activityType] || "attraction",
         address: act.address || "",
-        latitude: act.latitude || 0,
-        longitude: act.longitude || 0,
-        rating: act.rating || 0,
-        reviewCount: act.reviewCount || 0,
-        openHours: act.openHours || undefined,
-        openingHours: act.openingHours || undefined,
-        estimatedCost: act.estimatedCost || undefined,
-        description: act.description || "",
-        images: act.thumbnail ? [act.thumbnail] : [],
+        latitude: act.latitude ? act.latitude.toString() : "0",
+        longitude: act.longitude ? act.longitude.toString() : "0",
+        rating: act.rating ? act.rating.toString() : "0",
+        reviewCounts: act.reviewCount || 0,
+        estimatedCost: act.estimatedCost ? act.estimatedCost.toString() : undefined,
         googlePlaceId: act.googlePlaceId || undefined,
-        tags: [],
-        isActive: true,
-        source: "itinerary_saved",
       });
       savedCount++;
     } catch (err) {
@@ -1664,7 +1613,7 @@ async function generateItineraryAI(req: Request, res: Response) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === "your_gemini_api_key_here") {
-    return res.status(501).json({ error: "GEMINI_API_KEY not configured" });
+    throw new AppError(501, "GEMINI_API_KEY not configured");
   }
 
   try {
@@ -1809,7 +1758,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
         "Gemini returned empty response:",
         JSON.stringify(geminiData),
       );
-      return res.status(502).json({ error: "Gemini returned empty response" });
+      throw new AppError(502, "Gemini returned empty response");
     }
 
     // Parse JSON from response (handle potential markdown code blocks)
@@ -2010,11 +1959,11 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
     }
 
     // ═══ Resolve destinationId from destination name ═══
-    let resolvedDestId = "";
+    let resolvedDestId: number | null = null;
     try {
       const destRecord = await storage.getDestinationByName(destination);
       if (destRecord) {
-        resolvedDestId = destRecord.id;
+        resolvedDestId = destRecord.destinationId;
         console.log(
           `[POI] Resolved destination "${destination}" → id=${resolvedDestId}`,
         );
@@ -2057,62 +2006,44 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
             act.rating &&
             (!existingPoi.rating || act.rating > (existingPoi.rating || 0))
           )
-            updates.rating = act.rating;
+            updates.rating = act.rating.toString();
           if (
             act.reviewCount &&
-            act.reviewCount > (existingPoi.reviewCount || 0)
+            act.reviewCount > (existingPoi.reviewCounts || 0)
           )
-            updates.reviewCount = act.reviewCount;
+            updates.reviewCounts = act.reviewCount;
           if (act.address && !existingPoi.address)
             updates.address = act.address;
           if (
             act.latitude &&
             act.longitude &&
-            (!existingPoi.latitude || existingPoi.latitude === 0)
+            (!existingPoi.latitude || existingPoi.latitude === "0")
           ) {
-            updates.latitude = act.latitude;
-            updates.longitude = act.longitude;
+            updates.latitude = act.latitude.toString();
+            updates.longitude = act.longitude.toString();
           }
           // Also update destinationId if it was missing
           if (
-            resolvedDestId &&
-            (!existingPoi.destinationId || existingPoi.destinationId === "")
+            resolvedDestId && !existingPoi.destinationId
           ) {
             updates.destinationId = resolvedDestId;
           }
           if (Object.keys(updates).length > 0) {
-            await storage.updatePoi(existingPoi.id, updates);
+            await storage.updatePoi(existingPoi.poiId, updates);
           }
           continue;
         }
 
-        // Map activityType to POI type
-        const poiTypeMap: Record<string, string> = {
-          food: "restaurant",
-          sightseeing: "attraction",
-          shopping: "shopping",
-          transport: "other",
-          other: "other",
-        };
-
         await storage.createPoi({
-          destinationId: resolvedDestId,
+          destinationId: resolvedDestId !== null ? resolvedDestId : undefined,
           name: placeName,
-          type: poiTypeMap[act.activityType] || "attraction",
           address: act.address || "",
-          latitude: act.latitude || 0,
-          longitude: act.longitude || 0,
-          rating: act.rating || 0,
-          reviewCount: act.reviewCount || 0,
-          openHours: act.openHours || undefined,
-          openingHours: act.openingHours || undefined,
-          estimatedCost: act.estimatedCost || undefined,
-          description: act.description || "",
-          images: act.thumbnail ? [act.thumbnail] : [],
+          latitude: act.latitude ? act.latitude.toString() : "0",
+          longitude: act.longitude ? act.longitude.toString() : "0",
+          rating: act.rating ? act.rating.toString() : "0",
+          reviewCounts: act.reviewCount || 0,
+          estimatedCost: act.estimatedCost ? act.estimatedCost.toString() : undefined,
           googlePlaceId: act.googlePlaceId || undefined,
-          tags: [],
-          isActive: true,
-          source: "ai_generated",
         });
         savedCount++;
       } catch (err) {
@@ -2124,7 +2055,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
     return res.json(parsed);
   } catch (error) {
     console.error("Generate itinerary error:", error);
-    return res.status(500).json({ error: "Failed to generate itinerary" });
+    throw new AppError(500, "Failed to generate itinerary");
   }
 }
 
@@ -2170,12 +2101,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
   const nextPageToken = req.query.next_page_token as string | undefined;
 
   if (!placeId) {
-    return res.status(400).json({ error: "place_id parameter is required" });
+    throw new AppError(400, "place_id parameter is required");
   }
 
   const apiKey = getSerpApiKey();
   if (!apiKey) {
-    return res.status(501).json({ error: "SERPAPI_KEY not configured" });
+    throw new AppError(501, "SERPAPI_KEY not configured");
   }
 
   try {
@@ -2251,7 +2182,7 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     });
   } catch (error) {
     console.error("[SerpAPI] Reviews error:", error);
-    return res.status(500).json({ error: "Failed to fetch reviews" });
+    throw new AppError(500, "Failed to fetch reviews");
   }
 }
 
@@ -2268,7 +2199,7 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
   const lng = parseFloat(req.query.lng as string) || 0;
 
   if (!query) {
-    return res.status(400).json({ error: "Query is required" });
+    throw new AppError(400, "Query is required");
   }
 
   const apiKey = getSerpApiKey();
@@ -2393,353 +2324,318 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/places/provider", getProviderStatus);
 
   // Places search routes (SerpAPI → Google → Goong → Nominatim)
-  app.get("/api/places/search", searchPlaces);
-  app.get("/api/places/details/:placeId", getPlaceDetails);
-  app.get("/api/places/photo", getPlacePhoto);
+  app.get("/api/places/search", asyncHandler(searchPlaces));
+  app.get("/api/places/details/:placeId", asyncHandler(getPlaceDetails));
+  app.get("/api/places/photo", asyncHandler(getPlacePhoto));
 
   // SerpAPI HD Photos by data_id
-  app.get("/api/places/serp-photos/:dataId", getSerpPhotos);
+  app.get("/api/places/serp-photos/:dataId", asyncHandler(getSerpPhotos));
 
   // Geocode & directions (with fallback)
-  app.get("/api/places/geocode", geocodeAddress);
-  app.get("/api/places/directions", getDirections);
+  app.get("/api/places/geocode", asyncHandler(geocodeAddress));
+  app.get("/api/places/directions", asyncHandler(getDirections));
 
   // SerpAPI Reviews
-  app.get("/api/places/reviews", getPlaceReviewsSerpApi);
+  app.get("/api/places/reviews", asyncHandler(getPlaceReviewsSerpApi));
 
   // Auto-discover nearby POIs
-  app.get("/api/places/auto-discover", autoDiscoverPOIs);
+  app.get("/api/places/auto-discover", asyncHandler(autoDiscoverPOIs));
 
   // AI Itinerary generation
-  app.post("/api/generate-itinerary", generateItineraryAI);
+  app.post("/api/generate-itinerary", asyncHandler(generateItineraryAI));
 
   // Share trip routes
-  app.post("/api/share", shareTrip);
-  app.get("/api/share/:code", getSharedTrip);
-  app.post("/api/share/join", joinSharedTrip);
-  app.patch("/api/share/companion", updateCompanionRole);
-  app.delete("/api/share/companion", removeCompanion);
+  app.post("/api/share", asyncHandler(shareTrip));
+  app.get("/api/share/:code", asyncHandler(getSharedTrip));
+  app.post("/api/share/join", asyncHandler(joinSharedTrip));
+  app.patch("/api/share/companion", asyncHandler(updateCompanionRole));
+  app.delete("/api/share/companion", asyncHandler(removeCompanion));
 
   // ══════════════════════════════════════════════════════════════
   // CRUD: Users
   // ══════════════════════════════════════════════════════════════
-  app.get("/api/users", async (_req, res) => {
+  app.get("/api/users", asyncHandler(async (_req, res) => {
     const users = await storage.getUsers();
-    res.json(users);
-  });
+    sendResponse(res, 200, "Users retrieved successfully", users);
+  }));
 
-  app.get("/api/users/:id", async (req, res) => {
-    const user = await storage.getUser(req.params.id);
-    if (!user) return res.status(404).json({ error: "User not found" });
-    res.json(user);
-  });
+  app.get("/api/users/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new AppError(400, "Invalid user ID");
+    const user = await storage.getUser(id);
+    if (!user) throw new AppError(404, "User not found");
+    sendResponse(res, 200, "User retrieved successfully", user);
+  }));
 
-  app.post("/api/users", async (req, res) => {
-    try {
-      const user = await storage.createUser(req.body);
-      res.status(201).json(user);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+  app.post("/api/users", asyncHandler(async (req, res) => {
+    const user = await storage.createUser(req.body);
+    sendResponse(res, 201, "User created successfully", user);
+  }));
+
+  app.put("/api/users/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      throw new AppError(400, "Invalid user ID");
     }
-  });
 
-  app.put("/api/users/:id", async (req, res) => {
-    const user = await storage.updateUser(req.params.id, req.body);
-    if (!user) return res.status(404).json({ error: "User not found" });
-    res.json(user);
-  });
+    // Map frontend fields to backend schema
+    const updateData: Record<string, any> = {};
+    const body = req.body;
 
-  app.delete("/api/users/:id", async (req, res) => {
-    const ok = await storage.deleteUser(req.params.id);
-    if (!ok) return res.status(404).json({ error: "User not found" });
-    res.json({ ok: true });
-  });
+    if (body.userName !== undefined) updateData.userName = body.userName;
+    if (body.fullName !== undefined) updateData.userName = body.fullName; // Map fullName to userName
+    if (body.email !== undefined) updateData.email = body.email;
+    if (body.password !== undefined) updateData.password = body.password;
+    if (body.role !== undefined) updateData.role = body.role;
+    
+    // Map isLocked to status
+    if (body.isLocked !== undefined) {
+      updateData.status = body.isLocked ? "locked" : "active";
+    } else if (body.status !== undefined) {
+      updateData.status = body.status;
+    }
+
+    const user = await storage.updateUser(id, updateData);
+    if (!user) throw new AppError(404, "User not found");
+    sendResponse(res, 200, "User updated successfully", user);
+  }));
+
+  app.delete("/api/users/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new AppError(400, "Invalid user ID");
+    const ok = await storage.deleteUser(id);
+    if (!ok) throw new AppError(404, "User not found");
+    sendResponse(res, 200, "User deleted successfully", null);
+  }));
 
   // Login / Register
-  app.post("/api/auth/login", async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ error: "username and password are required" });
+  app.post("/api/auth/login", asyncHandler(async (req, res) => {
+    const { email, username, password } = req.body;
+    const identifier = email || username;
+    if (!identifier || !password) throw new AppError(400, "Email or username and password are required");
+    
+    // Try by email first, then by username
+    let user = await storage.getUserByEmail(identifier);
+    if (!user) {
+      user = await storage.getUserByUsername(identifier);
     }
-    const user = await storage.getUserByUsername(username);
-    if (!user || user.password !== password) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-    if (user.isLocked) {
-      return res.status(403).json({ error: "Account is locked" });
-    }
-    res.json(user);
-  });
 
-  app.post("/api/auth/register", async (req, res) => {
-    const { username, password, email, fullName } = req.body;
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ error: "username and password are required" });
+    if (!user || user.password !== password) throw new AppError(401, "Invalid credentials");
+    if (user.status === "banned" || user.status === "inactive") throw new AppError(403, "Account is locked");
+    
+    sendResponse(res, 200, "Login successful", user);
+  }));
+
+  app.post("/api/auth/register", asyncHandler(async (req, res) => {
+    console.log("[Auth] Register request body:", JSON.stringify(req.body));
+    const { userName, username, password, email } = req.body;
+    const finalUserName = userName || username;
+
+    console.log(`[Auth] Validation check: finalUserName="${finalUserName}", hasPassword=${!!password}, hasEmail=${!!email}`);
+
+    if (!finalUserName || !password || !email) {
+      console.warn("[Auth] Registration validation failed: missing fields");
+      throw new AppError(400, "userName, email and password are required");
     }
-    const existing = await storage.getUserByUsername(username);
-    if (existing) {
-      return res.status(409).json({ error: "Username already exists" });
-    }
-    try {
-      const user = await storage.createUser({ username, password });
-      // Update extra fields if provided
-      if (email || fullName) {
-        const updated = await storage.updateUser(user.id, { email, fullName });
-        return res.status(201).json(updated || user);
-      }
-      res.status(201).json(user);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
+    
+    console.log(`[Auth] Checking if email exists: ${email}`);
+    const existing = await storage.getUserByEmail(email);
+    if (existing) throw new AppError(409, "Email already exists");
+    
+    const user = await storage.createUser({ 
+      userName: finalUserName, 
+      password, 
+      email, 
+      role: "user", 
+      status: "active" 
+    });
+    sendResponse(res, 201, "Registration successful", user);
+  }));
 
   // ══════════════════════════════════════════════════════════════
   // CRUD: Destinations
   // ══════════════════════════════════════════════════════════════
-  app.get("/api/destinations", async (_req, res) => {
+  app.get("/api/destinations", asyncHandler(async (_req, res) => {
     const destinations = await storage.getDestinations();
-    res.json(destinations);
-  });
+    sendResponse(res, 200, "Destinations retrieved successfully", destinations);
+  }));
 
-  app.get("/api/destinations/:id", async (req, res) => {
-    const dest = await storage.getDestination(req.params.id);
-    if (!dest) return res.status(404).json({ error: "Destination not found" });
-    res.json(dest);
-  });
+  app.get("/api/destinations/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new AppError(400, "Invalid destination ID");
+    const dest = await storage.getDestination(id);
+    if (!dest) throw new AppError(404, "Destination not found");
+    sendResponse(res, 200, "Destination retrieved successfully", dest);
+  }));
 
-  app.post("/api/destinations", async (req, res) => {
-    try {
-      const dest = await storage.createDestination(req.body);
-      res.status(201).json(dest);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
+  app.post("/api/destinations", asyncHandler(async (req, res) => {
+    const dest = await storage.createDestination(req.body);
+    sendResponse(res, 201, "Destination created successfully", dest);
+  }));
 
-  app.put("/api/destinations/:id", async (req, res) => {
-    const dest = await storage.updateDestination(req.params.id, req.body);
-    if (!dest) return res.status(404).json({ error: "Destination not found" });
-    res.json(dest);
-  });
+  app.put("/api/destinations/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new AppError(400, "Invalid destination ID");
+    const dest = await storage.updateDestination(id, req.body);
+    if (!dest) throw new AppError(404, "Destination not found");
+    sendResponse(res, 200, "Destination updated successfully", dest);
+  }));
 
-  app.delete("/api/destinations/:id", async (req, res) => {
-    const ok = await storage.deleteDestination(req.params.id);
-    if (!ok) return res.status(404).json({ error: "Destination not found" });
-    res.json({ ok: true });
-  });
-
-  // ══════════════════════════════════════════════════════════════
-  // CRUD: Itineraries
-  // ══════════════════════════════════════════════════════════════
-  app.get("/api/itineraries", async (req, res) => {
-    const userId = req.query.userId as string;
-    if (userId) {
-      const items = await storage.getItinerariesByUser(userId);
-      return res.json(items);
-    }
-    const items = await storage.getItineraries();
-    res.json(items);
-  });
-
-  app.get("/api/itineraries/:id", async (req, res) => {
-    const itin = await storage.getItinerary(req.params.id);
-    if (!itin) return res.status(404).json({ error: "Itinerary not found" });
-    res.json(itin);
-  });
-
-  app.post("/api/itineraries", async (req, res) => {
-    try {
-      const itin = await storage.createItinerary(req.body);
-
-      // Extract and save POIs from itinerary activities
-      if (req.body.days && Array.isArray(req.body.days)) {
-        // Resolve destinationId from the itinerary's destination name
-        const destName = req.body.destination || "";
-        storage
-          .getDestinationByName(destName)
-          .then((dest) => {
-            const destId = dest?.id || "";
-            extractAndSavePOIsFromItinerary(req.body.days, destId).catch(
-              (err) =>
-                console.warn(
-                  "[POI-Save] Background POI extraction failed:",
-                  err,
-                ),
-            );
-          })
-          .catch(() => {
-            extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
-              console.warn("[POI-Save] Background POI extraction failed:", err),
-            );
-          });
-      }
-
-      res.status(201).json(itin);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
-
-  app.put("/api/itineraries/:id", async (req, res) => {
-    const itin = await storage.updateItinerary(req.params.id, req.body);
-    if (!itin) return res.status(404).json({ error: "Itinerary not found" });
-
-    // Extract and save POIs from updated itinerary activities
-    if (req.body.days && Array.isArray(req.body.days)) {
-      // Resolve destinationId — use req.body.destination or the stored itinerary's destination
-      const destName = req.body.destination || (itin as any).destination || "";
-      storage
-        .getDestinationByName(destName)
-        .then((dest) => {
-          const destId = dest?.id || "";
-          extractAndSavePOIsFromItinerary(req.body.days, destId).catch((err) =>
-            console.warn("[POI-Save] Background POI extraction failed:", err),
-          );
-        })
-        .catch(() => {
-          extractAndSavePOIsFromItinerary(req.body.days).catch((err) =>
-            console.warn("[POI-Save] Background POI extraction failed:", err),
-          );
-        });
-    }
-
-    res.json(itin);
-  });
-
-  app.delete("/api/itineraries/:id", async (req, res) => {
-    const ok = await storage.deleteItinerary(req.params.id);
-    if (!ok) return res.status(404).json({ error: "Itinerary not found" });
-    res.json({ ok: true });
-  });
+  app.delete("/api/destinations/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new AppError(400, "Invalid destination ID");
+    const ok = await storage.deleteDestination(id);
+    if (!ok) throw new AppError(404, "Destination not found");
+    sendResponse(res, 200, "Destination deleted successfully", null);
+  }));
 
   // ══════════════════════════════════════════════════════════════
-  // CRUD: Reviews
+  // CRUD: Trips
   // ══════════════════════════════════════════════════════════════
-  app.get("/api/reviews", async (req, res) => {
-    const userId = req.query.userId as string;
-    const destinationId = req.query.destinationId as string;
-    const poiId = req.query.poiId as string;
-    if (userId) {
-      const items = await storage.getReviewsByUser(userId);
-      return res.json(items);
-    }
-    if (poiId) {
-      const items = await storage.getReviewsByPoi(poiId);
-      return res.json(items);
-    }
-    if (destinationId) {
-      const items = await storage.getReviewsByDestination(destinationId);
-      return res.json(items);
-    }
-    const items = await storage.getReviews();
-    res.json(items);
-  });
+  app.get("/api/trips", asyncHandler(async (req, res) => {
+    const ownerId = req.query.ownerId;
+    const memberId = req.query.memberId;
+    let items = [];
+    
+    if (ownerId) items = await storage.getTripsByOwner(Number(ownerId));
+    else if (memberId) items = await storage.getTripsByMember(Number(memberId));
+    else items = await storage.getTrips();
+    
+    sendResponse(res, 200, "Trips retrieved successfully", items);
+  }));
 
-  app.get("/api/reviews/:id", async (req, res) => {
-    const review = await storage.getReview(req.params.id);
-    if (!review) return res.status(404).json({ error: "Review not found" });
-    res.json(review);
-  });
+  app.get("/api/trips/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new AppError(400, "Invalid trip ID");
+    const trip = await storage.getTrip(id);
+    if (!trip) throw new AppError(404, "Trip not found");
+    sendResponse(res, 200, "Trip retrieved successfully", trip);
+  }));
 
-  app.post("/api/reviews", async (req, res) => {
-    try {
-      const review = await storage.createReview(req.body);
-      res.status(201).json(review);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
+  app.post("/api/trips", asyncHandler(async (req, res) => {
+    const trip = await storage.createTrip(req.body);
+    sendResponse(res, 201, "Trip created successfully", trip);
+  }));
 
-  app.put("/api/reviews/:id", async (req, res) => {
-    const review = await storage.updateReview(req.params.id, req.body);
-    if (!review) return res.status(404).json({ error: "Review not found" });
-    res.json(review);
-  });
+  app.put("/api/trips/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new AppError(400, "Invalid trip ID");
+    const trip = await storage.updateTrip(id, req.body);
+    if (!trip) throw new AppError(404, "Trip not found");
+    sendResponse(res, 200, "Trip updated successfully", trip);
+  }));
 
-  app.delete("/api/reviews/:id", async (req, res) => {
-    const ok = await storage.deleteReview(req.params.id);
-    if (!ok) return res.status(404).json({ error: "Review not found" });
-    res.json({ ok: true });
-  });
-
-  // ══════════════════════════════════════════════════════════════
-  // CRUD: Notifications
-  // ══════════════════════════════════════════════════════════════
-  app.get("/api/notifications", async (req, res) => {
-    const userId = req.query.userId as string;
-    if (userId) {
-      const items = await storage.getNotificationsByUser(userId);
-      return res.json(items);
-    }
-    const items = await storage.getNotifications();
-    res.json(items);
-  });
-
-  app.post("/api/notifications", async (req, res) => {
-    try {
-      const notif = await storage.createNotification(req.body);
-      res.status(201).json(notif);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
-
-  app.put("/api/notifications/:id", async (req, res) => {
-    const notif = await storage.updateNotification(req.params.id, req.body);
-    if (!notif)
-      return res.status(404).json({ error: "Notification not found" });
-    res.json(notif);
-  });
-
-  app.delete("/api/notifications/:id", async (req, res) => {
-    const ok = await storage.deleteNotification(req.params.id);
-    if (!ok) return res.status(404).json({ error: "Notification not found" });
-    res.json({ ok: true });
-  });
+  app.delete("/api/trips/:id", asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) throw new AppError(400, "Invalid trip ID");
+    const ok = await storage.deleteTrip(id);
+    if (!ok) throw new AppError(404, "Trip not found");
+    sendResponse(res, 200, "Trip deleted successfully", null);
+  }));
 
   // ══════════════════════════════════════════════════════════════
   // CRUD: POIs
   // ══════════════════════════════════════════════════════════════
-  app.get("/api/pois", async (req, res) => {
-    const destinationId = req.query.destinationId as string;
-    if (destinationId) {
-      const items = await storage.getPoisByDestination(destinationId);
-      return res.json(items);
-    }
-    const items = await storage.getPois();
-    res.json(items);
-  });
+  app.get("/api/pois", asyncHandler(async (req, res) => {
+    const destinationId = req.query.destinationId;
+    const items = destinationId ? await storage.getPoisByDestination(Number(destinationId)) : await storage.getPois();
+    sendResponse(res, 200, "POIs retrieved successfully", items);
+  }));
 
-  app.get("/api/pois/:id", async (req, res) => {
-    const poi = await storage.getPoi(req.params.id);
-    if (!poi) return res.status(404).json({ error: "POI not found" });
-    res.json(poi);
-  });
+  app.get("/api/pois/:id", asyncHandler(async (req, res) => {
+    const poi = await storage.getPoi(Number(req.params.id));
+    if (!poi) throw new AppError(404, "POI not found");
+    sendResponse(res, 200, "POI retrieved successfully", poi);
+  }));
 
-  app.post("/api/pois", async (req, res) => {
-    try {
-      const poi = await storage.createPoi(req.body);
-      res.status(201).json(poi);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
+  app.post("/api/pois", asyncHandler(async (req, res) => {
+    const poi = await storage.createPoi(req.body);
+    sendResponse(res, 201, "POI created successfully", poi);
+  }));
 
-  app.put("/api/pois/:id", async (req, res) => {
-    const poi = await storage.updatePoi(req.params.id, req.body);
-    if (!poi) return res.status(404).json({ error: "POI not found" });
-    res.json(poi);
-  });
+  app.put("/api/pois/:id", asyncHandler(async (req, res) => {
+    const poi = await storage.updatePoi(Number(req.params.id), req.body);
+    if (!poi) throw new AppError(404, "POI not found");
+    sendResponse(res, 200, "POI updated successfully", poi);
+  }));
 
-  app.delete("/api/pois/:id", async (req, res) => {
-    const ok = await storage.deletePoi(req.params.id);
-    if (!ok) return res.status(404).json({ error: "POI not found" });
-    res.json({ ok: true });
-  });
+  app.delete("/api/pois/:id", asyncHandler(async (req, res) => {
+    const ok = await storage.deletePoi(Number(req.params.id));
+    if (!ok) throw new AppError(404, "POI not found");
+    sendResponse(res, 200, "POI deleted successfully", null);
+  }));
+
+  // ══════════════════════════════════════════════════════════════
+  // Remaining CRUD (Mapped Dynamically or Condensed)
+  // ══════════════════════════════════════════════════════════════
+  
+  app.get("/api/destination-types", asyncHandler(async (_req, res) => {
+    const items = await storage.getDestinationTypes();
+    sendResponse(res, 200, "Types retrieved successfully", items);
+  }));
+
+  app.post("/api/destination-types", asyncHandler(async (req, res) => {
+    const item = await storage.createDestinationType(req.body);
+    sendResponse(res, 201, "Type created successfully", item);
+  }));
+  
+  app.get("/api/poi-types", asyncHandler(async (_req, res) => {
+    const items = await storage.getPoiTypes();
+    sendResponse(res, 200, "Types retrieved successfully", items);
+  }));
+
+  app.post("/api/poi-types", asyncHandler(async (req, res) => {
+    const item = await storage.createPoiType(req.body);
+    sendResponse(res, 201, "Type created successfully", item);
+  }));
+
+  app.get("/api/trips/:tripId/days", asyncHandler(async (req, res) => {
+    const items = await storage.getItineraryDaysByTrip(Number(req.params.tripId));
+    sendResponse(res, 200, "Days retrieved successfully", items);
+  }));
+
+  app.post("/api/trips/:tripId/days", asyncHandler(async (req, res) => {
+    const day = await storage.createItineraryDay({ ...req.body, tripId: Number(req.params.tripId) });
+    sendResponse(res, 201, "Day created successfully", day);
+  }));
+
+  app.get("/api/days/:dayId/items", asyncHandler(async (req, res) => {
+    const items = await storage.getItineraryItemsByDay(Number(req.params.dayId));
+    sendResponse(res, 200, "Items retrieved successfully", items);
+  }));
+
+  app.post("/api/days/:dayId/items", asyncHandler(async (req, res) => {
+    const item = await storage.createItineraryItem({ ...req.body, dayId: Number(req.params.dayId) });
+    sendResponse(res, 201, "Item created successfully", item);
+  }));
+  
+  app.get("/api/trips/:tripId/expenses", asyncHandler(async (req, res) => {
+    const items = await storage.getExpensesByTrip(Number(req.params.tripId));
+    sendResponse(res, 200, "Expenses retrieved successfully", items);
+  }));
+
+  app.post("/api/trips/:tripId/expenses", asyncHandler(async (req, res) => {
+    const expense = await storage.createExpense({ ...req.body, tripId: Number(req.params.tripId) });
+    sendResponse(res, 201, "Expense created successfully", expense);
+  }));
+
+  app.get("/api/notifications", asyncHandler(async (req, res) => {
+    const userId = req.query.userId;
+    const items = userId ? await storage.getNotificationsByUser(Number(userId)) : await storage.getNotifications();
+    sendResponse(res, 200, "Notifications retrieved successfully", items);
+  }));
+
+  app.post("/api/notifications", asyncHandler(async (req, res) => {
+    const notif = await storage.createNotification(req.body);
+    sendResponse(res, 201, "Notification created successfully", notif);
+  }));
+
+  app.patch("/api/notifications/mark-read", asyncHandler(async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) throw new AppError(400, "userId is required");
+    await storage.markNotificationsRead(Number(userId));
+    sendResponse(res, 200, "All notifications marked as read", null);
+  }));
 
   const httpServer = createServer(app);
   return httpServer;

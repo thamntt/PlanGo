@@ -66,6 +66,17 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
+  
+  // Automatically unwrap the standard backend JSON structure { status, message, data, errors }
+  const originalJson = res.json.bind(res);
+  res.json = async () => {
+    const json = await originalJson();
+    if (json && typeof json === 'object' && 'status' in json && 'data' in json && (Object.keys(json).length === 3 || Object.keys(json).length === 4)) {
+      return json.data;
+    }
+    return json;
+  };
+
   return res;
 }
 
@@ -88,7 +99,11 @@ export const getQueryFn: <T>(options: {
     }
 
     await throwIfResNotOk(res);
-    return await res.json();
+    const json = await res.json();
+    if (json && typeof json === 'object' && 'status' in json && 'message' in json && 'data' in json) {
+      return json.data;
+    }
+    return json;
   };
 
 export const queryClient = new QueryClient({

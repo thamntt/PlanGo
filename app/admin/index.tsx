@@ -313,11 +313,17 @@ export default function AdminDashboard() {
   }, [pois, poiSearch, poiFilterDest]);
 
   const mapUser = (u: any): UserData => ({
-    id: u.id, username: u.username, password: u.password || "",
-    email: u.email || "", fullName: u.fullName || u.full_name || "",
-    phone: u.phone || "", avatar: u.avatar || "",
-    role: u.role || "user", isLocked: u.isLocked ?? u.is_locked ?? false,
-    preferences: u.preferences || [], createdAt: u.createdAt || u.created_at || "",
+    id: (u.userId || u.id)?.toString() || "",
+    username: u.userName || u.username || "",
+    password: u.password || "",
+    email: u.email || "",
+    fullName: u.fullName || u.full_name || u.userName || "",
+    phone: u.phone || "",
+    avatar: u.avatar || "",
+    role: u.role || "user",
+    isLocked: u.status === "locked" || u.status === "banned" || u.isLocked || u.is_locked || false,
+    preferences: u.preferences || [],
+    createdAt: u.createdAt || u.created_at || "",
   });
 
   const loadUsers = useCallback(async () => {
@@ -439,7 +445,8 @@ export default function AdminDashboard() {
     const current = users.find((u) => u.id === userId);
     if (!current) return;
     try {
-      const res = await apiRequest("PUT", `/api/users/${userId}`, { isLocked: !current.isLocked });
+      const numericId = parseInt(userId);
+      const res = await apiRequest("PUT", `/api/users/${numericId}`, { isLocked: !current.isLocked });
       const updated = mapUser(await res.json());
       setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
     } catch { }
@@ -449,7 +456,8 @@ export default function AdminDashboard() {
   const deleteUser = async (userId: string, name: string) => {
     confirmAction(txt.deleteUser, txt.deleteUserMsg(name), async () => {
       try {
-        await apiRequest("DELETE", `/api/users/${userId}`);
+        const numericId = parseInt(userId);
+        await apiRequest("DELETE", `/api/users/${numericId}`);
         setUsers((prev) => prev.filter((u) => u.id !== userId));
       } catch { }
       if (userDetailId === userId) setUserDetailId(null);
@@ -464,7 +472,8 @@ export default function AdminDashboard() {
     if (editUserEmail.trim()) updateData.email = editUserEmail.trim();
     if (editUserPassword.trim()) updateData.password = editUserPassword.trim();
     try {
-      const res = await apiRequest("PUT", `/api/users/${userDetailId}`, updateData);
+      const numericId = parseInt(userDetailId);
+      const res = await apiRequest("PUT", `/api/users/${numericId}`, updateData);
       const updated = mapUser(await res.json());
       setUsers((prev) => prev.map((u) => (u.id === userDetailId ? updated : u)));
     } catch { }

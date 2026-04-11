@@ -5,14 +5,14 @@
   "scripts": {
     "postinstall": "patch-package",
     "expo:dev": "cross-env REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.5 npx expo start -c",
-    "server:dev": "cross-env NODE_ENV=development tsx server/index.ts",
+    "server:dev": "cross-env NODE_ENV=development tsx --watch server/index.ts",
     "expo:start:static:build": "npx expo start --no-dev --minify --localhost",
     "expo:static:build": "node scripts/build.js",
     "server:build": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist",
     "server:prod": "cross-env NODE_ENV=production node server_dist/index.js",
     "db:push": "drizzle-kit push",
     "start": "npx expo start",
-    "dev": "cross-env NODE_ENV=development tsx server/index.ts",
+    "dev": "cross-env NODE_ENV=development tsx --watch server/index.ts",
     "tunnel": "tsx scripts/start-tunnel.ts",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix"
