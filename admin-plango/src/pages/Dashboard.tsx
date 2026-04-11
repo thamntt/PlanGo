@@ -19,7 +19,7 @@ const Dashboard: React.FC = () => {
         <StatCard 
           icon="users" 
           label="Tổng Người dùng" 
-          value={users.length.toString()} 
+          value={users.filter(u => u.role === 'user').length.toString()} 
           trend="+12%" 
         />
         <StatCard 

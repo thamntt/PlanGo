@@ -75,6 +75,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, data: Partial<User>): Promise<User | undefined>;
   deleteUser(id: number): Promise<boolean>;
+  seedAdminUser(): Promise<void>;
 
   // Destination Types
   getDestinationType(id: number): Promise<DestinationType | undefined>;
@@ -249,6 +250,20 @@ export class DatabaseStorage implements IStorage {
   async createUser(data: InsertUser): Promise<User> {
     const [row] = await db.insert(users).values(data).returning();
     return row;
+  }
+
+  async seedAdminUser() {
+    const existing = await this.getUserByEmail("admin@plango.vn");
+    if (!existing) {
+      await this.createUser({
+        userName: "admin",
+        email: "admin@plango.vn",
+        password: "admin123",
+        role: "admin",
+        status: "active",
+      });
+      console.log("[Seed] Admin user created: admin@plango.vn / admin123");
+    }
   }
   async updateUser(id: number, data: Partial<User>): Promise<User | undefined> {
     if (Object.keys(data).length === 0) {

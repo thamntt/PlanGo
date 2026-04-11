@@ -6,7 +6,9 @@ import {
   MapPin, 
   Map, 
   Star, 
+  LogOut,
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface NavItemProps {
   icon: React.ReactNode;
@@ -29,6 +31,8 @@ const NavItem: React.FC<NavItemProps> = ({ icon, label, to }) => (
 );
 
 const Sidebar: React.FC = () => {
+  const { logout } = useAuth();
+
   const navItems = [
     { icon: <LayoutDashboard size={20} />, label: 'Bảng điều khiển', to: '/dashboard' },
     { icon: <Users size={20} />, label: 'Người dùng', to: '/users' },
@@ -50,7 +54,19 @@ const Sidebar: React.FC = () => {
         ))}
       </nav>
 
-
+      <div className="p-4 border-t border-slate-200">
+        <button
+          onClick={() => {
+            if (window.confirm('Bạn có chắc chắn muốn đăng xuất?')) {
+              logout();
+            }
+          }}
+          className="flex items-center gap-3 px-4 py-3 w-full text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+        >
+          <LogOut size={18} />
+          <span className="text-sm font-medium">Đăng xuất</span>
+        </button>
+      </div>
     </aside>
   );
 };

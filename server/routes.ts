@@ -2663,9 +2663,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // CRUD: Destination Types (Categories)
   // ══════════════════════════════════════════════════════════════
   
-  // Seed destination types and POI types on boot
+  // Seed destination types, POI types, and admin user on boot
   storage.seedDestinationTypes().catch(e => console.error("Destination type seeding failed:", e));
   storage.seedPoiTypes().catch(e => console.error("POI type seeding failed:", e));
+  storage.seedAdminUser().catch(e => console.error("Admin user seeding failed:", e));
 
   // Helper to enrich destination with category label
   const enrichDestination = async (d: any) => {
