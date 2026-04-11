@@ -1,18 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Star, Trash2, CheckCircle } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { Review, UserData } from '../lib/types';
 
+type ReviewTab = 'item' | 'trip';
+
 const Reviews: React.FC = () => {
   const { reviews, users, destinations, pois, deleteReview } = useData();
+  const [activeTab, setActiveTab] = useState<ReviewTab>('item');
 
   const getTargetInfo = (review: Review) => {
-    if (review.poiId) {
-      const p = pois.find(x => x.id === review.poiId);
-      return { type: 'Địa điểm', name: p?.name || 'Địa điểm không xác định' };
+    if (review.reviewType === 'item') {
+      // Item review → Địa điểm (POI)
+      if (review.poiId) {
+        const p = pois.find(x => x.id === review.poiId);
+        if (p) return { label: p.name };
+      }
+      if (review.activityTitle) return { label: review.activityTitle };
+      return { label: `Hoạt động #${review.activityId || '?'}` };
+    } else {
+      // Trip review → Điểm đến (Destination)
+      if (review.destinationId) {
+        const d = destinations.find(x => x.id === review.destinationId);
+        if (d) return { label: d.name };
+      }
+      return { label: `Chuyến đi #${review.itineraryId || '?'}` };
     }
-    const d = destinations.find(x => x.id === review.destinationId);
-    return { type: 'Điểm đến', name: d?.name || 'Điểm đến không xác định' };
   };
 
   const getReviewer = (userId: string): UserData | undefined => {
@@ -25,33 +38,45 @@ const Reviews: React.FC = () => {
     }
   };
 
-  const avgRating = reviews.length > 0 ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) : "0.0";
+  const filteredReviews = reviews.filter(r => r.reviewType === activeTab);
 
   return (
     <div className="flex-1 p-8 overflow-y-auto bg-slate-50/50">
       <div className="mb-8">
         <h2 className="text-4xl font-black text-slate-800 tracking-tight">Phê duyệt Đánh giá</h2>
-        <p className="text-lg text-slate-500 mt-2">Giám sát ý kiến người dùng và kiểm duyệt nội dung về các địa điểm.</p>
+        <p className="text-lg text-slate-500 mt-2">Giám sát ý kiến người dùng và kiểm duyệt nội dung.</p>
       </div>
 
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex items-center mb-8">
         <div className="flex bg-white p-1 rounded-xl border border-slate-200">
-           <button className="px-6 py-2 bg-slate-900 text-white text-xs font-black uppercase tracking-widest rounded-lg">Tất cả</button>
-           <button className="px-6 py-2 text-slate-500 text-xs font-black uppercase tracking-widest hover:text-slate-900 transition-all">Bị báo lỗi</button>
+           <button 
+             onClick={() => setActiveTab('item')}
+             className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+               activeTab === 'item' 
+                 ? 'bg-slate-900 text-white' 
+                 : 'text-slate-500 hover:text-slate-900'
+             }`}
+           >
+             Địa điểm
+           </button>
+           <button 
+             onClick={() => setActiveTab('trip')}
+             className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+               activeTab === 'trip' 
+                 ? 'bg-slate-900 text-white' 
+                 : 'text-slate-500 hover:text-slate-900'
+             }`}
+           >
+             Điểm đến
+           </button>
         </div>
-        <div className="flex items-center gap-4 text-sm font-bold text-slate-400">
-            <span>Đánh giá Trung bình:</span>
-            <div className="flex items-center gap-1.5 bg-white px-4 py-2 rounded-xl border border-slate-100">
-               <span className="text-slate-900 text-lg">{avgRating}</span>
-               <div className="flex">
-                  {[1, 2, 3, 4, 5].map(s => <Star key={s} size={14} fill={s <= parseFloat(avgRating) ? "#EAB308" : "none"} className={s <= parseFloat(avgRating) ? "text-amber-500" : "text-slate-200"} />)}
-               </div>
-            </div>
-        </div>
+        <span className="ml-4 text-sm font-bold text-slate-400">
+          {filteredReviews.length} đánh giá
+        </span>
       </div>
 
       <div className="grid grid-cols-1 gap-6">
-        {reviews.map((review) => {
+        {filteredReviews.map((review) => {
           const target = getTargetInfo(review);
           const reviewer = getReviewer(review.userId);
           const reviewDate = new Date(review.createdAt).toLocaleDateString();
@@ -87,8 +112,14 @@ const Reviews: React.FC = () => {
                </div>
                <div className="h-1 w-1 bg-slate-200 rounded-full"></div>
                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black text-primary uppercase tracking-widest bg-primary/5 px-2 py-1 rounded-md">{target.type}</span>
-                  <span className="text-sm font-bold text-slate-700">{target.name}</span>
+                  <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md ${
+                    review.reviewType === 'item' 
+                      ? 'text-indigo-700 bg-indigo-50' 
+                      : 'text-emerald-700 bg-emerald-50'
+                  }`}>
+                    {review.reviewType === 'item' ? 'Địa điểm' : 'Điểm đến'}
+                  </span>
+                  <span className="text-sm font-bold text-slate-700">{target.label}</span>
                </div>
             </div>
 
@@ -97,8 +128,10 @@ const Reviews: React.FC = () => {
             </p>
           </div>
         )})}
-        {reviews.length === 0 && (
-           <div className="py-12 text-center text-slate-500 font-medium">Chưa có đánh giá nào được tìm thấy.</div>
+        {filteredReviews.length === 0 && (
+           <div className="py-12 text-center text-slate-500 font-medium">
+             Chưa có đánh giá nào cho {activeTab === 'item' ? 'địa điểm' : 'điểm đến'}.
+           </div>
         )}
       </div>
     </div>

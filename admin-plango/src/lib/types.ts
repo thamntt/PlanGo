@@ -164,6 +164,7 @@ export interface Review {
   activityId?: string;
   activityTitle?: string;
   itineraryId?: string;
+  reviewType: 'trip' | 'item';
   rating: number;
   comment: string;
   createdAt: string;

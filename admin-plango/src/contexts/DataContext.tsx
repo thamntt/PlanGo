@@ -37,6 +37,8 @@ interface DataContextValue {
   deleteItinerary: (id: string) => Promise<void>;
 
   // Reviews
+  deleteReview: (id: string) => Promise<void>;
+
   // Stats
   adminStats: any;
 }
@@ -112,8 +114,12 @@ function mapItinerary(i: any): Itinerary {
 }
 
 function mapReview(r: any): Review {
+  const reviewType: 'trip' | 'item' = r.type === 'item' ? 'item' : 'trip';
+  // Build a unique ID by combining type + userId + tripId/itemId to avoid key collisions
+  const rawId = r.reviewId || r.id || '';
+  const uniqueId = `${reviewType}-${r.userId}-${rawId}`;
   return {
-    id: (r.reviewId || r.id)?.toString() || `${r.userId}-${r.tripId}`,
+    id: uniqueId,
     userId: (r.userId ?? r.user_id ?? "")?.toString(),
     userName: r.userName ?? r.user_name ?? "",
     destinationId: (r.destinationId ?? r.destination_id ?? "")?.toString(),
@@ -122,6 +128,7 @@ function mapReview(r: any): Review {
     activityId: (r.activityId ?? r.activity_id)?.toString(),
     activityTitle: r.activityTitle ?? r.activity_title,
     itineraryId: (r.itineraryId ?? r.itinerary_id ?? r.tripId)?.toString(),
+    reviewType,
     rating: r.rating ? Number(r.rating) : 0,
     comment: r.comment || "",
     createdAt: r.createdAt ?? r.created_at ?? new Date().toISOString(),
