@@ -1499,11 +1499,20 @@ async function internalGeocode(
 
 // POST /api/share — register a trip share (database-backed)
 async function shareTrip(req: Request, res: Response) {
-  const { tripId } = req.body;
+  const tripId =
+    req.body.tripId || 
+    req.query.tripId || 
+    req.body.id || 
+    req.query.id || 
+    req.body.itinerary?.id;
+    
   if (!tripId) {
     throw new AppError(400, "tripId is required");
   }
-  const token = Math.random().toString(36).substring(7); // basic token
+  
+  // Use frontend's shareCode if provided, otherwise robust fallback
+  const token = req.body.shareCode || Math.random().toString(36).substring(2, 9).toUpperCase();
+  
   const trip = await storage.updateTrip(Number(tripId), {
     invitationToken: token,
   });
@@ -1516,13 +1525,16 @@ async function getSharedTrip(req: Request, res: Response) {
   const trip = await storage.getTripByInvitationToken(code);
   if (!trip) throw new AppError(404, "Share code not found");
 
-  // Return standard trip
-  sendResponse(res, 200, "Trip found", trip);
+  // Return mapped standard trip
+  sendResponse(res, 200, "Trip found", mapTripToFrontend(trip));
 }
 
 // POST /api/share/join — join a shared trip (update companions)
 async function joinSharedTrip(req: Request, res: Response) {
-  const { shareCode, userId } = req.body;
+  const shareCode = req.body.shareCode || req.query.shareCode;
+  const userId = req.body.userId || req.query.userId || req.body.companion?.userId;
+  const role = req.body.role || req.query.role || req.body.companion?.role || "viewer";
+
   if (!shareCode || !userId)
     throw new AppError(400, "shareCode and userId are required");
 
@@ -1533,21 +1545,27 @@ async function joinSharedTrip(req: Request, res: Response) {
   if (members.some((m) => m.userId === Number(userId))) {
     return sendResponse(res, 200, "Already joined", {
       alreadyJoined: true,
-      trip,
+      trip: mapTripToFrontend(trip),
     });
   }
 
   await storage.addTripMember({
     tripId: trip.tripId,
     userId: Number(userId),
-    role: "viewer",
+    role: role as string,
   });
-  sendResponse(res, 200, "Joined trip", { alreadyJoined: false, trip });
+  
+  // Re-fetch trip to include the new member
+  const updatedTrip = await storage.getTripByInvitationToken(shareCode);
+  sendResponse(res, 200, "Joined trip", { alreadyJoined: false, trip: mapTripToFrontend(updatedTrip) });
 }
 
 // PATCH /api/share/companion — update a companion's role
 async function updateCompanionRole(req: Request, res: Response) {
-  const { shareCode, userId, role } = req.body;
+  const shareCode = req.body.shareCode || req.query.shareCode;
+  const userId = req.body.userId || req.query.userId;
+  const role = req.body.role || req.query.role;
+
   if (!shareCode || !userId || !role)
     throw new AppError(400, "shareCode, userId, and role are required");
 
@@ -1560,7 +1578,9 @@ async function updateCompanionRole(req: Request, res: Response) {
 
 // DELETE /api/share/companion — remove a companion
 async function removeCompanion(req: Request, res: Response) {
-  const { shareCode, userId } = req.body;
+  const shareCode = req.body.shareCode || req.query.shareCode;
+  const userId = req.body.userId || req.query.userId;
+
   if (!shareCode || !userId)
     throw new AppError(400, "shareCode and userId are required");
 
@@ -1822,7 +1842,7 @@ JSON format:
 
 activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
@@ -1926,8 +1946,9 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
     // extractPlaceName is now a top-level function (reused by itinerary save POI logic)
 
     // Run sequentially to avoid SerpAPI rate limits
+    let quotaExceeded = false;
     for (const act of allActivities) {
-      if (!serpApiKey) break;
+      if (!serpApiKey || quotaExceeded) break;
 
       // Extract the actual place name for better search
       const placeName = extractPlaceName(act.title);
@@ -2004,6 +2025,10 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
           console.warn(
             `[Enrich] ❌ SerpAPI HTTP ${serpRes.status} for: "${searchQuery}"`,
           );
+          if (serpRes.status === 429) {
+            console.warn("[Enrich] 🛑 Quota exceeded. Skipping further enrichment.");
+            quotaExceeded = true;
+          }
         }
       } catch (err) {
         console.warn(`[Enrich] ❌ SerpAPI error for "${act.title}":`, err);
