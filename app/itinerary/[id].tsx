@@ -740,7 +740,7 @@ export default function ItineraryDetailScreen() {
   const getActivityPoiInfo = (activity: ItineraryActivity): { poiId: string; poiName: string } | null => {
     // Priority 1: activity has a direct poiId
     if (activity.poiId) {
-      const poi = pois.find((p) => p.id === activity.poiId);
+      const poi = pois.find((p) => p.id === String(activity.poiId));
       if (poi) return { poiId: poi.id, poiName: poi.name };
     }
     // Priority 2: match by googlePlaceId
@@ -940,7 +940,7 @@ export default function ItineraryDetailScreen() {
     }
 
     if (reviewModal.editReviewId) {
-      await updateReview(reviewModal.editReviewId, { rating: reviewRating, comment: taggedComment, poiId, poiName });
+      await updateReview(reviewModal.editReviewId, { userId: user!.id, rating: reviewRating, comment: taggedComment, poiId, poiName });
     } else {
       await addReview({
         userId: user!.id,
@@ -950,7 +950,7 @@ export default function ItineraryDetailScreen() {
         poiName,
         activityId: reviewModal.activityId,
         activityTitle: reviewModal.activityTitle,
-        itineraryId: itinerary.id,
+        itineraryId: undefined, // Clear tripId to treat as Item/POI review
         rating: reviewRating,
         comment: taggedComment,
       });
@@ -962,7 +962,7 @@ export default function ItineraryDetailScreen() {
 
   const handleDeleteActivityReview = (reviewId: string) => {
     const doDelete = async () => {
-      await deleteReview(reviewId);
+      await deleteReview(reviewId, { userId: user!.id, type: 'item' });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     };
     if (Platform.OS === "web") {
@@ -3721,13 +3721,22 @@ export default function ItineraryDetailScreen() {
                     {(() => {
                       const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
                       const actId = act.id;
-                      // Count user reviews for this activity/destination
-                      const userReviewsForAct = linkedDest ? reviews.filter((r) => {
-                        if (r.destinationId !== linkedDest.id) return false;
+                      // Count user reviews for this activity/POI specifically
+                      const userReviewsForAct = reviews.filter((r) => {
+                        const rPoiId = String(r.poiId || "");
+                        const rActId = String(r.activityId || "");
+                        const targetActId = String(act.id || "");
+                        const targetPoiId = String(act.poiId || "");
+
+                        // Match by direct poiId
+                        if (targetPoiId && rPoiId === targetPoiId) return true;
+                        // Match by activityId
+                        if (rActId === targetActId) return true;
+                        // Fallback: match by [activity:xxx] tag in comment
                         const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
-                        if (activityTag) return activityTag[1] === actId;
-                        return true;
-                      }) : [];
+                        if (activityTag && activityTag[1] === targetActId) return true;
+                        return false;
+                      });
                       const userCount = userReviewsForAct.length;
                       // Priority: user reviews avg → activity.rating (Google) → POI rating → dest rating
                       let displayRating = 0;
@@ -3854,23 +3863,38 @@ export default function ItineraryDetailScreen() {
 
                     {(() => {
                       const actId = act.id;
-                      // Find linked POI for this activity
                       const actPoiInfo = getActivityPoiInfo(act);
-                      const actPoiId = actPoiInfo?.poiId;
+                      const actPoiId = String(actPoiInfo?.poiId || "");
+                      const targetActId = String(act.id || "");
+
+                      // Debug log to help identify why reviews might be missing
+                      if (__DEV__ && act.title.includes("Bát Đàn")) {
+                         console.log(`[ReviewDebug] Activity: ${act.title}, ID: ${targetActId}, POI: ${actPoiId}`);
+                         console.log(`[ReviewDebug] Total existing reviews: ${reviews.length}`);
+                         if (reviews.length > 0) {
+                           const firstRev = reviews[0];
+                           console.log(`[ReviewDebug] Sample Review 0: ID=${firstRev.id}, ActID=${firstRev.activityId}, PoiID=${firstRev.poiId}`);
+                         }
+                      }
 
                       const destUserReviews = reviews
                         .filter((r) => {
+                          const rPoiId = String(r.poiId || "");
+                          const rActId = String(r.activityId || "");
+                          const rDestId = String(r.destinationId || "");
+                          const targetDestId = String(linkedDest?.id || "");
+
                           // Match by activityId field (new way)
-                          if (r.activityId && r.activityId === actId) return true;
+                          if (rActId && rActId === targetActId) return true;
                           // Match by [activity:xxx] tag in comment (legacy)
                           const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
-                          if (activityTag && activityTag[1] === actId) return true;
+                          if (activityTag && activityTag[1] === targetActId) return true;
                           // Match by poiId
-                          if (actPoiId && r.poiId === actPoiId) return true;
+                          if (actPoiId && rPoiId === actPoiId) return true;
                           // Match by destinationId (general destination reviews)
-                          if (linkedDest && r.destinationId === linkedDest.id) {
+                          if (targetDestId && rDestId === targetDestId) {
                             // Only include if no specific activity/poi tag (general review)
-                            if (!activityTag && !r.activityId && !r.poiId) return true;
+                            if (!activityTag && !rActId && !rPoiId) return true;
                           }
                           return false;
                         })
@@ -3984,7 +4008,7 @@ export default function ItineraryDetailScreen() {
                                         </Pressable>
                                         <Pressable
                                           onPress={() => {
-                                            const doDelete = () => deleteReview(review.id);
+                                            const doDelete = () => deleteReview(review.id, { userId: user!.id, type: 'item' });
                                             if (typeof window !== "undefined" && window.confirm) {
                                               if (window.confirm(txt.deleteReviewConfirm)) doDelete();
                                             } else {
