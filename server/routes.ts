@@ -98,19 +98,24 @@ function mapTripToFrontend(trip: any) {
   }
   
   if (mapped.days && Array.isArray(mapped.days)) {
-    mapped.days = mapped.days.map((day: any) => ({
+    // Sort days by dayIndex to ensure chronological order
+    const sortedDays = [...mapped.days].sort((a, b) => (a.dayIndex || 0) - (b.dayIndex || 0));
+    
+    mapped.days = sortedDays.map((day: any) => ({
       ...day,
       day: day.dayIndex,
-      activities: day.items ? day.items.map((item: any) => ({
-        ...item,
-        id: item.itemId,
-        title: item.customName,
-        time: item.startTime,
-        description: item.note,
-        estimatedCost: item.estimatedCost ? Number(item.estimatedCost) : 0,
-        actualCost: item.actualCost ? Number(item.actualCost) : 0,
-        isCompleted: item.status === "completed"
-      })) : []
+      activities: day.items ? [...day.items]
+        .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
+        .map((item: any) => ({
+          ...item,
+          id: item.itemId,
+          title: item.customName,
+          time: item.startTime,
+          description: item.note,
+          estimatedCost: item.estimatedCost ? Number(item.estimatedCost) : 0,
+          actualCost: item.actualCost ? Number(item.actualCost) : 0,
+          isCompleted: item.status === "completed"
+        })) : []
     }));
   }
 
@@ -2981,19 +2986,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payload = { ...req.body };
       
       let review;
-      if (tripId) {
-        // Trip review
-        payload.tripId = Number(tripId);
-        review = await storage.createTripReview(payload);
-      } else if (itemId) {
-        // Itinerary item or POI review
+      if (itemId) {
         payload.itemId = Number(itemId);
         review = await storage.createItemReview(payload);
+      } else if (tripId) {
+        payload.tripId = Number(tripId);
+        review = await storage.createTripReview(payload);
       } else {
         throw new AppError(400, "tripId or itemId required");
       }
       
       sendResponse(res, 201, "Review created successfully", review);
+    }),
+  );
+
+  app.put(
+    "/api/reviews/:id",
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id);
+      const userId = Number(req.body.userId || req.query.userId);
+      const type = req.query.type || (req.body.poiId || req.body.activityId ? 'item' : 'trip');
+
+      if (isNaN(id) || isNaN(userId)) throw new AppError(400, "Invalid ID or User ID");
+
+      let updated;
+      if (type === 'item') {
+        updated = await storage.updateItemReview(id, userId, req.body);
+      } else {
+        updated = await storage.updateTripReview(id, userId, req.body);
+      }
+
+      if (!updated) throw new AppError(404, "Review not found");
+      sendResponse(res, 200, "Review updated successfully", updated);
+    }),
+  );
+
+  app.delete(
+    "/api/reviews/:id",
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id);
+      const userId = Number(req.query.userId);
+      const type = req.query.type;
+
+      if (isNaN(id) || isNaN(userId)) throw new AppError(400, "Invalid ID or User ID");
+
+      let ok = false;
+      if (type === 'item') {
+        ok = await storage.deleteItemReview(id, userId);
+      } else if (type === 'trip') {
+        ok = await storage.deleteTripReview(id, userId);
+      } else {
+        // Fallback: try both if type not specified
+        ok = await storage.deleteItemReview(id, userId);
+        if (!ok) ok = await storage.deleteTripReview(id, userId);
+      }
+
+      if (!ok) throw new AppError(404, "Review not found");
+      sendResponse(res, 200, "Review deleted successfully", null);
     }),
   );
 
@@ -3282,6 +3331,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const notif = await storage.createNotification(req.body);
       sendResponse(res, 201, "Notification created successfully", notif);
+    }),
+  );
+
+  app.put(
+    "/api/notifications/:id",
+    asyncHandler(async (req, res) => {
+      const notif = await storage.updateNotification(
+        Number(req.params.id),
+        req.body,
+      );
+      if (!notif) throw new AppError(404, "Notification not found");
+      sendResponse(res, 200, "Notification updated successfully", notif);
+    }),
+  );
+
+  app.delete(
+    "/api/notifications/:id",
+    asyncHandler(async (req, res) => {
+      const success = await storage.deleteNotification(Number(req.params.id));
+      if (!success) throw new AppError(404, "Notification not found");
+      sendResponse(res, 200, "Notification deleted successfully", null);
     }),
   );
 

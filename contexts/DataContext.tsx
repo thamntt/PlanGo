@@ -28,8 +28,8 @@ interface DataContextValue {
   updateItinerary: (id: string, data: Partial<Itinerary>) => Promise<void>;
   deleteItinerary: (id: string) => Promise<void>;
   addReview: (review: Omit<Review, "id" | "createdAt">) => Promise<Review>;
-  updateReview: (id: string, data: Partial<Review>) => Promise<void>;
-  deleteReview: (id: string) => Promise<void>;
+  updateReview: (id: string, data: Partial<Review> & { userId?: number | string }) => Promise<void>;
+  deleteReview: (id: string, params?: { userId: string | number; type?: string }) => Promise<void>;
   addPOI: (poi: Omit<POI, "id">) => Promise<POI>;
   updatePOI: (id: string, data: Partial<POI>) => Promise<void>;
   deletePOI: (id: string) => Promise<void>;
@@ -125,7 +125,7 @@ function mapItinerary(i: any): Itinerary {
 
 function mapReview(r: any): Review {
   return {
-    id: (r.reviewId || r.id)?.toString() || `${r.userId}-${r.tripId}`,
+    id: (r.id || r.reviewId || r.itemId || r.activity_id || r.activityId || r.tripId || r.itineraryId)?.toString() || `${r.userId}-${r.tripId}`,
     userId: (r.userId ?? r.user_id ?? "")?.toString(),
     userName: r.userName ?? r.user_name ?? "",
     destinationId: (r.destinationId ?? r.destination_id ?? "")?.toString(),
@@ -535,18 +535,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const addReview = useCallback(async (review: Omit<Review, "id" | "createdAt">) => {
     const res = await apiRequest("POST", "/api/reviews", review);
     const created = mapReview(await unwrapResponse(res));
-    setReviews((prev) => [...prev, created]);
-    return created;
+    // Merge input data to ensure fields like poiId, activityId are preserved if missing in server response
+    const finalReview = { ...review, ...created };
+    setReviews((prev) => [...prev, finalReview]);
+    return finalReview;
   }, []);
 
-  const updateReview = useCallback(async (id: string, data: Partial<Review>) => {
+  const updateReview = useCallback(async (id: string, data: Partial<Review> & { userId?: number | string }) => {
     const res = await apiRequest("PUT", `/api/reviews/${id}`, data);
     const updated = mapReview(await unwrapResponse(res));
     setReviews((prev) => prev.map((r) => (r.id === id ? updated : r)));
   }, []);
 
-  const deleteReview = useCallback(async (id: string) => {
-    await apiRequest("DELETE", `/api/reviews/${id}`);
+  const deleteReview = useCallback(async (id: string, params?: { userId: string | number; type?: string }) => {
+    let url = `/api/reviews/${id}?userId=${params?.userId}`;
+    if (params?.type) url += `&type=${params.type}`;
+    await apiRequest("DELETE", url);
     setReviews((prev) => prev.filter((r) => r.id !== id));
   }, []);
 
@@ -565,15 +569,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const markAllNotificationsRead = useCallback(async (userId: string) => {
-    // Mark each notification as read
-    const userNotifs = notifications.filter((n) => n.userId === userId && !n.isRead);
-    await Promise.all(
-      userNotifs.map((n) => apiRequest("PUT", `/api/notifications/${n.id}`, { isRead: true }))
-    );
+    try {
+      await apiRequest("PATCH", "/api/notifications/mark-read", { userId });
+      console.log(`[Data] All notifications for user ${userId} marked as read`);
+    } catch (err: any) {
+      console.warn("[Data] Failed to mark all notifications read on server:", err.message);
+    }
+    
     setNotifications((prev) =>
       prev.map((n) => (n.userId === userId ? { ...n, isRead: true } : n))
     );
-  }, [notifications]);
+  }, []);
 
   const clearNotifications = useCallback(async (userId: string) => {
     const userNotifs = notifications.filter((n) => n.userId === userId);

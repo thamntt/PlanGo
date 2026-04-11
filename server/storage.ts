@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, asc } from "drizzle-orm";
 import { db } from "./db";
 import {
   // Lookup tables
@@ -158,6 +158,7 @@ export interface IStorage {
   getReviews(filters?: { tripId?: number; itemId?: number; destinationId?: number }): Promise<any[]>;
   getTripReviews(tripId: number): Promise<TripReview[]>;
   createTripReview(data: InsertTripReview): Promise<TripReview>;
+  updateTripReview(tripId: number, userId: number, data: Partial<TripReview>): Promise<TripReview | undefined>;
   deleteTripReview(tripId: number, userId: number): Promise<boolean>;
 
   // Itinerary Days
@@ -183,6 +184,7 @@ export interface IStorage {
   // Item Reviews
   getItemReviews(itemId: number): Promise<ItemReview[]>;
   createItemReview(data: InsertItemReview): Promise<ItemReview>;
+  updateItemReview(itemId: number, userId: number, data: Partial<ItemReview>): Promise<ItemReview | undefined>;
   deleteItemReview(itemId: number, userId: number): Promise<boolean>;
 
   // Expenses
@@ -540,7 +542,14 @@ export class DatabaseStorage implements IStorage {
     return db.query.trips.findFirst({
       where: eq(trips.tripId, id),
       with: { 
-        days: { with: { items: true } }, 
+        days: { 
+          orderBy: (days, { asc }) => [asc(days.dayIndex)],
+          with: { 
+            items: {
+              orderBy: (items, { asc }) => [asc(items.orderIndex)]
+            } 
+          } 
+        }, 
         members: { with: { user: true } }, 
         expenses: { with: { expenseType: true, paidByInfo: true } }, 
         destination: true 
@@ -550,7 +559,14 @@ export class DatabaseStorage implements IStorage {
   async getTrips() { 
     return db.query.trips.findMany({
       with: { 
-        days: { with: { items: true } }, 
+        days: { 
+          orderBy: (days, { asc }) => [asc(days.dayIndex)],
+          with: { 
+            items: {
+              orderBy: (items, { asc }) => [asc(items.orderIndex)]
+            } 
+          } 
+        }, 
         members: { with: { user: true } }, 
         expenses: { with: { expenseType: true, paidByInfo: true } }, 
         destination: true 
@@ -561,7 +577,14 @@ export class DatabaseStorage implements IStorage {
     return db.query.trips.findMany({
       where: eq(trips.ownerId, ownerId),
       with: { 
-        days: { with: { items: true } }, 
+        days: { 
+          orderBy: (days, { asc }) => [asc(days.dayIndex)],
+          with: { 
+            items: {
+              orderBy: (items, { asc }) => [asc(items.orderIndex)]
+            } 
+          } 
+        }, 
         members: { with: { user: true } }, 
         expenses: { with: { expenseType: true, paidByInfo: true } }, 
         destination: true 
@@ -579,7 +602,14 @@ export class DatabaseStorage implements IStorage {
     const tripIds = mem.map(m => m.tripId);
     const allTrips = await db.query.trips.findMany({
        with: { 
-         days: { with: { items: true } }, 
+         days: { 
+           orderBy: (days, { asc }) => [asc(days.dayIndex)],
+           with: { 
+             items: {
+               orderBy: (items, { asc }) => [asc(items.orderIndex)]
+             } 
+           } 
+         }, 
          members: { with: { user: true } }, 
          expenses: { with: { expenseType: true, paidByInfo: true } }, 
          destination: true 
@@ -592,7 +622,14 @@ export class DatabaseStorage implements IStorage {
     return db.query.trips.findFirst({
       where: eq(trips.invitationToken, token),
       with: { 
-        days: { with: { items: true } }, 
+        days: { 
+          orderBy: (days, { asc }) => [asc(days.dayIndex)],
+          with: { 
+            items: {
+              orderBy: (items, { asc }) => [asc(items.orderIndex)]
+            } 
+          } 
+        }, 
         members: { with: { user: true } }, 
         expenses: { with: { expenseType: true, paidByInfo: true } }, 
         destination: true 
@@ -691,7 +728,7 @@ export class DatabaseStorage implements IStorage {
   async getReviews(filters?: { tripId?: number; itemId?: number; destinationId?: number }) {
     // 1. Fetch Trip Reviews with Destination Mapping
     const tripRevQuery = db.select({
-      id: tripReviews.tripId, // Used as part of unique key in frontend mapping
+      id: tripReviews.tripId, 
       userId: tripReviews.userId,
       tripId: tripReviews.tripId,
       rating: tripReviews.rating,
@@ -703,6 +740,12 @@ export class DatabaseStorage implements IStorage {
     .innerJoin(users, eq(tripReviews.userId, users.userId))
     .innerJoin(trips, eq(tripReviews.tripId, trips.tripId));
 
+    if (filters?.tripId) {
+      tripRevQuery.where(eq(tripReviews.tripId, filters.tripId));
+    } else if (filters?.destinationId) {
+      tripRevQuery.where(eq(trips.destinationId, filters.destinationId));
+    }
+
     // 2. Fetch Item Reviews with Destination Mapping
     const itemRevQuery = db.select({
       id: itemReviews.itemId,
@@ -711,7 +754,7 @@ export class DatabaseStorage implements IStorage {
       rating: itemReviews.rating,
       comment: itemReviews.comment,
       userName: users.userName,
-      destinationId: itineraryDay.tripId, // We'll map this to actual destinationId via another join
+      destinationId: itineraryDay.tripId, 
       poiId: itineraryItems.poiId,
       activityId: itineraryItems.itemId,
     })
@@ -720,6 +763,14 @@ export class DatabaseStorage implements IStorage {
     .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
     .innerJoin(itineraryDay, eq(itineraryItems.dayId, itineraryDay.dayId))
     .innerJoin(trips, eq(itineraryDay.tripId, trips.tripId));
+
+    if (filters?.itemId) {
+      itemRevQuery.where(eq(itemReviews.itemId, filters.itemId));
+    } else if (filters?.tripId) {
+      itemRevQuery.where(eq(itineraryDay.tripId, filters.tripId));
+    } else if (filters?.destinationId) {
+      itemRevQuery.where(eq(trips.destinationId, filters.destinationId));
+    }
 
     const [tripResults, itemResults] = await Promise.all([
       tripRevQuery,
@@ -762,6 +813,22 @@ export class DatabaseStorage implements IStorage {
       await this.updateDestinationStats(trip.destinationId);
     }
     
+    return r;
+  }
+  
+  async updateTripReview(tid: number, uid: number, data: Partial<TripReview>) {
+    const [r] = await db
+      .update(tripReviews)
+      .set(data)
+      .where(and(eq(tripReviews.tripId, tid), eq(tripReviews.userId, uid)))
+      .returning();
+
+    if (r) {
+      const trip = await this.getTrip(tid);
+      if (trip?.destinationId) {
+        await this.updateDestinationStats(trip.destinationId);
+      }
+    }
     return r;
   }
   
@@ -880,6 +947,23 @@ export class DatabaseStorage implements IStorage {
 
     return r;
   }
+
+  async updateItemReview(itemId: number, userId: number, data: Partial<ItemReview>) {
+    const [r] = await db
+      .update(itemReviews)
+      .set(data)
+      .where(and(eq(itemReviews.itemId, itemId), eq(itemReviews.userId, userId)))
+      .returning();
+
+    if (r) {
+      const item = await this.getItineraryItem(itemId);
+      if (item?.poiId) {
+        await this.updatePoiStats(item.poiId);
+      }
+    }
+    return r;
+  }
+
   async deleteItemReview(itemId: number, userId: number) {
     const item = await this.getItineraryItem(itemId);
     const res = await db.delete(itemReviews).where(and(eq(itemReviews.itemId, itemId), eq(itemReviews.userId, userId))).returning();
