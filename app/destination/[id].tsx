@@ -78,16 +78,21 @@ export default function DestinationDetailScreen() {
   const [serpPlaceInfo, setSerpPlaceInfo] = useState<any>(null);
   const [expandedSerpIds, setExpandedSerpIds] = useState<Set<string>>(new Set());
 
-  const fetchSerpReviews = async (placeId: string, nextToken?: string) => {
+  const fetchSerpReviews = async (placeId?: string, query?: string, nextToken?: string) => {
+    if (!placeId && !query) return;
     setSerpLoading(true);
     setSerpError(false);
     try {
       const baseUrl = getApiUrl().replace(/\/$/, "");
-      const params = new URLSearchParams({ place_id: placeId });
+      const params = new URLSearchParams();
+      if (placeId) params.set("place_id", placeId);
+      if (query) params.set(placeId ? "fallback_q" : "q", query);
       if (nextToken) params.set("next_page_token", nextToken);
+      
       const res = await fetch(`${baseUrl}/api/places/reviews?${params.toString()}`, { headers: getApiHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      
       if (nextToken) {
         setSerpReviews((prev) => [...prev, ...(data.reviews || [])]);
       } else {
@@ -103,12 +108,11 @@ export default function DestinationDetailScreen() {
     }
   };
 
-  // Auto-fetch reviews when destination has googlePlaceId
+  // Auto-fetch reviews when destination has info
   useEffect(() => {
-    if (destination?.googlePlaceId) {
-      fetchSerpReviews(destination.googlePlaceId);
-    }
-  }, [destination?.googlePlaceId]);
+    const q = [destination?.name, destination?.address].filter(Boolean).join(", ");
+    fetchSerpReviews(destination?.googlePlaceId, q);
+  }, [destination?.id, destination?.googlePlaceId]);
 
   // ─── User reviews for this destination ──────────
   const destUserReviews = useMemo(() => {
@@ -373,7 +377,7 @@ export default function DestinationDetailScreen() {
           </Pressable>
 
           {/* SerpAPI Google Maps Reviews */}
-          {destination.googlePlaceId ? (
+          {(destination.googlePlaceId || destination.name) ? (
             <>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>{itxt.serpReviews}</Text>
 

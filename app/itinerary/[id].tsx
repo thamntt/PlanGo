@@ -329,13 +329,17 @@ export default function ItineraryDetailScreen() {
   }, [ownerName, itinerary?.userId, companions]);
 
   // SerpAPI reviews fetch function
-  const fetchSerpReviews = async (placeId: string, nextToken?: string) => {
+  const fetchSerpReviews = async (placeId?: string, query?: string, nextToken?: string) => {
+    if (!placeId && !query) return;
     setSerpLoading(true);
     setSerpError(false);
     try {
       const baseUrl = getApiUrl().replace(/\/$/, "");
-      const params = new URLSearchParams({ place_id: placeId });
+      const params = new URLSearchParams();
+      if (placeId) params.set("place_id", placeId);
+      if (query) params.set(placeId ? "fallback_q" : "q", query);
       if (nextToken) params.set("next_page_token", nextToken);
+
       const res = await fetch(`${baseUrl}/api/places/reviews?${params.toString()}`, { headers: getApiHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -382,13 +386,13 @@ export default function ItineraryDetailScreen() {
       gPlaceId = linkedDest?.googlePlaceId;
     }
     // Priority 4: Fallback — find destination by name
-    if (!gPlaceId) {
-      const linkedDest = destinations.find((d) => d.name === act.title);
-      gPlaceId = linkedDest?.googlePlaceId;
-    }
+    const fallbackQuery = [act.title, act.address].filter(Boolean).join(", ");
     if (gPlaceId && gPlaceId !== serpPlaceId) {
       setSerpPlaceId(gPlaceId);
-      fetchSerpReviews(gPlaceId);
+      fetchSerpReviews(gPlaceId, fallbackQuery);
+    } else if (!gPlaceId && fallbackQuery) {
+      setSerpPlaceId(null);
+      fetchSerpReviews(undefined, fallbackQuery);
     } else if (!gPlaceId) {
       setSerpPlaceId(null);
     }
@@ -4021,7 +4025,10 @@ export default function ItineraryDetailScreen() {
 
                     {/* SerpAPI Google Maps Reviews */}
                     {(() => {
-                      if (!serpPlaceId && !serpLoading && serpReviews.length === 0) return null;
+                      const act = activityDetailModal;
+                      if (!act) return null;
+                      const hasSearchPotential = !!(act.googlePlaceId || act.title);
+                      if (!hasSearchPotential && !serpLoading && serpReviews.length === 0) return null;
                       return (
                         <>
                           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>

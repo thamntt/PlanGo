@@ -1842,7 +1842,7 @@ JSON format:
 
 activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
@@ -2228,11 +2228,13 @@ async function getProviderStatus(req: Request, res: Response) {
 // ══════════════════════════════════════════════════════════════
 
 async function getPlaceReviewsSerpApi(req: Request, res: Response) {
-  const placeId = req.query.place_id as string;
+  let placeId = req.query.place_id as string;
+  const q = req.query.q as string;
+  const fallbackQ = req.query.fallback_q as string;
   const nextPageToken = req.query.next_page_token as string | undefined;
 
-  if (!placeId) {
-    throw new AppError(400, "place_id parameter is required");
+  if (!placeId && !q) {
+    throw new AppError(400, "place_id or q parameter is required");
   }
 
   const apiKey = getSerpApiKey();
@@ -2240,32 +2242,65 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     throw new AppError(501, "SERPAPI_KEY not configured");
   }
 
-  try {
+  // Helper to fetch reviews for a specific ID
+  const fetchReviewsForId = async (id: string, token?: string) => {
     const params = new URLSearchParams({
       engine: "google_maps_reviews",
-      place_id: placeId,
+      place_id: id,
       hl: "vi",
       api_key: apiKey,
     });
-    if (nextPageToken) {
-      params.set("next_page_token", nextPageToken);
-    }
+    if (token) params.set("next_page_token", token);
 
     const url = `${SERPAPI_BASE}?${params.toString()}`;
-    console.log(
-      `[SerpAPI] Fetching reviews for place_id=${placeId}${nextPageToken ? " (next page)" : ""}`,
-    );
-
     const response = await fetch(url);
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.warn(`[SerpAPI] Reviews failed (${response.status}):`, errorText);
-      return res
-        .status(response.status)
-        .json({ error: "SerpAPI request failed", details: errorText });
+    if (!response.ok) return null;
+    return response.json();
+  };
+
+  try {
+    let data: any = null;
+
+    // Phase 1: Try direct placeId if provided
+    if (placeId) {
+      console.log(`[SerpAPI] Fetching reviews for place_id=${placeId}`);
+      data = await fetchReviewsForId(placeId, nextPageToken);
     }
 
-    const data = await response.json();
+    // Phase 2: If no data yet (or 0 reviews and we have a fallback query), try searching
+    const hasNoReviews = !data || (data.reviews || []).length === 0;
+    const canSearch = (q || fallbackQ) && !nextPageToken; // Only search for first page
+
+    if (hasNoReviews && canSearch) {
+      const searchQuery = q || fallbackQ;
+      console.log(`[SerpAPI] Falling back to search for: "${searchQuery}"`);
+      
+      const searchParams = new URLSearchParams({
+        engine: "google_maps",
+        q: searchQuery,
+        hl: "vi",
+        api_key: apiKey,
+      });
+      const searchRes = await fetch(`${SERPAPI_BASE}?${searchParams.toString()}`);
+      
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const firstResultId = searchData.place_id || (searchData.local_results && searchData.local_results[0]?.place_id);
+        
+        if (firstResultId && firstResultId !== placeId) {
+          console.log(`[SerpAPI] Resolved "${searchQuery}" to new place_id=${firstResultId}`);
+          data = await fetchReviewsForId(firstResultId);
+        }
+      }
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: "Could not fetch reviews" });
+    }
+
+    if (data.error && data.error.includes("run out of searches")) {
+      return res.status(429).json({ error: "SerpAPI quota exceeded", status: 429 });
+    }
 
     // Map response to our format
     const placeInfo = data.place_info
