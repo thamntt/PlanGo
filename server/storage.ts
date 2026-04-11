@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db } from "./db";
 import {
   // Lookup tables
@@ -152,7 +152,8 @@ export interface IStorage {
   addTripPreference(data: InsertTripPreference): Promise<TripPreference>;
   removeTripPreference(tripId: number, preferenceId: number): Promise<boolean>;
 
-  // Trip Reviews
+  // Reviews
+  getReviews(filters?: { tripId?: number; itemId?: number; destinationId?: number }): Promise<any[]>;
   getTripReviews(tripId: number): Promise<TripReview[]>;
   createTripReview(data: InsertTripReview): Promise<TripReview>;
   deleteTripReview(tripId: number, userId: number): Promise<boolean>;
@@ -591,19 +592,114 @@ export class DatabaseStorage implements IStorage {
     return r.length > 0;
   }
 
+  async getReviews(filters?: { tripId?: number; itemId?: number; destinationId?: number }) {
+    // 1. Fetch Trip Reviews with Destination Mapping
+    const tripRevQuery = db.select({
+      id: tripReviews.tripId, // Used as part of unique key in frontend mapping
+      userId: tripReviews.userId,
+      tripId: tripReviews.tripId,
+      rating: tripReviews.rating,
+      comment: tripReviews.comment,
+      userName: users.userName,
+      destinationId: trips.destinationId,
+    })
+    .from(tripReviews)
+    .innerJoin(users, eq(tripReviews.userId, users.userId))
+    .innerJoin(trips, eq(tripReviews.tripId, trips.tripId));
+
+    // 2. Fetch Item Reviews with Destination Mapping
+    const itemRevQuery = db.select({
+      id: itemReviews.itemId,
+      userId: itemReviews.userId,
+      itemId: itemReviews.itemId,
+      rating: itemReviews.rating,
+      comment: itemReviews.comment,
+      userName: users.userName,
+      destinationId: itineraryDay.tripId, // We'll map this to actual destinationId via another join
+      poiId: itineraryItems.poiId,
+      activityId: itineraryItems.itemId,
+    })
+    .from(itemReviews)
+    .innerJoin(users, eq(itemReviews.userId, users.userId))
+    .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
+    .innerJoin(itineraryDay, eq(itineraryItems.dayId, itineraryDay.dayId))
+    .innerJoin(trips, eq(itineraryDay.tripId, trips.tripId));
+
+    const [tripResults, itemResults] = await Promise.all([
+      tripRevQuery,
+      itemRevQuery
+    ]);
+
+    // Map and combine
+    const mappedTrips = tripResults.map(r => ({
+      ...r,
+      type: 'trip',
+      itineraryId: r.tripId,
+    }));
+
+    const mappedItems = itemResults.map(r => ({
+      ...r,
+      type: 'item',
+      activityId: r.itemId,
+    }));
+
+    let all = [...mappedTrips, ...mappedItems];
+
+    // Filter if needed
+    if (filters?.tripId) all = all.filter(r => (r as any).tripId === filters.tripId);
+    if (filters?.itemId) all = all.filter(r => (r as any).itemId === filters.itemId);
+    if (filters?.destinationId) all = all.filter(r => r.destinationId === filters.destinationId);
+
+    return all.sort((a, b) => (b as any).id - (a as any).id);
+  }
+
   async getTripReviews(tripId: number) {
     return db.select().from(tripReviews).where(eq(tripReviews.tripId, tripId));
   }
+  
   async createTripReview(data: InsertTripReview) {
     const [r] = await db.insert(tripReviews).values(data).returning();
+    
+    // Update destination stats
+    const trip = await this.getTrip(data.tripId);
+    if (trip?.destinationId) {
+      await this.updateDestinationStats(trip.destinationId);
+    }
+    
     return r;
   }
+  
   async deleteTripReview(tid: number, uid: number) {
-    const r = await db
-      .delete(tripReviews)
-      .where(and(eq(tripReviews.tripId, tid), eq(tripReviews.userId, uid)))
-      .returning();
-    return r.length > 0;
+    const trip = await this.getTrip(tid);
+    const res = await db.delete(tripReviews).where(and(eq(tripReviews.tripId, tid), eq(tripReviews.userId, uid))).returning();
+    
+    if (trip?.destinationId) {
+      await this.updateDestinationStats(trip.destinationId);
+    }
+    
+    return res.length > 0;
+  }
+
+  private async updateDestinationStats(destinationId: number) {
+    // Get all reviews for trips to this destination
+    const reviews = await db.select({
+      rating: tripReviews.rating
+    })
+    .from(tripReviews)
+    .innerJoin(trips, eq(tripReviews.tripId, trips.tripId))
+    .where(eq(trips.destinationId, destinationId));
+
+    const count = reviews.length;
+    const avgRating = count > 0 
+      ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / count 
+      : 0;
+
+    await db.update(destinations)
+      .set({ 
+        reviewCounts: count, 
+        rating: avgRating.toFixed(2) 
+      })
+      .where(eq(destinations.destinationId, destinationId));
   }
 
   // Itinerary
@@ -679,16 +775,45 @@ export class DatabaseStorage implements IStorage {
   }
   async createItemReview(data: InsertItemReview) {
     const [r] = await db.insert(itemReviews).values(data).returning();
+    
+    // Update POI stats if applicable
+    const item = await this.getItineraryItem(data.itemId);
+    if (item?.poiId) {
+      await this.updatePoiStats(item.poiId);
+    }
+
     return r;
   }
   async deleteItemReview(itemId: number, userId: number) {
-    const r = await db
-      .delete(itemReviews)
-      .where(
-        and(eq(itemReviews.itemId, itemId), eq(itemReviews.userId, userId)),
-      )
-      .returning();
-    return r.length > 0;
+    const item = await this.getItineraryItem(itemId);
+    const res = await db.delete(itemReviews).where(and(eq(itemReviews.itemId, itemId), eq(itemReviews.userId, userId))).returning();
+    
+    if (item?.poiId) {
+      await this.updatePoiStats(item.poiId);
+    }
+    
+    return res.length > 0;
+  }
+
+  private async updatePoiStats(poiId: number) {
+    const reviews = await db.select({
+      rating: itemReviews.rating
+    })
+    .from(itemReviews)
+    .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
+    .where(eq(itineraryItems.poiId, poiId));
+
+    const count = reviews.length;
+    const avgRating = count > 0 
+      ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / count 
+      : 0;
+
+    await db.update(pois)
+      .set({ 
+        reviewCounts: count, 
+        rating: avgRating.toFixed(2) 
+      })
+      .where(eq(pois.poiId, poiId));
   }
 
   // Expenses

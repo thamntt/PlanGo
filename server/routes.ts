@@ -36,7 +36,9 @@ function getGoongKey(): string {
 }
 
 function getSerpApiKey(): string {
-  return process.env.SERPAPI_KEY || "";
+  const key = process.env.SERPAPI_KEY || "";
+  console.log(`[Debug] Using SerpAPI Key: ${key.slice(0, 5)}...${key.slice(-5)}`);
+  return key;
 }
 
 /** Returns which provider is available: "google" | "goong" | "free" */
@@ -2864,11 +2866,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get(
     "/api/reviews",
     asyncHandler(async (req, res) => {
-      const tripId = req.query.tripId;
-      const itemId = req.query.itemId;
-      let reviews: any[] = [];
-      if (tripId) reviews = await storage.getTripReviews(Number(tripId));
-      else if (itemId) reviews = await storage.getItemReviews(Number(itemId));
+      const tripId = req.query.tripId ? Number(req.query.tripId) : undefined;
+      const itemId = req.query.itemId ? Number(req.query.itemId) : undefined;
+      const destinationId = req.query.destinationId ? Number(req.query.destinationId) : undefined;
+      
+      const reviews = await storage.getReviews({ tripId, itemId, destinationId });
       sendResponse(res, 200, "Reviews retrieved successfully", reviews);
     }),
   );
@@ -2876,11 +2878,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/reviews",
     asyncHandler(async (req, res) => {
-      const { tripId, itemId } = req.body;
+      // Handle field mapping from frontend (DataContext/itinerary screen) to backend schema
+      const tripId = req.body.tripId || req.body.itineraryId;
+      const itemId = req.body.itemId || req.body.activityId || req.body.poiId;
+      
+      const payload = { ...req.body };
+      
       let review;
-      if (tripId) review = await storage.createTripReview(req.body);
-      else if (itemId) review = await storage.createItemReview(req.body);
-      else throw new AppError(400, "tripId or itemId required");
+      if (tripId) {
+        // Trip review
+        payload.tripId = Number(tripId);
+        review = await storage.createTripReview(payload);
+      } else if (itemId) {
+        // Itinerary item or POI review
+        payload.itemId = Number(itemId);
+        review = await storage.createItemReview(payload);
+      } else {
+        throw new AppError(400, "tripId or itemId required");
+      }
+      
       sendResponse(res, 201, "Review created successfully", review);
     }),
   );
