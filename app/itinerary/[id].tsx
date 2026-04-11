@@ -425,6 +425,7 @@ export default function ItineraryDetailScreen() {
   const remaining = (itinerary.totalBudget || 0) - totalSpent;
   const budgetPercent = itinerary.totalBudget > 0 ? Math.min(100, (totalSpent / itinerary.totalBudget) * 100) : 0;
   const expenses = itinerary.expenses || [];
+  const manualExpenses = expenses.filter((e) => !e.activityId);
 
   const generateShareCode = () => {
     return Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
@@ -779,77 +780,108 @@ export default function ItineraryDetailScreen() {
         return;
       }
 
-      const doUncheck = async () => {
-        const newDays = [...itinerary.days];
-        const act = newDays[dayIdx].activities.find((a) => a.id === activityId);
+      // Perform uncheck immediately without confirmation
+      try {
+        const newDays = JSON.parse(JSON.stringify(itinerary.days));
+        const act = newDays[dayIdx].activities.find((a: any) => a.id === activityId);
         if (!act) return;
+
         act.isCompleted = false;
         act.actualCost = 0;
         act.paidBy = undefined;
-        const newExpenses = expenses.filter((e) => e.activityId !== activityId);
-        const newSpent = recalcSpent(newDays, newExpenses);
-        await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      };
 
-      if (Platform.OS === "web") {
-        if (window.confirm("Bỏ hoàn thành địa điểm này sẽ xóa chi phí và người chi trả tương ứng. Bạn có chắc không?")) {
-          await doUncheck();
-        }
-      } else {
-        Alert.alert(
-          "Bỏ hoàn thành",
-          "Bỏ hoàn thành địa điểm này sẽ xóa chi phí và người chi trả tương ứng. Bạn có chắc không?",
-          [
-            { text: t().common.cancel, style: "cancel" },
-            { text: "Xác nhận", onPress: doUncheck },
-          ]
-        );
+        const newExpenses = JSON.parse(JSON.stringify(itinerary.expenses || []))
+          .filter((e: any) => e.activityId !== activityId);
+        
+        const newSpent = recalcSpent(newDays, newExpenses);
+
+        updateItinerary(itinerary.id, {
+          days: newDays,
+          expenses: newExpenses,
+          spentAmount: newSpent
+        });
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (err) {
+        console.error("Failed to uncheck activity:", err);
       }
       return;
     }
 
-    const newDays = [...itinerary.days];
-    const act = newDays[dayIdx].activities.find((a) => a.id === activityId);
-    if (!act) return;
-    act.isCompleted = true;
-    const newExpenses = [...expenses];
-    if (!act.actualCost && act.estimatedCost) {
-      act.actualCost = act.estimatedCost;
-      const currentUserName = user?.fullName || user?.username || undefined;
-      const currentUserId = user?.id || undefined;
-      act.paidBy = currentUserName;
-      const existingExpIdx = newExpenses.findIndex((e) => e.activityId === activityId);
-      if (existingExpIdx >= 0) {
-        newExpenses[existingExpIdx] = {
-          ...newExpenses[existingExpIdx],
-          title: act.title,
-          amount: act.estimatedCost,
-          type: act.activityType as Expense["type"],
-          paidBy: currentUserName,
-          paidByUserId: currentUserId,
-          dayIndex: dayIdx,
-        };
-      } else {
-        newExpenses.push({
-          id: generateId(),
-          title: act.title,
-          amount: act.estimatedCost,
-          type: act.activityType as Expense["type"],
-          paidBy: currentUserName,
-          paidByUserId: currentUserId,
-          dayIndex: dayIdx,
-          activityId: activityId,
-          createdAt: new Date().toISOString(),
-        });
+    try {
+      // Deep copy to prevent any state mutation issues
+      const newDays = JSON.parse(JSON.stringify(itinerary.days));
+      const act = newDays[dayIdx].activities.find((a: any) => a.id === activityId);
+      if (!act) return;
+
+      act.isCompleted = true;
+      const newExpenses = JSON.parse(JSON.stringify(itinerary.expenses || []));
+
+      if (!act.actualCost && act.estimatedCost) {
+        act.actualCost = act.estimatedCost;
+        const currentUserName = user?.fullName || user?.username || undefined;
+        const currentUserId = user?.id || undefined;
+        act.paidBy = currentUserName;
+
+        const existingExpIdx = newExpenses.findIndex((e: any) => e.activityId === activityId);
+        if (existingExpIdx >= 0) {
+          newExpenses[existingExpIdx] = {
+            ...newExpenses[existingExpIdx],
+            title: act.title,
+            amount: act.estimatedCost,
+            type: act.activityType,
+            paidBy: currentUserName,
+            paidByUserId: currentUserId,
+            dayIndex: dayIdx,
+          };
+        } else {
+          newExpenses.push({
+            id: generateId(),
+            title: act.title,
+            amount: act.estimatedCost,
+            type: act.activityType,
+            paidBy: currentUserName,
+            paidByUserId: currentUserId,
+            dayIndex: dayIdx,
+            activityId: activityId,
+            createdAt: new Date().toISOString(),
+          });
+        }
       }
-    }
-    const newSpent = recalcSpent(newDays, newExpenses);
-    await updateItinerary(itinerary.id, { days: newDays, expenses: newExpenses, spentAmount: newSpent });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await addNotification({ userId: itinerary.userId, title: t().notifications.activityCompleted, message: `"${act.title}" đã hoàn thành`, type: "info", itineraryId: itinerary.id });
-    if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
-      await addNotification({ userId: itinerary.userId, title: t().notifications.budgetWarning, message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)), type: "warning", itineraryId: itinerary.id });
+
+      const newSpent = recalcSpent(newDays, newExpenses);
+      
+      await updateItinerary(itinerary.id, {
+        days: newDays,
+        expenses: newExpenses,
+        spentAmount: newSpent
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Attempt notifications
+      try {
+        await addNotification({
+          userId: itinerary.userId,
+          title: t().notifications.activityCompleted,
+          message: `"${act.title}" đã hoàn thành`,
+          type: "info",
+          itineraryId: itinerary.id
+        });
+        
+        if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
+          await addNotification({
+            userId: itinerary.userId,
+            title: t().notifications.budgetWarning,
+            message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)),
+            type: "warning",
+            itineraryId: itinerary.id
+          });
+        }
+      } catch (notifErr) {
+        console.warn("Notification error:", notifErr);
+      }
+    } catch (err) {
+      console.error("Failed to check activity:", err);
     }
   };
 
@@ -1564,7 +1596,7 @@ export default function ItineraryDetailScreen() {
                   }}
                   hitSlop={8}
                 >
-
+                  <Ionicons name="create-outline" size={18} color={colors.primary} />
                 </Pressable>
               )}
             </View>
@@ -2031,15 +2063,15 @@ export default function ItineraryDetailScreen() {
           <View style={styles.expensesTab}>
 
             {/* ═══ EXPENSE SUMMARY TABLE (completed only) ═══ */}
-            {itinerary.status === "completed" && (() => {
+            {(itinerary.status === "completed" || itinerary.status === "active") && (() => {
               // Calculate stats
               const allActivities = itinerary.days.flatMap((day, dayIdx) =>
                 day.activities.map((act) => ({ ...act, _dayIdx: dayIdx, _dayTitle: day.title }))
               );
               const totalActEstimated = allActivities.reduce((s, a) => s + (a.estimatedCost || 0), 0);
               const totalActActual = allActivities.reduce((s, a) => s + (a.actualCost || 0), 0);
-              // Only count manual expenses (not activity-linked ones)
-              const manualExpenses = expenses.filter((e) => !e.activityId);
+              // Filter manual expenses (not activity-linked ones)
+              const manualExps = manualExpenses;
               const totalExpAmount = manualExpenses.reduce((s, e) => s + e.amount, 0);
               const grandTotal = totalActActual + totalExpAmount;
               const budget = itinerary.totalBudget || 0;
@@ -2052,7 +2084,7 @@ export default function ItineraryDetailScreen() {
                 const cat = a.activityType || "other";
                 catMap[cat] = (catMap[cat] || 0) + (a.actualCost || 0);
               }
-              for (const e of manualExpenses) {
+              for (const e of manualExps) {
                 catMap[e.type] = (catMap[e.type] || 0) + e.amount;
               }
               const catEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
@@ -2064,7 +2096,7 @@ export default function ItineraryDetailScreen() {
                   payerMap[a.paidBy] = (payerMap[a.paidBy] || 0) + (a.actualCost || 0);
                 }
               }
-              for (const e of manualExpenses) {
+              for (const e of manualExps) {
                 if (e.paidBy && e.amount > 0) {
                   payerMap[e.paidBy] = (payerMap[e.paidBy] || 0) + e.amount;
                 }
@@ -2238,11 +2270,11 @@ export default function ItineraryDetailScreen() {
                   )}
 
                   {/* ── 3. Additional Expenses Table ── */}
-                  {manualExpenses.length > 0 && (
+                  {manualExps.length > 0 && (
                     <>
                       <Pressable onPress={() => toggleSection("expenses")} style={sumStyles.sectionHeader}>
                         <Ionicons name="receipt-outline" size={16} color={colors.primary} />
-                        <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.additionalExpenses} ({manualExpenses.length})</Text>
+                        <Text style={[sumStyles.sectionTitle, { color: colors.text }]}>{txt.additionalExpenses} ({manualExps.length})</Text>
                         <Ionicons name={summaryCollapsed.expenses ? "chevron-down" : "chevron-up"} size={16} color={colors.textTertiary} />
                       </Pressable>
                       {!summaryCollapsed.expenses && (
@@ -2255,7 +2287,7 @@ export default function ItineraryDetailScreen() {
                             <Text style={[sumStyles.thCell, sumStyles.cellSplit, { color: colors.textSecondary }]}>{txt.splitInfo}</Text>
                             <View style={sumStyles.cellAction} />
                           </View>
-                          {manualExpenses.map((exp, idx) => (
+                          {manualExps.map((exp: any, idx: number) => (
                             <View key={exp.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40" }]}>
                               <Text style={[sumStyles.tdCell, sumStyles.cellName, { color: colors.text }]} numberOfLines={1}>{exp.title}</Text>
                               <Text style={[sumStyles.tdCell, sumStyles.cellType, { color: colors.textTertiary }]}>{getActivityTypeLabel(exp.type)}</Text>
@@ -2353,14 +2385,14 @@ export default function ItineraryDetailScreen() {
               );
             })()}
 
-            {expenses.length === 0 && itinerary.status !== "completed" ? (
+            {manualExpenses.length === 0 && itinerary.status !== "completed" ? (
               <View style={styles.emptyExpenses}>
                 <Ionicons name="wallet-outline" size={48} color={colors.textTertiary} />
                 <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>{txt.noExpenses}</Text>
                 <Text style={[styles.emptyHint, { color: colors.textTertiary }]}>{txt.noExpensesHint}</Text>
               </View>
             ) : (
-              expenses.map((expense) => (
+              (itinerary.status === "completed" ? [] : manualExpenses).map((expense: Expense) => (
                 <View key={expense.id} style={[styles.expenseCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
                   <View style={styles.expenseTop}>
                     <Ionicons name={getActivityTypeIcon(expense.type) as any} size={20} color={colors.textSecondary} />
@@ -2385,7 +2417,7 @@ export default function ItineraryDetailScreen() {
 
                   {expense.splits && expense.splits.length > 0 && (
                     <View style={styles.splitDetails}>
-                      {expense.splits.map((sp) => (
+                      {expense.splits.map((sp: ExpenseSplit) => (
                         <View key={sp.userId} style={styles.splitDetailRow}>
                           <Text style={[styles.splitDetailName, { color: colors.textSecondary }]}>{sp.userName}</Text>
                           <Text style={[styles.splitDetailAmount, { color: colors.accent }]}>{formatVND(sp.amount)}</Text>
@@ -2396,7 +2428,7 @@ export default function ItineraryDetailScreen() {
 
                   {expense.notes && expense.notes.length > 0 && (
                     <View style={styles.notesContainer}>
-                      {expense.notes.map((noteItem, noteIdx) => (
+                      {expense.notes.map((noteItem: string, noteIdx: number) => (
                         <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
                           <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
                           <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
