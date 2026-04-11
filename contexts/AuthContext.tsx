@@ -33,6 +33,14 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function unwrapResponse(res: Response): Promise<any> {
+  const json = await res.json();
+  if (json && typeof json === 'object' && 'data' in json && 'status' in json) {
+    return json.data;
+  }
+  return json;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,8 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Re-fetch from server to get latest data
         try {
           const res = await apiRequest("GET", `/api/users/${saved.id}`);
-          const json = await res.json();
-          const fresh = mapUser(json);
+          const data = await unwrapResponse(res);
+          const fresh = mapUser(data);
           if (!fresh.isLocked) {
             setUser(fresh);
             await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(fresh));
@@ -92,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Seed admin user if none exists
     try {
       const res = await apiRequest("GET", "/api/users");
-      const userList = await res.json();
+      const userList = await unwrapResponse(res);
       if (Array.isArray(userList) && userList.length === 0) {
         await apiRequest("POST", "/api/auth/register", {
           userName: SEED_ADMIN.username, // Using userName to be explicit
@@ -106,8 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           username: SEED_ADMIN.username,
           password: SEED_ADMIN.password,
         });
-        const loginJson = await loginRes.json();
-        const adminUser = mapUser(loginJson);
+        const loginData = await unwrapResponse(loginRes);
+        const adminUser = mapUser(loginData);
         await apiRequest("PUT", `/api/users/${adminUser.id}`, { role: "admin" });
       }
     } catch (err) {
@@ -119,8 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string) => {
     try {
       const res = await apiRequest("POST", "/api/auth/login", { username, password });
-      const json = await res.json();
-      const found = mapUser(json);
+      const data = await unwrapResponse(res);
+      const found = mapUser(data);
       setUser(found);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(found));
       return { success: true };
@@ -135,8 +143,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (data: { username: string; password: string; email: string; fullName: string }) => {
     try {
       const res = await apiRequest("POST", "/api/auth/register", data);
-      const json = await res.json();
-      const newUser = mapUser(json);
+      const respData = await unwrapResponse(res);
+      const newUser = mapUser(respData);
       setUser(newUser);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser));
       return { success: true };
@@ -156,8 +164,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     try {
       const res = await apiRequest("PUT", `/api/users/${user.id}`, data);
-      const json = await res.json();
-      const updated = mapUser(json);
+      const respData = await unwrapResponse(res);
+      const updated = mapUser(respData);
       setUser(updated);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
     } catch {
@@ -172,8 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const res = await apiRequest("PUT", `/api/users/${user.id}`, { password: newPassword });
-      const json = await res.json();
-      const updated = mapUser(json);
+      const respData = await unwrapResponse(res);
+      const updated = mapUser(respData);
       setUser(updated);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
       return { success: true };
