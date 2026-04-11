@@ -48,6 +48,10 @@ const Destinations: React.FC = () => {
   const [destGoogleId, setDestGoogleId] = useState("");
   const [destPhotos, setDestPhotos] = useState<{name:string, attributions:string[]}[]>([]);
   
+  // Cloudinary State
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>("");
+  const [isUploading, setIsUploading] = useState(false);
+  
   // Google Search State
   const [googleQuery, setGoogleQuery] = useState("");
   const [googleResults, setGoogleResults] = useState<PlaceSearchResult[]>([]);
@@ -97,10 +101,48 @@ const Destinations: React.FC = () => {
     setGoogleQuery("");
   };
 
+const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', 'ml_default'); 
+
+    try {
+      const res = await fetch('https://api.cloudinary.com/v1_1/dosvjilvv/image/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        console.error("Chi tiết lỗi từ Cloudinary:", data);
+        alert(`Lỗi Cloudinary: ${data.error?.message || "Không rõ nguyên nhân"}`);
+        setIsUploading(false);
+        return;
+      }
+    
+
+      if (data.secure_url) {
+         setUploadedImageUrl(data.secure_url);
+         console.log("Upload thành công, link ảnh nè:", data.secure_url);
+      }
+    } catch (error) {
+      console.error("Lỗi mạng/Code:", error);
+      alert("Đã xảy ra lỗi khi kết nối tới Cloudinary!");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const openAddModal = () => {
     setEditingId(null);
     setDestName(""); setDestCat("City"); setDestAddr(""); setDestLat(""); setDestLng(""); setDestDesc("");
     setDestGoogleId(""); setDestPhotos([]); setGoogleQuery(""); setGoogleResults([]);
+    setUploadedImageUrl("");
     setIsModalOpen(true);
   };
 
@@ -114,6 +156,7 @@ const Destinations: React.FC = () => {
     setDestDesc(dest.description || "");
     setDestGoogleId(dest.googlePlaceId || "");
     setDestPhotos(dest.googlePhotos || []);
+    setUploadedImageUrl(dest.images?.[0] || "");
     setGoogleQuery(""); setGoogleResults([]);
     setIsModalOpen(true);
   };
@@ -133,7 +176,9 @@ const Destinations: React.FC = () => {
       description: destDesc || "Một điểm đến tuyệt vời",
       googlePlaceId: destGoogleId || undefined,
       googlePhotos: destPhotos.length > 0 ? destPhotos : undefined,
-      images: destPhotos.length > 0 ? [getPhotoUrl(destPhotos[0].name)] : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
+      images: uploadedImageUrl 
+        ? [uploadedImageUrl] 
+        : (destPhotos.length > 0 ? [getPhotoUrl(destPhotos[0].name)] : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"]),
       tags: []
     };
 
@@ -337,11 +382,11 @@ const Destinations: React.FC = () => {
                 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vĩ độ (Latitude)</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vĩ độ </label>
                     <input type="text" value={destLat} onChange={e => setDestLat(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Kinh độ (Longitude)</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Kinh độ</label>
                     <input type="text" value={destLng} onChange={e => setDestLng(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
                   </div>
                 </div>
@@ -351,10 +396,28 @@ const Destinations: React.FC = () => {
                   <textarea rows={3} value={destDesc} onChange={e => setDestDesc(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 resize-none" />
                 </div>
                 
-                {destPhotos.length > 0 && (
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Tải ảnh lên (Cloudinary)
+                  </label>
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    disabled={isUploading}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 transition-all"
+                  />
+                  {isUploading && <p className="text-xs text-amber-500 mt-2 font-medium animate-pulse">⏳ Đang tải ảnh lên Cloudinary...</p>}
+                </div>
+
+                {(uploadedImageUrl || destPhotos.length > 0) && (
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ảnh xem trước</label>
-                    <img src={getPhotoUrl(destPhotos[0].name)} alt="Preview" className="w-full h-40 object-cover rounded-xl" />
+                    <img 
+                      src={uploadedImageUrl || getPhotoUrl(destPhotos[0].name)} 
+                      alt="Preview" 
+                      className="w-full h-48 object-cover rounded-xl shadow-sm border border-slate-100" 
+                    />
                   </div>
                 )}
               </div>
