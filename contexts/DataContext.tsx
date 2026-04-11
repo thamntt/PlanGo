@@ -57,16 +57,27 @@ const DataContext = createContext<DataContextValue | null>(null);
 // ═══════════════════════════════════════════
 // Helper: map server response fields to client types
 // ═══════════════════════════════════════════
+async function unwrapResponse(res: Response): Promise<any> {
+  const json = await res.json();
+  console.log(`[Data] Raw response from ${res.url}:`, JSON.stringify(json).substring(0, 100) + "...");
+  // Handle backend envelope { status, message, data, errors }
+  if (json && typeof json === 'object' && 'data' in json && 'status' in json) {
+    console.log(`[Data] Unwrapped data from ${res.url}, count:`, Array.isArray(json.data) ? json.data.length : "object");
+    return json.data;
+  }
+  return json;
+}
+
 function mapDestination(d: any): Destination {
-  return {
+  const mapped = {
     id: (d.destinationId || d.id)?.toString() || "",
     name: d.name || "",
     description: d.description || "",
     images: d.images || [],
     category: d.category || "",
     address: d.address || "",
-    latitude: d.latitude || 0,
-    longitude: d.longitude || 0,
+    latitude: d.latitude ? Number(d.latitude) : 0,
+    longitude: d.longitude ? Number(d.longitude) : 0,
     rating: d.rating ? Number(d.rating) : 0,
     reviewCount: d.reviewCount ?? d.review_count ?? d.reviewCounts ?? 0,
     priceRange: d.priceRange ?? d.price_range,
@@ -76,13 +87,14 @@ function mapDestination(d: any): Destination {
     highlights: d.highlights || [],
     tips: d.tips || [],
     bestTimeToVisit: d.bestTimeToVisit ?? d.best_time_to_visit,
-    estimatedCostPerPerson: d.estimatedCostPerPerson ?? d.estimated_cost_per_person,
+    estimatedCostPerPerson: d.estimatedCostPerPerson ? Number(d.estimatedCostPerPerson) : d.estimated_cost_per_person ? Number(d.estimated_cost_per_person) : undefined,
     sampleReviews: d.sampleReviews ?? d.sample_reviews ?? [],
     nearbyFood: d.nearbyFood ?? d.nearby_food ?? [],
     googlePlaceId: d.googlePlaceId ?? d.google_place_id,
     googlePhotos: d.googlePhotos ?? d.google_photos ?? [],
     googleReviews: d.googleReviews ?? d.google_reviews ?? [],
   };
+  return mapped;
 }
 
 function mapItinerary(i: any): Itinerary {
@@ -381,39 +393,58 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(async () => {
-    try {
-      // Load all data from server API
-      const [destsRes, itinsRes, revsRes, notifsRes, poisRes] = await Promise.all([
-        apiRequest("GET", "/api/destinations"),
-        apiRequest("GET", "/api/itineraries"),
-        apiRequest("GET", "/api/reviews"),
-        apiRequest("GET", "/api/notifications"),
-        apiRequest("GET", "/api/pois"),
-      ]);
+    console.log("[Data] Starting loadData (Robust)...");
+    setIsLoading(true);
 
-      let dests = ((await destsRes.json()) as any[]).map(mapDestination);
-
-      // Seed destinations if empty
-      if (dests.length === 0) {
-        console.log("[Data] Seeding destinations...");
-        for (const seed of SEED_DESTINATIONS) {
-          try {
-            await apiRequest("POST", "/api/destinations", seed);
-          } catch { }
+    const fetchEntity = async (route: string, mapper: (d: any) => any, setter: (val: any) => void) => {
+      try {
+        const res = await apiRequest("GET", route);
+        const data = await unwrapResponse(res);
+        if (Array.isArray(data)) {
+          setter(data.map(mapper));
+          console.log(`[Data] Loaded ${route} successfully:`, data.length);
+        } else {
+          console.warn(`[Data] Expected array from ${route}, got:`, typeof data);
         }
-        const freshRes = await apiRequest("GET", "/api/destinations");
-        dests = ((await freshRes.json()) as any[]).map(mapDestination);
+      } catch (err: any) {
+        console.warn(`[Data] Failed to load ${route}:`, err.message || err);
+      }
+    };
+
+    try {
+      // 1. Destinations (Critical)
+      try {
+        const destsRes = await apiRequest("GET", "/api/destinations");
+        let dests = (await unwrapResponse(destsRes) as any[]).map(mapDestination);
+        
+        if (dests.length === 0) {
+          console.log("[Data] No destinations found, seeding...");
+          for (const seed of SEED_DESTINATIONS) {
+            try { await apiRequest("POST", "/api/destinations", seed); } catch { }
+          }
+          const freshRes = await apiRequest("GET", "/api/destinations");
+          dests = (await unwrapResponse(freshRes) as any[]).map(mapDestination);
+        }
+        setDestinations(dests);
+        console.log("[Data] Destinations loaded:", dests.length);
+      } catch (err) {
+        console.error("[Data] Critical error loading destinations:", err);
       }
 
-      setDestinations(dests);
-      setItineraries(((await itinsRes.json()) as any[]).map(mapItinerary));
-      setReviews(((await revsRes.json()) as any[]).map(mapReview));
-      setNotifications(((await notifsRes.json()) as any[]).map(mapNotification));
-      setPois(((await poisRes.json()) as any[]).map(mapPoi));
+      // 2. Others (Non-critical, independent)
+      await Promise.all([
+        fetchEntity("/api/trips", mapItinerary, setItineraries),
+        fetchEntity("/api/pois", mapPoi, setPois),
+        fetchEntity("/api/reviews", mapReview, setReviews), // Might 404, handled by fetchEntity try-catch
+        fetchEntity("/api/notifications", mapNotification, setNotifications),
+      ]);
+
     } catch (err) {
-      console.warn("[Data] Failed to load from server:", err);
+      console.warn("[Data] Global loadData error:", err);
+    } finally {
+      setIsLoading(false);
+      console.log("[Data] loadData complete.");
     }
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -425,14 +456,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const addDestination = useCallback(async (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive"> & { rating?: number; reviewCount?: number }) => {
     const payload = { ...dest, rating: dest.rating || 0, reviewCount: dest.reviewCount || 0, isActive: true };
     const res = await apiRequest("POST", "/api/destinations", payload);
-    const created = mapDestination(await res.json());
+    const created = mapDestination(await unwrapResponse(res));
     setDestinations((prev) => [...prev, created]);
     return created;
   }, []);
 
   const updateDestination = useCallback(async (id: string, data: Partial<Destination>) => {
     const res = await apiRequest("PUT", `/api/destinations/${id}`, data);
-    const updated = mapDestination(await res.json());
+    const updated = mapDestination(await unwrapResponse(res));
     setDestinations((prev) => prev.map((d) => (d.id === id ? updated : d)));
   }, []);
 
@@ -444,8 +475,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // ── Itineraries ───────────────────────────
 
   const addItinerary = useCallback(async (itin: Omit<Itinerary, "id" | "createdAt">) => {
-    const res = await apiRequest("POST", "/api/itineraries", itin);
-    const created = mapItinerary(await res.json());
+    const res = await apiRequest("POST", "/api/trips", itin);
+    const created = mapItinerary(await unwrapResponse(res));
     setItineraries((prev) => [...prev, created]);
     return created;
   }, []);
@@ -453,8 +484,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const importItinerary = useCallback(async (itin: Itinerary) => {
     // Check if already exists on server
     try {
-      const existingRes = await apiRequest("GET", `/api/itineraries/${itin.id}`);
-      const existing = mapItinerary(await existingRes.json());
+      const existingRes = await apiRequest("GET", `/api/trips/${itin.id}`);
+      const existing = mapItinerary(await unwrapResponse(existingRes));
       // Trip exists on server — update companions if the import has newer data
       if (itin.companions && itin.companions.length > 0) {
         const mergedCompanions = [...(existing.companions || [])];
@@ -464,8 +495,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
           }
         }
         if (mergedCompanions.length > (existing.companions || []).length) {
-          const res = await apiRequest("PUT", `/api/itineraries/${itin.id}`, { companions: mergedCompanions });
-          const updated = mapItinerary(await res.json());
+          const res = await apiRequest("PUT", `/api/trips/${itin.id}`, { companions: mergedCompanions });
+          const updated = mapItinerary(await unwrapResponse(res));
           setItineraries((prev) => {
             if (prev.some((i) => i.id === itin.id)) {
               return prev.map((i) => (i.id === itin.id ? updated : i));
@@ -482,20 +513,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
       });
     } catch {
       // not found on server, create it
-      const res = await apiRequest("POST", "/api/itineraries", itin);
-      const created = mapItinerary(await res.json());
+      const res = await apiRequest("POST", "/api/trips", itin);
+      const created = mapItinerary(await unwrapResponse(res));
       setItineraries((prev) => [...prev, created]);
     }
   }, []);
 
   const updateItinerary = useCallback(async (id: string, data: Partial<Itinerary>) => {
-    const res = await apiRequest("PUT", `/api/itineraries/${id}`, data);
-    const updated = mapItinerary(await res.json());
+    const res = await apiRequest("PUT", `/api/trips/${id}`, data);
+    const updated = mapItinerary(await unwrapResponse(res));
     setItineraries((prev) => prev.map((i) => (i.id === id ? updated : i)));
   }, []);
 
   const deleteItinerary = useCallback(async (id: string) => {
-    await apiRequest("DELETE", `/api/itineraries/${id}`);
+    await apiRequest("DELETE", `/api/trips/${id}`);
     setItineraries((prev) => prev.filter((i) => i.id !== id));
   }, []);
 
@@ -503,14 +534,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const addReview = useCallback(async (review: Omit<Review, "id" | "createdAt">) => {
     const res = await apiRequest("POST", "/api/reviews", review);
-    const created = mapReview(await res.json());
+    const created = mapReview(await unwrapResponse(res));
     setReviews((prev) => [...prev, created]);
     return created;
   }, []);
 
   const updateReview = useCallback(async (id: string, data: Partial<Review>) => {
     const res = await apiRequest("PUT", `/api/reviews/${id}`, data);
-    const updated = mapReview(await res.json());
+    const updated = mapReview(await unwrapResponse(res));
     setReviews((prev) => prev.map((r) => (r.id === id ? updated : r)));
   }, []);
 
@@ -523,13 +554,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const addNotification = useCallback(async (notif: Omit<Notification, "id" | "createdAt" | "isRead">) => {
     const res = await apiRequest("POST", "/api/notifications", { ...notif, isRead: false });
-    const created = mapNotification(await res.json());
+    const created = mapNotification(await unwrapResponse(res));
     setNotifications((prev) => [...prev, created]);
   }, []);
 
   const markNotificationRead = useCallback(async (id: string) => {
     const res = await apiRequest("PUT", `/api/notifications/${id}`, { isRead: true });
-    const updated = mapNotification(await res.json());
+    const updated = mapNotification(await unwrapResponse(res));
     setNotifications((prev) => prev.map((n) => (n.id === id ? updated : n)));
   }, []);
 
@@ -556,14 +587,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const addPOI = useCallback(async (poi: Omit<POI, "id">) => {
     const res = await apiRequest("POST", "/api/pois", poi);
-    const created = mapPoi(await res.json());
+    const created = mapPoi(await unwrapResponse(res));
     setPois((prev) => [...prev, created]);
     return created;
   }, []);
 
   const updatePOI = useCallback(async (id: string, data: Partial<POI>) => {
     const res = await apiRequest("PUT", `/api/pois/${id}`, data);
-    const updated = mapPoi(await res.json());
+    const updated = mapPoi(await unwrapResponse(res));
     setPois((prev) => prev.map((p) => (p.id === id ? updated : p)));
   }, []);
 
@@ -616,7 +647,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
             headers: getApiHeaders(),
           });
           if (discoveryRes.ok) {
-            const discovered = await discoveryRes.json();
+            const discovered = await unwrapResponse(discoveryRes);
             const allDiscovered = [...(discovered.restaurants || []), ...(discovered.attractions || [])];
             const newPOIs: POI[] = allDiscovered
               .filter((item: any) => item.latitude && item.longitude && item.name)
