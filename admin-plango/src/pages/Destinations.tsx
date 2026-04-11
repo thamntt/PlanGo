@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { MapPin, Star, Filter, Search, Plus, X, Edit, Trash2 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { Destination } from '../lib/types';
@@ -48,9 +48,10 @@ const Destinations: React.FC = () => {
   const [destGoogleId, setDestGoogleId] = useState("");
   const [destPhotos, setDestPhotos] = useState<{name:string, attributions:string[]}[]>([]);
   
-  // Cloudinary State
+  // Cloudinary State & Ref
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Google Search State
   const [googleQuery, setGoogleQuery] = useState("");
@@ -101,7 +102,7 @@ const Destinations: React.FC = () => {
     setGoogleQuery("");
   };
 
-const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -125,7 +126,6 @@ const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         return;
       }
     
-
       if (data.secure_url) {
          setUploadedImageUrl(data.secure_url);
          console.log("Upload thành công, link ảnh nè:", data.secure_url);
@@ -135,6 +135,14 @@ const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       alert("Đã xảy ra lỗi khi kết nối tới Cloudinary!");
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setUploadedImageUrl("");
+    setDestPhotos([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
   };
 
@@ -398,11 +406,12 @@ const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                 
                 <div className="md:col-span-2">
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                    Tải ảnh lên (Cloudinary)
+                    Tải ảnh lên
                   </label>
                   <input 
                     type="file" 
                     accept="image/*"
+                    ref={fileInputRef}
                     onChange={handleImageUpload}
                     disabled={isUploading}
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 transition-all"
@@ -411,13 +420,23 @@ const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                 </div>
 
                 {(uploadedImageUrl || destPhotos.length > 0) && (
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-2 relative mt-2">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ảnh xem trước</label>
-                    <img 
-                      src={uploadedImageUrl || getPhotoUrl(destPhotos[0].name)} 
-                      alt="Preview" 
-                      className="w-full h-48 object-cover rounded-xl shadow-sm border border-slate-100" 
-                    />
+                    <div className="relative inline-block w-full">
+                      <img 
+                        src={uploadedImageUrl || getPhotoUrl(destPhotos[0].name)} 
+                        alt="Preview" 
+                        className="w-full h-48 object-cover rounded-xl shadow-sm border border-slate-100" 
+                      />
+                      <button
+                        onClick={handleRemoveImage}
+                        type="button"
+                        className="absolute top-3 right-3 p-2 bg-slate-900/60 hover:bg-rose-500 text-white rounded-xl backdrop-blur-sm transition-all shadow-lg hover:scale-105"
+                        title="Xoá ảnh này"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -427,8 +446,12 @@ const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
               <button onClick={() => setIsModalOpen(false)} className="px-6 py-3 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-colors">
                 Hủy
               </button>
-              <button onClick={handleSave} className="px-8 py-3 bg-primary text-white font-bold text-sm rounded-xl shadow-lg shadow-primary/20 hover:scale-105 transition-all">
-                Lưu điểm đến
+              <button 
+                onClick={handleSave} 
+                disabled={isUploading}
+                className={`px-8 py-3 bg-primary text-white font-bold text-sm rounded-xl shadow-lg shadow-primary/20 transition-all ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+              >
+                {isUploading ? 'Đang tải ảnh...' : 'Lưu điểm đến'}
               </button>
             </div>
           </div>
