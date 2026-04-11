@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Filter, ChevronLeft, ChevronRight, Edit, Lock, Unlock, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Lock, Unlock, Trash2 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { UserData } from '../lib/types';
 
@@ -34,13 +34,22 @@ const StatusIndicator: React.FC<{ isLocked: boolean }> = ({ isLocked }) => {
 
 const Users: React.FC = () => {
   const { users, updateUser, deleteUser } = useData();
-  const [filterMode, setFilterMode] = useState<"all" | "admin" | "user">("all");
+  const [filterMode, setFilterMode] = useState<"all" | "active" | "locked">("all");
   
   // Modal states
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [editForm, setEditForm] = useState({ fullName: "", email: "", role: "user" as "user" | "admin" });
 
-  const filteredUsers = users.filter(u => filterMode === "all" || u.role === filterMode);
+  const filteredUsers = users.filter(u => {
+    // 1. Hide Admin accounts
+    if (u.role === 'admin') return false;
+    
+    // 2. Filter by status
+    if (filterMode === "active") return !u.isLocked;
+    if (filterMode === "locked") return u.isLocked;
+    
+    return true;
+  });
 
   const handleEditClick = (u: UserData) => {
     setEditingUser(u);
@@ -79,24 +88,13 @@ const Users: React.FC = () => {
             className={`px-6 py-2 text-sm font-bold rounded-lg shadow-sm transition-colors ${filterMode === "all" ? "bg-white text-primary" : "text-slate-600 hover:text-slate-900"}`}
           >Tất cả</button>
           <button 
-            onClick={() => setFilterMode("admin")}
-            className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors ${filterMode === "admin" ? "bg-white text-primary shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
-          >Quản trị viên</button>
+            onClick={() => setFilterMode("active")}
+            className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors ${filterMode === "active" ? "bg-white text-primary shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >Hoạt động</button>
           <button 
-            onClick={() => setFilterMode("user")}
-            className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors ${filterMode === "user" ? "bg-white text-primary shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
-          >Người dùng</button>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all">
-            <Filter size={16} />
-            Vai trò
-          </button>
-          <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all">
-            <Filter size={16} />
-            Trạng thái
-          </button>
+            onClick={() => setFilterMode("locked")}
+            className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors ${filterMode === "locked" ? "bg-white text-primary shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
+          >Bị khoá</button>
         </div>
       </div>
 
@@ -179,7 +177,7 @@ const Users: React.FC = () => {
 
       <footer className="mt-12 text-center">
         <p className="text-[10px] text-slate-400 font-bold tracking-[0.2em] uppercase">
-          © 2024 Voyager Travel Management. Bảo lưu mọi quyền.
+          © 2024 Plango Travel Management. Bảo lưu mọi quyền.
         </p>
       </footer>
 

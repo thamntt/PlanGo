@@ -80,11 +80,13 @@ export interface IStorage {
   getDestinationType(id: number): Promise<DestinationType | undefined>;
   getDestinationTypes(): Promise<DestinationType[]>;
   createDestinationType(data: InsertDestinationType): Promise<DestinationType>;
+  seedDestinationTypes(): Promise<void>;
 
   // POI Types
   getPoiType(id: number): Promise<PoiType | undefined>;
   getPoiTypes(): Promise<PoiType[]>;
   createPoiType(data: InsertPoiType): Promise<PoiType>;
+  seedPoiTypes(): Promise<void>;
 
   // Expense Types
   getExpenseType(id: number): Promise<ExpenseType | undefined>;
@@ -217,6 +219,9 @@ export interface IStorage {
   ): Promise<Notification | undefined>;
   deleteNotification(id: number): Promise<boolean>;
   markNotificationsRead(userId: number): Promise<void>;
+  
+  // Dashboard Stats
+  getAdminStats(): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -273,6 +278,53 @@ export class DatabaseStorage implements IStorage {
   async createDestinationType(data: InsertDestinationType) {
     const [r] = await db.insert(destinationType).values(data).returning();
     return r;
+  }
+
+  async getDestinationTypeByName(name: string) {
+    const [r] = await db
+      .select()
+      .from(destinationType)
+      .where(eq(destinationType.typeName, name));
+    return r;
+  }
+
+  async seedDestinationTypes() {
+    const existing = await this.getDestinationTypes();
+    const defaults = [
+      { typeName: "Thành phố", description: "Các khu vực đô thị lớn" },
+      { typeName: "Biển đảo", description: "Các bãi biển và hòn đảo" },
+      { typeName: "Núi non", description: "Các vùng cao nguyên và núi" },
+      { typeName: "Nghỉ dưỡng", description: "Các khu resort và spa" },
+      { typeName: "Nông thôn", description: "Vùng quê và trang trại" },
+      { typeName: "Di tích", description: "Địa điểm lịch sử và văn hóa" },
+      { typeName: "Khác", description: "Các loại hình khác" },
+    ];
+
+    for (const def of defaults) {
+      const found = existing.find((e: any) => e.typeName === def.typeName);
+      if (!found) {
+        await this.createDestinationType(def);
+      }
+    }
+  }
+
+  async seedPoiTypes() {
+    const existing = await this.getPoiTypes();
+    const defaults = [
+      { typeName: "attraction", description: "Địa điểm tham quan, danh lam thắng cảnh" },
+      { typeName: "restaurant", description: "Nhà hàng, quán ăn" },
+      { typeName: "cafe", description: "Quán cà phê" },
+      { typeName: "hotel", description: "Khách sạn, nhà nghỉ" },
+      { typeName: "shopping", description: "Trung tâm mua sắm, chợ" },
+      { typeName: "other", description: "Loại hình khác" },
+    ];
+
+    for (const def of defaults) {
+      const found = existing.find((e: any) => e.typeName === def.typeName);
+      if (!found) {
+        await this.createPoiType(def);
+      }
+    }
   }
 
   async getPoiType(id: number) {
@@ -338,14 +390,58 @@ export class DatabaseStorage implements IStorage {
   async getDestinations() {
     return db.select().from(destinations);
   }
-  async createDestination(data: InsertDestination) {
-    const [r] = await db.insert(destinations).values(data).returning();
+  async createDestination(data: any) {
+    const payload = { ...data };
+    
+    // Auto-resolve category string to destinationTypeId
+    if (payload.category && !payload.destinationTypeId) {
+      const typeMap: Record<string, string> = {
+        'City': 'Thành phố',
+        'Island': 'Biển đảo',
+        'Mountain': 'Núi non',
+        'Resort': 'Nghỉ dưỡng',
+        'Countryside': 'Nông thôn',
+        'Historical': 'Di tích',
+        'Other': 'Khác'
+      };
+      
+      const typeName = typeMap[payload.category] || payload.category;
+      const type = await this.getDestinationTypeByName(typeName);
+      if (type) {
+        payload.destinationTypeId = type.destinationtypeId;
+      }
+      delete payload.category;
+    }
+
+    const [r] = await db.insert(destinations).values(payload).returning();
     return r;
   }
-  async updateDestination(id: number, data: Partial<Destination>) {
+  async updateDestination(id: number, data: any) {
+    const payload = { ...data };
+
+    // Auto-resolve category string to destinationTypeId
+    if (payload.category && !payload.destinationTypeId) {
+      const typeMap: Record<string, string> = {
+        'City': 'Thành phố',
+        'Island': 'Biển đảo',
+        'Mountain': 'Núi non',
+        'Resort': 'Nghỉ dưỡng',
+        'Countryside': 'Nông thôn',
+        'Historical': 'Di tích',
+        'Other': 'Khác'
+      };
+      
+      const typeName = typeMap[payload.category] || payload.category;
+      const type = await this.getDestinationTypeByName(typeName);
+      if (type) {
+        payload.destinationTypeId = type.destinationtypeId;
+      }
+      delete payload.category;
+    }
+
     const [r] = await db
       .update(destinations)
-      .set(data)
+      .set(payload)
       .where(eq(destinations.destinationId, id))
       .returning();
     return r;
@@ -936,6 +1032,70 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(eq(notifications.userId, userId), eq(notifications.isRead, false)),
       );
+  }
+
+  async getAdminStats(): Promise<any> {
+    const allUsers = await this.getUsers();
+    const allTrips = await this.getTrips();
+    const allDestinations = await this.getDestinations();
+    const allDestTypes = await this.getDestinationTypes();
+
+    // 1. User Status Distribution
+    const userStatus = allUsers.reduce((acc: any, u) => {
+      const status = u.status || 'active';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+
+    // 2. Trip Status Distribution
+    const tripStatus = allTrips.reduce((acc: any, t) => {
+      const status = t.status || 'draft';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+
+    // 3. Destination Type Distribution
+    const typeIdToName = allDestTypes.reduce((acc: any, t: any) => {
+      acc[t.destinationtypeId] = t.typeName;
+      return acc;
+    }, {});
+
+    const destinationTypes = allDestinations.reduce((acc: any, d) => {
+      const typeName = d.destinationTypeId ? typeIdToName[d.destinationTypeId] : 'Khác';
+      acc[typeName] = (acc[typeName] || 0) + 1;
+      return acc;
+    }, {});
+
+    // 4. Monthly Growth (last 6 months)
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const now = new Date();
+    const tripGrowth = [];
+    
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthLabel = months[d.getMonth()];
+      const year = d.getFullYear();
+      const monthNum = d.getMonth();
+      
+      const count = allTrips.filter(t => {
+        const createdAt = new Date(t.createdAt || '');
+        return createdAt.getMonth() === monthNum && createdAt.getFullYear() === year;
+      }).length;
+      
+      tripGrowth.push({ month: monthLabel, value: count });
+    }
+
+    return {
+      userStatus,
+      tripStatus,
+      destinationTypes,
+      tripGrowth,
+      counts: {
+        users: allUsers.length,
+        trips: allTrips.length,
+        destinations: allDestinations.length,
+      }
+    };
   }
 }
 

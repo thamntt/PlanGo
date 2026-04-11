@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { MapPin, Star, Filter, Search, Plus, X, Edit, Trash2 } from 'lucide-react';
+import { MapPin, Star, Filter, Search, Plus, X, Edit, Trash2, ChevronDown } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { Destination } from '../lib/types';
 import { searchPlaces, getPlaceDetails, getPhotoUrl } from '../lib/places';
@@ -7,30 +7,23 @@ import type { PlaceSearchResult } from '../lib/places';
 
 const CategoryBadge: React.FC<{ category: string }> = ({ category }) => {
   const styles: Record<string, string> = {
-    City: 'bg-blue-100 text-blue-700',
-    Island: 'bg-emerald-100 text-emerald-700',
-    Mountain: 'bg-amber-100 text-amber-700',
-    Resort: 'bg-purple-100 text-purple-700',
-  };
-  const labelMap: Record<string, string> = {
-    City: 'Thành phố',
-    Island: 'Biển đảo',
-    Mountain: 'Núi non',
-    Resort: 'Nghỉ dưỡng',
-    Countryside: 'Nông thôn',
-    Historical: 'Lịch sử',
-    Other: 'Khác'
+    'Thành phố': 'bg-blue-100 text-blue-700',
+    'Biển đảo': 'bg-emerald-100 text-emerald-700',
+    'Núi non': 'bg-amber-100 text-amber-700',
+    'Nghỉ dưỡng': 'bg-purple-100 text-purple-700',
+    'Nông thôn': 'bg-orange-100 text-orange-700',
+    'Di tích': 'bg-rose-100 text-rose-700'
   };
   const bgClass = styles[category] || 'bg-slate-100 text-slate-700';
   return (
     <span className={`px-3 py-1 rounded-lg text-xs font-bold ${bgClass}`}>
-      {labelMap[category] || category}
+      {category}
     </span>
   );
 };
 
 const Destinations: React.FC = () => {
-  const { destinations, addDestination, updateDestination, deleteDestination } = useData();
+  const { destinations, destinationTypes, addDestination, updateDestination, deleteDestination } = useData();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCat, setFilterCat] = useState("All");
 
@@ -58,15 +51,17 @@ const Destinations: React.FC = () => {
   const [googleResults, setGoogleResults] = useState<PlaceSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  const categories = [
-    { value: "City", label: "Thành phố" },
-    { value: "Island", label: "Biển đảo" },
-    { value: "Mountain", label: "Núi non" },
-    { value: "Resort", label: "Nghỉ dưỡng" },
-    { value: "Countryside", label: "Nông thôn" },
-    { value: "Historical", label: "Di tích" },
-    { value: "Other", label: "Khác" }
-  ];
+  const categories: any[] = destinationTypes.length > 0 
+    ? destinationTypes.map(t => ({ value: t.name, label: t.name, id: t.id }))
+    : [
+        { value: "Thành phố", label: "Thành phố" },
+        { value: "Biển đảo", label: "Biển đảo" },
+        { value: "Núi non", label: "Núi non" },
+        { value: "Nghỉ dưỡng", label: "Nghỉ dưỡng" },
+        { value: "Nông thôn", label: "Nông thôn" },
+        { value: "Di tích", label: "Di tích" },
+        { value: "Khác", label: "Khác" }
+      ];
 
   const filteredDestinations = destinations.filter(d => {
     const matchName = d.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -148,7 +143,7 @@ const Destinations: React.FC = () => {
 
   const openAddModal = () => {
     setEditingId(null);
-    setDestName(""); setDestCat("City"); setDestAddr(""); setDestLat(""); setDestLng(""); setDestDesc("");
+    setDestName(""); setDestCat(categories[0]?.value || ""); setDestAddr(""); setDestLat(""); setDestLng(""); setDestDesc("");
     setDestGoogleId(""); setDestPhotos([]); setGoogleQuery(""); setGoogleResults([]);
     setUploadedImageUrl("");
     setIsModalOpen(true);
@@ -177,7 +172,8 @@ const Destinations: React.FC = () => {
 
     const data = {
       name: destName,
-      category: destCat,
+      destinationTypeId: categories.find(c => c.value === destCat)?.id,
+      category: destCat, // Fallback for backend that handles string naming
       address: destAddr,
       latitude: lat,
       longitude: lng,
@@ -218,25 +214,7 @@ const Destinations: React.FC = () => {
       </div>
 
       {/* Filter Bar */}
-      <div className="flex flex-col lg:flex-row justify-between items-center gap-4 mb-8">
-        <div className="flex bg-white p-1 rounded-xl border border-slate-100 shadow-sm overflow-x-auto max-w-full">
-          {[
-            { id: "All", label: "Tất cả" },
-            { id: "City", label: "Thành phố" },
-            { id: "Island", label: "Biển đảo" },
-            { id: "Mountain", label: "Núi non" },
-            { id: "Resort", label: "Nghỉ dưỡng" }
-          ].map(cat => (
-            <button 
-              key={cat.id}
-              onClick={() => setFilterCat(cat.id)}
-              className={`px-6 py-2 text-sm font-bold rounded-lg transition-all whitespace-nowrap ${filterCat === cat.id ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900"}`}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-
+      <div className="flex flex-col lg:flex-row justify-end items-center gap-4 mb-8">
         <div className="flex items-center gap-4 w-full lg:w-auto">
           <div className="relative w-full lg:w-64">
              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -248,23 +226,38 @@ const Destinations: React.FC = () => {
                className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" 
              />
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all shrink-0">
-            <Filter size={16} />
-            Danh mục
-          </button>
+          
+          <div className="relative shrink-0">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+            <select 
+              value={filterCat}
+              onChange={e => setFilterCat(e.target.value)}
+              className="pl-10 pr-10 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all outline-none appearance-none cursor-pointer focus:ring-2 focus:ring-primary/20 shadow-sm"
+            >
+              <option value="All">Tất cả danh mục</option>
+              {categories.map(cat => (
+                <option key={cat.id || cat.value} value={cat.value || cat.id}>
+                  {cat.label}
+                </option>
+              ))}
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+               <ChevronDown size={14} />
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
-        <table className="w-full text-left">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-x-auto mb-8">
+        <table className="w-full min-w-[1000px] text-left">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50/30">
-              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Điểm đến</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Danh mục</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Địa chỉ</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Đánh giá</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Thao tác</th>
+            <tr className="border-b border-slate-100 bg-slate-50/30 text-left">
+              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[30%]">Điểm đến</th>
+              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[15%]">Danh mục</th>
+              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[30%]">Địa chỉ</th>
+              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center w-[15%]">Đánh giá</th>
+              <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right w-[10%]">Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -285,8 +278,8 @@ const Destinations: React.FC = () => {
                 <td className="px-8 py-6">
                   <CategoryBadge category={dest.category} />
                 </td>
-                <td className="px-8 py-6 max-w-[200px]">
-                  <span className="text-xs font-medium text-slate-500 line-clamp-2">{dest.address}</span>
+                <td className="px-8 py-6">
+                  <span className="text-xs font-medium text-slate-500">{dest.address}</span>
                 </td>
                 <td className="px-8 py-6">
                    <div className="flex flex-col items-center gap-1">
@@ -298,7 +291,7 @@ const Destinations: React.FC = () => {
                    </div>
                 </td>
                 <td className="px-8 py-6 text-right">
-                   <div className="flex items-center justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                   <div className="flex items-center justify-end gap-2 transition-opacity">
                      <button onClick={() => openEditModal(dest)} className="p-2 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors" title="Chỉnh sửa">
                        <Edit size={18} />
                      </button>

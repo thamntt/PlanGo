@@ -1,8 +1,8 @@
 import React from 'react';
-import { Users, Navigation, MapPin, DollarSign } from 'lucide-react';
+import { Users, Navigation, MapPin, DollarSign, Star } from 'lucide-react';
 
 interface StatCardProps {
-  icon: 'users' | 'trips' | 'destinations' | 'revenue';
+  icon: 'users' | 'trips' | 'destinations' | 'reviews';
   label: string;
   value: string;
   trend?: string;
@@ -13,7 +13,7 @@ const icons = {
   users: <Users size={20} className="text-cyan-600" />,
   trips: <Navigation size={20} className="text-orange-600" />,
   destinations: <MapPin size={20} className="text-slate-600" />,
-  revenue: <DollarSign size={20} className="text-cyan-600" />,
+  reviews: <Star size={20} className="text-amber-500" />,
 };
 
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, trend, status }) => {
@@ -23,7 +23,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, trend, status }
         <div className={`p-3 rounded-xl ${
           icon === 'users' ? 'bg-cyan-50' : 
           icon === 'trips' ? 'bg-orange-50' : 
-          icon === 'destinations' ? 'bg-slate-50' : 'bg-cyan-50'
+          icon === 'destinations' ? 'bg-slate-50' : 'bg-amber-50'
         }`}>
           {icons[icon]}
         </div>

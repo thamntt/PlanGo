@@ -142,6 +142,7 @@ function mapTripToFrontend(trip: any) {
   
   // Ensure id is present and stringified for frontend
   mapped.id = (trip.tripId || "").toString();
+  mapped.destinationId = (trip.destinationId || "").toString();
   
   return mapped;
 }
@@ -2497,6 +2498,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SerpAPI HD Photos by data_id
   app.get("/api/places/serp-photos/:dataId", asyncHandler(getSerpPhotos));
 
+  // Dashboard Stats
+  app.get(
+    "/api/admin/stats",
+    asyncHandler(async (_req, res) => {
+      const stats = await storage.getAdminStats();
+      sendResponse(res, 200, "Stats retrieved successfully", stats);
+    }),
+  );
+
   // Geocode & directions (with fallback)
   app.get("/api/places/geocode", asyncHandler(geocodeAddress));
   app.get("/api/places/directions", asyncHandler(getDirections));
@@ -2645,18 +2655,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // ══════════════════════════════════════════════════════════════
-  // CRUD: Destinations
+  // CRUD: Destination Types (Categories)
   // ══════════════════════════════════════════════════════════════
+  
+  // Seed destination types and POI types on boot
+  storage.seedDestinationTypes().catch(e => console.error("Destination type seeding failed:", e));
+  storage.seedPoiTypes().catch(e => console.error("POI type seeding failed:", e));
+
+  // Helper to enrich destination with category label
+  const enrichDestination = async (d: any) => {
+    const types = await storage.getDestinationTypes();
+    const typeMap = types.reduce((acc: any, t: any) => {
+      acc[t.destinationtypeId] = t.typeName;
+      return acc;
+    }, {});
+    
+    return {
+      ...d,
+      id: (d.destinationId || d.id)?.toString(),
+      category: d.destinationTypeId ? typeMap[d.destinationTypeId] || "Khác" : "Khác"
+    };
+  };
+
+  app.get(
+    "/api/destination-types",
+    asyncHandler(async (_req, res) => {
+      const types = await storage.getDestinationTypes();
+      sendResponse(res, 200, "Destination types retrieved successfully", types);
+    }),
+  );
+
   app.get(
     "/api/destinations",
     asyncHandler(async (_req, res) => {
       const destinations = await storage.getDestinations();
-      sendResponse(
-        res,
-        200,
-        "Destinations retrieved successfully",
-        destinations,
-      );
+      const enriched = await Promise.all(destinations.map(enrichDestination));
+      sendResponse(res, 200, "Destinations retrieved successfully", enriched);
     }),
   );
 
@@ -2675,7 +2709,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/destinations",
     asyncHandler(async (req, res) => {
       const dest = await storage.createDestination(req.body);
-      sendResponse(res, 201, "Destination created successfully", dest);
+      const enriched = await enrichDestination(dest);
+      sendResponse(res, 201, "Destination created successfully", enriched);
     }),
   );
 
@@ -2686,7 +2721,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isNaN(id)) throw new AppError(400, "Invalid destination ID");
       const dest = await storage.updateDestination(id, req.body);
       if (!dest) throw new AppError(404, "Destination not found");
-      sendResponse(res, 200, "Destination updated successfully", dest);
+      const enriched = await enrichDestination(dest);
+      sendResponse(res, 200, "Destination updated successfully", enriched);
     }),
   );
 
@@ -2962,8 +2998,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // ══════════════════════════════════════════════════════════════
-  // CRUD: POIs
+  // CRUD: POIs (with type & opening hours enrichment)
   // ══════════════════════════════════════════════════════════════
+
+  // Helper: resolve poitypeId from string type name (e.g. "attraction" → 1)
+  async function resolvePoiTypeId(typeName: string | undefined): Promise<number | undefined> {
+    if (!typeName) return undefined;
+    const types = await storage.getPoiTypes();
+    const found = types.find((t: any) => t.typeName === typeName);
+    return found?.poitypeId;
+  }
+
+  // Helper: enrich a raw POI row with type string + opening hours string
+  async function enrichPoi(poi: any) {
+    const enriched: any = { ...poi };
+    // Map poitypeId → type string
+    if (poi.poitypeId) {
+      const pt = await storage.getPoiType(poi.poitypeId);
+      enriched.type = pt?.typeName || "other";
+    } else {
+      enriched.type = "other";
+    }
+    // Fetch opening hours from separate table and flatten to string
+    try {
+      const hours = await storage.getPoiOpeningHours(poi.poiId);
+      if (hours && hours.length > 0) {
+        const dayNames = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+        enriched.openHours = hours
+          .sort((a: any, b: any) => a.dayOfWeek - b.dayOfWeek)
+          .map((h: any) => `${dayNames[h.dayOfWeek] || h.dayOfWeek}: ${h.openTime || "?"}-${h.closeTime || "?"}`)
+          .join(" | ");
+      }
+    } catch (_e) { /* opening hours table may not exist yet */ }
+    return enriched;
+  }
+
+  // Helper: save opening hours string to poi_opening_hours table
+  async function saveOpeningHours(poiId: number, openHoursStr: string | undefined) {
+    if (!openHoursStr || !openHoursStr.trim()) return;
+    // Clear existing hours for this POI
+    try { await storage.deletePoiOpeningHours(poiId); } catch (_e) { /* ignore */ }
+
+    const trimmed = openHoursStr.trim();
+    // Check if it contains day prefixes like "T2:" or "CN:"
+    const hasDayPrefix = /^(CN|T[2-7])\s*:/i.test(trimmed);
+
+    if (hasDayPrefix) {
+      // Format: "T2: 08:00-22:00 | T3: 08:00-22:00 | ..."
+      const dayMap: Record<string, number> = { "CN": 0, "T2": 1, "T3": 2, "T4": 3, "T5": 4, "T6": 5, "T7": 6 };
+      const segments = trimmed.split("|").map((s: string) => s.trim());
+      for (const seg of segments) {
+        const match = seg.match(/^(CN|T[2-7])\s*:\s*(.+)$/i);
+        if (match) {
+          const dayIndex = dayMap[match[1].toUpperCase()] ?? 0;
+          const timePart = match[2].trim();
+          const times = timePart.split("-").map((t: string) => t.trim());
+          try {
+            await storage.createPoiOpeningHours({
+              poiId,
+              dayOfWeek: dayIndex,
+              openTime: times[0] || null,
+              closeTime: times[1] || null,
+            });
+          } catch (_e) { /* ignore duplicates */ }
+        }
+      }
+    } else {
+      // Simple format: "08:00 - 22:00" → apply to all 7 days
+      const times = trimmed.split("-").map((t: string) => t.trim());
+      const openTime = times[0] || null;
+      const closeTime = times[1] || null;
+      for (let day = 0; day < 7; day++) {
+        try {
+          await storage.createPoiOpeningHours({
+            poiId,
+            dayOfWeek: day,
+            openTime,
+            closeTime,
+          });
+        } catch (_e) { /* ignore duplicates */ }
+      }
+    }
+  }
+
+  // Helper: prepare POI body for DB insert/update (resolve type → poitypeId)
+  async function preparePoiData(body: any) {
+    const data: any = { ...body };
+    // Resolve type string to poitypeId
+    if (data.type && !data.poitypeId) {
+      const typeId = await resolvePoiTypeId(data.type);
+      if (typeId) data.poitypeId = typeId;
+    }
+    // Extract openHours before saving (it's not a column in pois table)
+    const openHoursStr = data.openHours;
+    // Remove fields that don't exist in the pois table
+    delete data.type;
+    delete data.openHours;
+    delete data.openingHours;
+    delete data.reviewCount;
+    delete data.isActive;
+    delete data.googlePhotos;
+    delete data.googleReviews;
+    delete data.tags;
+    delete data.priceLevel;
+    delete data.estimatedDuration;
+    delete data.description; // pois table has no description column
+    delete data.images; // pois table has no images column
+    delete data.category; // destinations-only field
+    // Map reviewCount to reviewCounts if provided
+    if (body.reviewCount !== undefined) data.reviewCounts = body.reviewCount;
+    return { data, openHoursStr };
+  }
+
   app.get(
     "/api/pois",
     asyncHandler(async (req, res) => {
@@ -2971,7 +3117,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = destinationId
         ? await storage.getPoisByDestination(Number(destinationId))
         : await storage.getPois();
-      sendResponse(res, 200, "POIs retrieved successfully", items);
+      const enriched = await Promise.all(items.map(enrichPoi));
+      sendResponse(res, 200, "POIs retrieved successfully", enriched);
     }),
   );
 
@@ -2980,24 +3127,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const poi = await storage.getPoi(Number(req.params.id));
       if (!poi) throw new AppError(404, "POI not found");
-      sendResponse(res, 200, "POI retrieved successfully", poi);
+      const enriched = await enrichPoi(poi);
+      sendResponse(res, 200, "POI retrieved successfully", enriched);
     }),
   );
 
   app.post(
     "/api/pois",
     asyncHandler(async (req, res) => {
-      const poi = await storage.createPoi(req.body);
-      sendResponse(res, 201, "POI created successfully", poi);
+      const { data, openHoursStr } = await preparePoiData(req.body);
+      const poi = await storage.createPoi(data);
+      // Save opening hours to separate table
+      if (openHoursStr) await saveOpeningHours(poi.poiId, openHoursStr);
+      const enriched = await enrichPoi(poi);
+      sendResponse(res, 201, "POI created successfully", enriched);
     }),
   );
 
   app.put(
     "/api/pois/:id",
     asyncHandler(async (req, res) => {
-      const poi = await storage.updatePoi(Number(req.params.id), req.body);
+      const { data, openHoursStr } = await preparePoiData(req.body);
+      // Remove id field if present to avoid conflicts
+      delete data.id;
+      delete data.poiId;
+      const poi = await storage.updatePoi(Number(req.params.id), data);
       if (!poi) throw new AppError(404, "POI not found");
-      sendResponse(res, 200, "POI updated successfully", poi);
+      // Save opening hours to separate table
+      if (openHoursStr) await saveOpeningHours(poi.poiId, openHoursStr);
+      const enriched = await enrichPoi(poi);
+      sendResponse(res, 200, "POI updated successfully", enriched);
     }),
   );
 

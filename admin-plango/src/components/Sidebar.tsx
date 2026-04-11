@@ -5,9 +5,7 @@ import {
   Users, 
   MapPin, 
   Map, 
-  Navigation, 
-  MessageSquare, 
-  Settings 
+  Star, 
 } from 'lucide-react';
 
 interface NavItemProps {
@@ -36,15 +34,13 @@ const Sidebar: React.FC = () => {
     { icon: <Users size={20} />, label: 'Người dùng', to: '/users' },
     { icon: <MapPin size={20} />, label: 'Điểm đến', to: '/destinations' },
     { icon: <Map size={20} />, label: 'Địa điểm (POI)', to: '/poi' },
-    { icon: <Navigation size={20} />, label: 'Chuyến đi', to: '/trips' },
-    { icon: <MessageSquare size={20} />, label: 'Đánh giá', to: '/reviews' },
-    { icon: <Settings size={20} />, label: 'Cài đặt', to: '/settings' },
+    { icon: <Star size={20} />, label: 'Đánh giá', to: '/reviews' },
   ];
 
   return (
     <aside className="w-64 bg-[#F1F5F9] h-screen flex flex-col border-r border-slate-200">
       <div className="p-6 mb-4">
-        <h1 className="text-xl font-bold text-[#0F172A]">Voyager Admin</h1>
+        <h1 className="text-xl font-bold text-[#0F172A]">Plango Admin</h1>
         <p className="text-[10px] text-slate-500 tracking-widest uppercase mt-1">Quản lý Du lịch Chuyên nghiệp</p>
       </div>
 
@@ -54,11 +50,7 @@ const Sidebar: React.FC = () => {
         ))}
       </nav>
 
-      <div className="p-4">
-        <button className="w-full bg-[#0891B2] hover:bg-[#0E7490] text-white py-3 px-4 rounded-lg text-sm font-semibold transition-all shadow-sm">
-          Nâng cấp Tài khoản
-        </button>
-      </div>
+
     </aside>
   );
 };

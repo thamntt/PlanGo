@@ -12,6 +12,7 @@ import { apiRequest } from "../lib/api";
 interface DataContextValue {
   users: UserData[];
   destinations: Destination[];
+  destinationTypes: { id: number; name: string }[];
   itineraries: Itinerary[];
   reviews: Review[];
   pois: POI[];
@@ -36,7 +37,8 @@ interface DataContextValue {
   deleteItinerary: (id: string) => Promise<void>;
 
   // Reviews
-  deleteReview: (id: string) => Promise<void>;
+  // Stats
+  adminStats: any;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -89,6 +91,7 @@ function mapItinerary(i: any): Itinerary {
   return {
     id: (i.tripId || i.id)?.toString() || "",
     userId: (i.ownerId || i.userId || i.user_id)?.toString() || "",
+    destinationId: (i.destinationId || i.destination_id)?.toString() || "",
     title: i.title || "",
     destination: i.destination || "",
     startDate: i.startDate ?? i.start_date ?? "",
@@ -154,19 +157,42 @@ function mapPoi(p: any): POI {
 export function DataProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<UserData[]>([]);
   const [destinations, setDestinations] = useState<Destination[]>([]);
+  const [destinationTypes, setDestinationTypes] = useState<{ id: number; name: string }[]>([]);
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [pois, setPois] = useState<POI[]>([]);
+  const [adminStats, setAdminStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
-      const [usersRes, destsRes, itinsRes, poisRes] = await Promise.allSettled([
+      const results = await Promise.allSettled([
         apiRequest("GET", "/api/users"),
         apiRequest("GET", "/api/destinations"),
-        apiRequest("GET", "/api/itineraries"),
+        apiRequest("GET", "/api/destination-types"),
+        apiRequest("GET", "/api/trips"),
         apiRequest("GET", "/api/pois"),
       ]);
+      
+      const [usersRes, destsRes, typesRes, itinsRes, poisRes] = results;
+
+      if (usersRes.status === "fulfilled") setUsers(usersRes.value.map(mapUser));
+      if (destsRes.status === "fulfilled") setDestinations(destsRes.value.map(mapDestination));
+      if (typesRes.status === "fulfilled") {
+        setDestinationTypes(typesRes.value.map((t: any) => ({
+          id: t.destinationtypeId,
+          name: t.typeName
+        })));
+      }
+      if (itinsRes.status === "fulfilled") setItineraries(itinsRes.value.map(mapItinerary));
+      if (poisRes.status === "fulfilled") setPois(poisRes.value.map(mapPoi));
+
+      try {
+        const stats = await apiRequest("GET", "/api/admin/stats");
+        setAdminStats(stats);
+      } catch (err) {
+        console.log("Admin stats fetch failed");
+      }
       
       try {
         const revsData = await apiRequest("GET", "/api/reviews");
@@ -174,11 +200,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.log("No /api/reviews endpoint active");
       }
-
-      if (usersRes.status === "fulfilled") setUsers(usersRes.value.map(mapUser));
-      if (destsRes.status === "fulfilled") setDestinations(destsRes.value.map(mapDestination));
-      if (itinsRes.status === "fulfilled") setItineraries(itinsRes.value.map(mapItinerary));
-      if (poisRes.status === "fulfilled") setPois(poisRes.value.map(mapPoi));
     } catch (err) {
       console.warn("[Data] Failed to load from server:", err);
     }
@@ -239,7 +260,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteItinerary = useCallback(async (id: string) => {
-    await apiRequest("DELETE", `/api/itineraries/${id}`);
+    await apiRequest("DELETE", `/api/trips/${id}`);
     setItineraries((prev) => prev.filter((i) => i.id !== id));
   }, []);
 
@@ -271,8 +292,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       deletePOI,
       deleteItinerary,
       deleteReview,
+      adminStats,
+      destinationTypes
     }),
-    [users, destinations, itineraries, reviews, pois, isLoading, refreshData, updateUser, deleteUser, addDestination, updateDestination, deleteDestination, addPOI, updatePOI, deletePOI, deleteItinerary, deleteReview]
+    [users, destinations, itineraries, reviews, pois, isLoading, refreshData, updateUser, deleteUser, addDestination, updateDestination, deleteDestination, addPOI, updatePOI, deletePOI, deleteItinerary, deleteReview, adminStats, destinationTypes]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -132,6 +132,7 @@ export interface TripCompanion {
 export interface Itinerary {
   id: string;
   userId: string;
+  destinationId: string;
   title: string;
   destination: string;
   startDate: string;

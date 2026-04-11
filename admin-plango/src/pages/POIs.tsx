@@ -167,11 +167,7 @@ const POIs: React.FC = () => {
         <p className="text-lg text-slate-500 mt-2">Quản lý các hoạt động trải nghiệm, danh lam thắng cảnh và địa điểm địa phương.</p>
       </div>
 
-      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 mb-10">
-        <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full xl:w-auto overflow-x-auto">
-          <button className="px-6 py-2.5 bg-white text-primary text-sm font-black rounded-xl shadow-sm whitespace-nowrap">Phổ biến</button>
-          <button className="px-6 py-2.5 text-slate-500 text-sm font-bold hover:text-slate-900 transition-colors whitespace-nowrap">Tiềm năng</button>
-        </div>
+      <div className="flex flex-col xl:flex-row justify-end items-center gap-4 mb-10">
 
         <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-hidden">
           <div className="relative flex-1 xl:w-48">
@@ -205,15 +201,15 @@ const POIs: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4 mb-8">
-        <div className="bg-white rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 overflow-hidden">
-          <table className="w-full">
+        <div className="bg-white rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50 overflow-x-auto">
+          <table className="w-full min-w-[900px]">
             <thead>
-              <tr className="bg-slate-50/50">
-                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Thông tin Địa điểm</th>
-                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center">Loại hình</th>
-                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Đánh giá</th>
-                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Chi phí dự kiến</th>
-                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-right">Thiết lập</th>
+              <tr className="bg-slate-50/50 text-left">
+                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] w-[40%]">Thông tin Địa điểm</th>
+                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center w-[15%]">Loại hình</th>
+                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] w-[15%]">Đánh giá</th>
+                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] w-[15%] text-center">Chi phí</th>
+                <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-right w-[15%]">Thiết lập</th>
               </tr>
             </thead>
             <tbody>
@@ -227,9 +223,9 @@ const POIs: React.FC = () => {
                            <MapPin size={10} className="text-primary" />
                         </div>
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-base font-black text-slate-800 tracking-tight truncate">{poi.name}</span>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest truncate">{getDestName(poi.destinationId)}</span>
+                      <div className="flex flex-col">
+                        <span className="text-base font-black text-slate-800">{poi.name}</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{getDestName(poi.destinationId)}</span>
                       </div>
                     </div>
                   </td>
@@ -252,7 +248,7 @@ const POIs: React.FC = () => {
                     {poi.estimatedCost ? `${poi.estimatedCost.toLocaleString()} VND` : '-'}
                   </td>
                   <td className="px-8 py-6 text-right">
-                     <div className="flex items-center justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                     <div className="flex items-center justify-end gap-2 transition-opacity">
                        <button onClick={() => openEditModal(poi)} className="p-3 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-2xl transition-all" title="Chỉnh sửa">
                          <Edit size={18} />
                        </button>
@@ -374,7 +370,24 @@ const POIs: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Giờ mở cửa</label>
-                    <input type="text" value={poiOpenHours} onChange={e => setPoiOpenHours(e.target.value)} placeholder="08:00 - 22:00" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                    <input 
+                      type="text" 
+                      value={poiOpenHours} 
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 8);
+                        let formatted = val;
+                        if (val.length >= 7) {
+                          formatted = `${val.slice(0, 2)}:${val.slice(2, 4)} - ${val.slice(4, 6)}:${val.slice(6, 8)}`;
+                        } else if (val.length >= 5) {
+                          formatted = `${val.slice(0, 2)}:${val.slice(2, 4)} - ${val.slice(4)}`;
+                        } else if (val.length >= 3) {
+                          formatted = `${val.slice(0, 2)}:${val.slice(2)}`;
+                        }
+                        setPoiOpenHours(formatted);
+                      }} 
+                      placeholder="08:00 - 22:00" 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" 
+                    />
                   </div>
                 </div>
 

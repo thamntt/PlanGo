@@ -36,7 +36,7 @@ const Settings: React.FC = () => {
                          </div>
                          <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Địa chỉ Email</label>
-                            <input type="email" defaultValue="admin@voyager.com" className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none ring-2 ring-transparent focus:ring-primary/20 transition-all" />
+                            <input type="email" defaultValue="admin@plango.com" className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none ring-2 ring-transparent focus:ring-primary/20 transition-all" />
                          </div>
                       </div>
                    </div>
