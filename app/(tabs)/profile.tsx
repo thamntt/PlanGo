@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -40,8 +41,15 @@ export default function ProfileScreen() {
   const { isDark, themeMode, setThemeMode } = useSettings();
   const colors = useThemeColors(isDark);
   const { user, logout, updateProfile, isAdmin, changePassword } = useAuth();
-  const { itineraries, reviews, updateItinerary, importItinerary } = useData();
+  const { itineraries, reviews, updateItinerary, importItinerary, refreshData } = useData();
+  const [refreshing, setRefreshing] = useState(false);
   const txt = t();
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshData();
+    setRefreshing(false);
+  }, [refreshData]);
 
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState(user?.fullName || "");
@@ -221,6 +229,7 @@ export default function ProfileScreen() {
       style={[pStyles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={{ paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 0) + 120 }}
       showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
     >
       <LinearGradient
         colors={isDark ? [colors.primaryDark, colors.background] : [colors.primary, colors.background]}
