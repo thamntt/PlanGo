@@ -796,7 +796,7 @@ export default function ItineraryDetailScreen() {
 
         const newExpenses = JSON.parse(JSON.stringify(itinerary.expenses || []))
           .filter((e: any) => e.activityId !== activityId);
-        
+
         const newSpent = recalcSpent(newDays, newExpenses);
 
         updateItinerary(itinerary.id, {
@@ -853,7 +853,7 @@ export default function ItineraryDetailScreen() {
       }
 
       const newSpent = recalcSpent(newDays, newExpenses);
-      
+
       await updateItinerary(itinerary.id, {
         days: newDays,
         expenses: newExpenses,
@@ -861,7 +861,7 @@ export default function ItineraryDetailScreen() {
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
+
       // Attempt notifications
       try {
         await addNotification({
@@ -871,7 +871,7 @@ export default function ItineraryDetailScreen() {
           type: "info",
           itineraryId: itinerary.id
         });
-        
+
         if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
           await addNotification({
             userId: itinerary.userId,
@@ -2810,161 +2810,161 @@ export default function ItineraryDetailScreen() {
           <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: "85%" as any }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.activityCosts}</Text>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            {/* Activity title (read-only) */}
-            {costModal?.activityTitle && (
-              <TextInput
-                style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                value={costModal.activityTitle}
-                editable={false}
-              />
-            )}
-            {/* Estimated cost: editable in draft, active unchecked */}
-            {(() => {
-              if (!costModal) return null;
-              const act = itinerary.days[costModal.dayIdx]?.activities.find(a => a.id === costModal.activityId);
-              const canEditEst = itinerary.status === "draft" || (itinerary.status === "active" && act && !act.isCompleted);
-              if (!canEditEst) return null;
-              return (
+              {/* Activity title (read-only) */}
+              {costModal?.activityTitle && (
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                  value={costModal.activityTitle}
+                  editable={false}
+                />
+              )}
+              {/* Estimated cost: editable in draft, active unchecked */}
+              {(() => {
+                if (!costModal) return null;
+                const act = itinerary.days[costModal.dayIdx]?.activities.find(a => a.id === costModal.activityId);
+                const canEditEst = itinerary.status === "draft" || (itinerary.status === "active" && act && !act.isCompleted);
+                if (!canEditEst) return null;
+                return (
+                  <>
+                    <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.estimatedCost} (VNĐ)</Text>
+                    <TextInput
+                      style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                      value={costModal?.estimatedCost || ""}
+                      onChangeText={(v) => costModal && setCostModal({ ...costModal, estimatedCost: v })}
+                      placeholder="VD: 500000"
+                      placeholderTextColor={colors.textTertiary}
+                      keyboardType="numeric"
+                    />
+                  </>
+                );
+              })()}
+              {/* Actual cost: editable in active, completed */}
+              {itinerary.status !== "draft" && (
                 <>
-                  <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.estimatedCost} (VNĐ)</Text>
+                  <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.actualCost} (VNĐ)</Text>
                   <TextInput
                     style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                    value={costModal?.estimatedCost || ""}
-                    onChangeText={(v) => costModal && setCostModal({ ...costModal, estimatedCost: v })}
+                    value={costModal?.cost || ""}
+                    onChangeText={(v) => costModal && setCostModal({ ...costModal, cost: v })}
                     placeholder="VD: 500000"
                     placeholderTextColor={colors.textTertiary}
                     keyboardType="numeric"
                   />
                 </>
-              );
-            })()}
-            {/* Actual cost: editable in active, completed */}
-            {itinerary.status !== "draft" && (
-              <>
-                <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.actualCost} (VNĐ)</Text>
-                <TextInput
-                  style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                  value={costModal?.cost || ""}
-                  onChangeText={(v) => costModal && setCostModal({ ...costModal, cost: v })}
-                  placeholder="VD: 500000"
-                  placeholderTextColor={colors.textTertiary}
-                  keyboardType="numeric"
-                />
-              </>
-            )}
-            {/* Người trả - Dropdown style like expense modal */}
-            <Text style={[styles.splitLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
-            <Pressable
-              onPress={() => setCostPaidByDropdown(!costPaidByDropdown)}
-              style={[styles.dropdownBtn, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-            >
-              <Text style={[styles.dropdownBtnText, { color: costModal?.paidBy ? colors.text : colors.textTertiary }]}>
-                {costModal?.paidBy || txt.selectPaidBy}
-              </Text>
-              <Ionicons name={costPaidByDropdown ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
-            </Pressable>
-            {costPaidByDropdown && (
-              <View style={[styles.dropdownList, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-                {tripMembers.map((m) => (
-                  <Pressable
-                    key={m.userId}
-                    onPress={() => {
-                      if (costModal) setCostModal({ ...costModal, paidBy: m.userName });
-                      setCostPaidByDropdown(false);
-                    }}
-                    style={[styles.dropdownItem, costModal?.paidBy === m.userName && { backgroundColor: colors.primary + "15" }]}
-                  >
-                    <Text style={[styles.dropdownItemText, { color: colors.text }]}>
-                      {m.userName}{m.isOwner ? " 👑" : ""}
-                    </Text>
-                    {costModal?.paidBy === m.userName && <Ionicons name="checkmark" size={16} color={colors.primary} />}
-                  </Pressable>
-                ))}
-              </View>
-            )}
-            {/* Split type selector - only shown when trip is not draft and there's actual cost */}
-            {itinerary.status !== "draft" && tripMembers.length > 1 && (
-              <>
-                <Text style={[styles.splitLabel, { color: colors.textSecondary, marginTop: 4 }]}>{txt.splitType}</Text>
-                <View style={styles.typeRow}>
-                  {(["none", "equal", "custom"] as const).map((st) => (
+              )}
+              {/* Người trả - Dropdown style like expense modal */}
+              <Text style={[styles.splitLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
+              <Pressable
+                onPress={() => setCostPaidByDropdown(!costPaidByDropdown)}
+                style={[styles.dropdownBtn, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+              >
+                <Text style={[styles.dropdownBtnText, { color: costModal?.paidBy ? colors.text : colors.textTertiary }]}>
+                  {costModal?.paidBy || txt.selectPaidBy}
+                </Text>
+                <Ionicons name={costPaidByDropdown ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
+              </Pressable>
+              {costPaidByDropdown && (
+                <View style={[styles.dropdownList, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                  {tripMembers.map((m) => (
                     <Pressable
-                      key={st}
+                      key={m.userId}
                       onPress={() => {
-                        setCostSplitType(st);
-                        if (st !== "none" && Object.keys(costSplitChecked).length === 0) {
-                          const checked: Record<string, boolean> = {};
-                          tripMembers.forEach((m) => { checked[m.userId] = true; });
-                          setCostSplitChecked(checked);
-                        }
+                        if (costModal) setCostModal({ ...costModal, paidBy: m.userName });
+                        setCostPaidByDropdown(false);
                       }}
-                      style={[styles.typeChip, { backgroundColor: costSplitType === st ? colors.primary : colors.inputBg, borderColor: costSplitType === st ? colors.primary : colors.inputBorder }]}
+                      style={[styles.dropdownItem, costModal?.paidBy === m.userName && { backgroundColor: colors.primary + "15" }]}
                     >
-                      <Text style={[styles.typeChipText, { color: costSplitType === st ? "#fff" : colors.textSecondary }]}>
-                        {st === "none" ? txt.splitNone : st === "equal" ? txt.splitEqual : txt.splitCustom}
+                      <Text style={[styles.dropdownItemText, { color: colors.text }]}>
+                        {m.userName}{m.isOwner ? " 👑" : ""}
                       </Text>
+                      {costModal?.paidBy === m.userName && <Ionicons name="checkmark" size={16} color={colors.primary} />}
                     </Pressable>
                   ))}
                 </View>
-                {costSplitType !== "none" && (
-                  <View style={[styles.splitMemberList, { borderColor: colors.inputBorder }]}>
-                    <Text style={[styles.splitMembersTitle, { color: colors.textSecondary }]}>{txt.splitMembers}</Text>
-                    {tripMembers.map((m) => {
-                      const isChecked = costSplitChecked[m.userId] ?? false;
-                      const totalAmount = parseInt((costModal?.cost || "0").replace(/[^0-9]/g, ""), 10) || 0;
-                      const checkedCount = Object.values(costSplitChecked).filter(Boolean).length;
-                      const equalShare = checkedCount > 0 ? Math.floor(totalAmount / checkedCount) : 0;
-                      return (
-                        <View key={m.userId} style={styles.splitMemberRow}>
-                          <Pressable
-                            onPress={() => setCostSplitChecked({ ...costSplitChecked, [m.userId]: !isChecked })}
-                            style={[styles.checkbox, { borderColor: isChecked ? colors.success : colors.textTertiary, backgroundColor: isChecked ? colors.success : "transparent", width: 20, height: 20 }]}
-                          >
-                            {isChecked && <Ionicons name="checkmark" size={12} color="#fff" />}
-                          </Pressable>
-                          <Text style={[styles.splitMemberName, { color: colors.text }]} numberOfLines={1}>
-                            {m.userName}{m.isOwner ? ` (${txt.tripOwnerLabel})` : ""}
-                          </Text>
-                          {costSplitType === "equal" && isChecked && (
-                            <Text style={[styles.splitMemberAmount, { color: colors.accent }]}>{formatVND(equalShare)}</Text>
-                          )}
-                          {costSplitType === "custom" && isChecked && (
-                            <TextInput
-                              style={[styles.splitAmountInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                              value={costSplitAmounts[m.userId] || ""}
-                              onChangeText={(v) => setCostSplitAmounts({ ...costSplitAmounts, [m.userId]: v })}
-                              placeholder="0"
-                              placeholderTextColor={colors.textTertiary}
-                              keyboardType="numeric"
-                            />
-                          )}
-                        </View>
-                      );
-                    })}
-                    {costSplitType === "custom" && (() => {
-                      const totalAmount = parseInt((costModal?.cost || "0").replace(/[^0-9]/g, ""), 10) || 0;
-                      const splitSum = Object.entries(costSplitAmounts)
-                        .filter(([uid]) => costSplitChecked[uid])
-                        .reduce((s, [, v]) => s + (parseInt(v.replace(/[^0-9]/g, ""), 10) || 0), 0);
-                      const diff = totalAmount - splitSum;
-                      return diff !== 0 ? (
-                        <Text style={[styles.splitWarning, { color: colors.error }]}>
-                          {txt.splitTotalMismatch} ({diff > 0 ? "+" : ""}{formatVND(diff)})
+              )}
+              {/* Split type selector - only shown when trip is not draft and there's actual cost */}
+              {itinerary.status !== "draft" && tripMembers.length > 1 && (
+                <>
+                  <Text style={[styles.splitLabel, { color: colors.textSecondary, marginTop: 4 }]}>{txt.splitType}</Text>
+                  <View style={styles.typeRow}>
+                    {(["none", "equal", "custom"] as const).map((st) => (
+                      <Pressable
+                        key={st}
+                        onPress={() => {
+                          setCostSplitType(st);
+                          if (st !== "none" && Object.keys(costSplitChecked).length === 0) {
+                            const checked: Record<string, boolean> = {};
+                            tripMembers.forEach((m) => { checked[m.userId] = true; });
+                            setCostSplitChecked(checked);
+                          }
+                        }}
+                        style={[styles.typeChip, { backgroundColor: costSplitType === st ? colors.primary : colors.inputBg, borderColor: costSplitType === st ? colors.primary : colors.inputBorder }]}
+                      >
+                        <Text style={[styles.typeChipText, { color: costSplitType === st ? "#fff" : colors.textSecondary }]}>
+                          {st === "none" ? txt.splitNone : st === "equal" ? txt.splitEqual : txt.splitCustom}
                         </Text>
-                      ) : null;
-                    })()}
+                      </Pressable>
+                    ))}
                   </View>
-                )}
-              </>
-            )}
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => { setCostModal(null); setCostPaidByDropdown(false); setCostSplitType("none"); setCostSplitChecked({}); setCostSplitAmounts({}); }} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
-                <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
-              </Pressable>
-              <Pressable onPress={saveCost} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
-              </Pressable>
-            </View>
+                  {costSplitType !== "none" && (
+                    <View style={[styles.splitMemberList, { borderColor: colors.inputBorder }]}>
+                      <Text style={[styles.splitMembersTitle, { color: colors.textSecondary }]}>{txt.splitMembers}</Text>
+                      {tripMembers.map((m) => {
+                        const isChecked = costSplitChecked[m.userId] ?? false;
+                        const totalAmount = parseInt((costModal?.cost || "0").replace(/[^0-9]/g, ""), 10) || 0;
+                        const checkedCount = Object.values(costSplitChecked).filter(Boolean).length;
+                        const equalShare = checkedCount > 0 ? Math.floor(totalAmount / checkedCount) : 0;
+                        return (
+                          <View key={m.userId} style={styles.splitMemberRow}>
+                            <Pressable
+                              onPress={() => setCostSplitChecked({ ...costSplitChecked, [m.userId]: !isChecked })}
+                              style={[styles.checkbox, { borderColor: isChecked ? colors.success : colors.textTertiary, backgroundColor: isChecked ? colors.success : "transparent", width: 20, height: 20 }]}
+                            >
+                              {isChecked && <Ionicons name="checkmark" size={12} color="#fff" />}
+                            </Pressable>
+                            <Text style={[styles.splitMemberName, { color: colors.text }]} numberOfLines={1}>
+                              {m.userName}{m.isOwner ? ` (${txt.tripOwnerLabel})` : ""}
+                            </Text>
+                            {costSplitType === "equal" && isChecked && (
+                              <Text style={[styles.splitMemberAmount, { color: colors.accent }]}>{formatVND(equalShare)}</Text>
+                            )}
+                            {costSplitType === "custom" && isChecked && (
+                              <TextInput
+                                style={[styles.splitAmountInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                                value={costSplitAmounts[m.userId] || ""}
+                                onChangeText={(v) => setCostSplitAmounts({ ...costSplitAmounts, [m.userId]: v })}
+                                placeholder="0"
+                                placeholderTextColor={colors.textTertiary}
+                                keyboardType="numeric"
+                              />
+                            )}
+                          </View>
+                        );
+                      })}
+                      {costSplitType === "custom" && (() => {
+                        const totalAmount = parseInt((costModal?.cost || "0").replace(/[^0-9]/g, ""), 10) || 0;
+                        const splitSum = Object.entries(costSplitAmounts)
+                          .filter(([uid]) => costSplitChecked[uid])
+                          .reduce((s, [, v]) => s + (parseInt(v.replace(/[^0-9]/g, ""), 10) || 0), 0);
+                        const diff = totalAmount - splitSum;
+                        return diff !== 0 ? (
+                          <Text style={[styles.splitWarning, { color: colors.error }]}>
+                            {txt.splitTotalMismatch} ({diff > 0 ? "+" : ""}{formatVND(diff)})
+                          </Text>
+                        ) : null;
+                      })()}
+                    </View>
+                  )}
+                </>
+              )}
+              <View style={styles.modalActions}>
+                <Pressable onPress={() => { setCostModal(null); setCostPaidByDropdown(false); setCostSplitType("none"); setCostSplitChecked({}); setCostSplitAmounts({}); }} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                  <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
+                </Pressable>
+                <Pressable onPress={saveCost} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                  <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
+                </Pressable>
+              </View>
             </ScrollView>
           </View>
         </View>
@@ -3869,12 +3869,12 @@ export default function ItineraryDetailScreen() {
 
                       // Debug log to help identify why reviews might be missing
                       if (__DEV__ && act.title.includes("Bát Đàn")) {
-                         console.log(`[ReviewDebug] Activity: ${act.title}, ID: ${targetActId}, POI: ${actPoiId}`);
-                         console.log(`[ReviewDebug] Total existing reviews: ${reviews.length}`);
-                         if (reviews.length > 0) {
-                           const firstRev = reviews[0];
-                           console.log(`[ReviewDebug] Sample Review 0: ID=${firstRev.id}, ActID=${firstRev.activityId}, PoiID=${firstRev.poiId}`);
-                         }
+                        console.log(`[ReviewDebug] Activity: ${act.title}, ID: ${targetActId}, POI: ${actPoiId}`);
+                        console.log(`[ReviewDebug] Total existing reviews: ${reviews.length}`);
+                        if (reviews.length > 0) {
+                          const firstRev = reviews[0];
+                          console.log(`[ReviewDebug] Sample Review 0: ID=${firstRev.id}, ActID=${firstRev.activityId}, PoiID=${firstRev.poiId}`);
+                        }
                       }
 
                       const destUserReviews = reviews

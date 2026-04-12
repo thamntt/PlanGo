@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Navigation, MapPin, DollarSign, Star } from 'lucide-react';
+import { Users, Navigation, MapPin, Star } from 'lucide-react';
 
 interface StatCardProps {
   icon: 'users' | 'trips' | 'destinations' | 'reviews';

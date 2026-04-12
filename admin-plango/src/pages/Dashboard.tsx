@@ -20,25 +20,21 @@ const Dashboard: React.FC = () => {
           icon="users" 
           label="Tổng Người dùng" 
           value={users.filter(u => u.role === 'user').length.toString()} 
-          trend="+12%" 
         />
         <StatCard 
           icon="trips" 
           label="Tổng số Chuyến đi" 
           value={itineraries.length.toString()} 
-          trend="+8%" 
         />
         <StatCard 
           icon="destinations" 
           label="Tổng Điểm đến" 
           value={destinations.length.toString()} 
-          status="Tĩnh" 
         />
         <StatCard 
           icon="reviews" 
           label="Tổng Đánh giá" 
           value={reviews.length.toString()} 
-          trend="+5%" 
         />
       </div>
 

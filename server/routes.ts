@@ -92,15 +92,15 @@ function parseCurrencyToNumeric(val: any): string | number | undefined {
 function mapTripToFrontend(trip: any) {
   if (!trip) return trip;
   const mapped = { ...trip };
-  
+
   if (mapped.destination && mapped.destination.name) {
     mapped.destination = mapped.destination.name;
   }
-  
+
   if (mapped.days && Array.isArray(mapped.days)) {
     // Sort days by dayIndex to ensure chronological order
     const sortedDays = [...mapped.days].sort((a, b) => (a.dayIndex || 0) - (b.dayIndex || 0));
-    
+
     mapped.days = sortedDays.map((day: any) => ({
       ...day,
       day: day.dayIndex,
@@ -138,17 +138,17 @@ function mapTripToFrontend(trip: any) {
       payer: e.paidByInfo ? (e.paidByInfo.fullName || e.paidByInfo.userName) : "Không rõ"
     }));
   }
-  
+
   if (mapped.budget) {
     mapped.budget = Number(mapped.budget).toString();
     mapped.totalBudget = Number(mapped.budget);
   }
   mapped.spentAmount = mapped.expenses ? mapped.expenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0) : 0;
-  
+
   // Ensure id is present and stringified for frontend
   mapped.id = (trip.tripId || "").toString();
   mapped.destinationId = (trip.destinationId || "").toString();
-  
+
   return mapped;
 }
 
@@ -256,7 +256,7 @@ async function searchPlacesGoong(query: string, language: string) {
                 longitude = loc.lng || 0;
               }
             }
-          } catch {}
+          } catch { }
         }
 
         return {
@@ -1459,7 +1459,7 @@ async function internalGeocode(
           };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Cách 2: Goong
@@ -1479,7 +1479,7 @@ async function internalGeocode(
           };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Cách 3: Nominatim (miễn phí)
@@ -1498,7 +1498,7 @@ async function internalGeocode(
         };
       }
     }
-  } catch {}
+  } catch { }
 
   return null;
 }
@@ -1506,19 +1506,19 @@ async function internalGeocode(
 // POST /api/share — register a trip share (database-backed)
 async function shareTrip(req: Request, res: Response) {
   const tripId =
-    req.body.tripId || 
-    req.query.tripId || 
-    req.body.id || 
-    req.query.id || 
+    req.body.tripId ||
+    req.query.tripId ||
+    req.body.id ||
+    req.query.id ||
     req.body.itinerary?.id;
-    
+
   if (!tripId) {
     throw new AppError(400, "tripId is required");
   }
-  
+
   // Use frontend's shareCode if provided, otherwise robust fallback
   const token = req.body.shareCode || Math.random().toString(36).substring(2, 9).toUpperCase();
-  
+
   const trip = await storage.updateTrip(Number(tripId), {
     invitationToken: token,
   });
@@ -1560,7 +1560,7 @@ async function joinSharedTrip(req: Request, res: Response) {
     userId: Number(userId),
     role: role as string,
   });
-  
+
   // Re-fetch trip to include the new member
   const updatedTrip = await storage.getTripByInvitationToken(shareCode);
   sendResponse(res, 200, "Joined trip", { alreadyJoined: false, trip: mapTripToFrontend(updatedTrip) });
@@ -1671,7 +1671,7 @@ async function extractAndSavePOIsFromItinerary(
           act.rating &&
           (!existingPoi.rating ||
             parseFloat(act.rating.toString()) >
-              parseFloat(existingPoi.rating || "0"))
+            parseFloat(existingPoi.rating || "0"))
         )
           updates.rating = act.rating.toString();
         if (
@@ -2280,7 +2280,7 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     if (hasNoReviews && canSearch) {
       const searchQuery = q || fallbackQ;
       console.log(`[SerpAPI] Falling back to search for: "${searchQuery}"`);
-      
+
       const searchParams = new URLSearchParams({
         engine: "google_maps",
         q: searchQuery,
@@ -2288,11 +2288,11 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
         api_key: apiKey,
       });
       const searchRes = await fetch(`${SERPAPI_BASE}?${searchParams.toString()}`);
-      
+
       if (searchRes.ok) {
         const searchData = await searchRes.json();
         const firstResultId = searchData.place_id || (searchData.local_results && searchData.local_results[0]?.place_id);
-        
+
         if (firstResultId && firstResultId !== placeId) {
           console.log(`[SerpAPI] Resolved "${searchQuery}" to new place_id=${firstResultId}`);
           data = await fetchReviewsForId(firstResultId);
@@ -2301,7 +2301,13 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     }
 
     if (!data) {
-      return res.status(404).json({ error: "Could not fetch reviews" });
+      console.warn(`[SerpAPI] No reviews found for place_id="${placeId}" or query="${q || fallbackQ}"`);
+      return res.json({
+        placeInfo: null,
+        reviews: [],
+        nextPageToken: null,
+        message: "No reviews found for this location"
+      });
     }
 
     if (data.error && data.error.includes("run out of searches")) {
@@ -2311,12 +2317,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     // Map response to our format
     const placeInfo = data.place_info
       ? {
-          title: data.place_info.title || "",
-          address: data.place_info.address || "",
-          rating: data.place_info.rating || 0,
-          totalReviews: data.place_info.reviews || 0,
-          type: data.place_info.type || "",
-        }
+        title: data.place_info.title || "",
+        address: data.place_info.address || "",
+        rating: data.place_info.rating || 0,
+        totalReviews: data.place_info.reviews || 0,
+        type: data.place_info.type || "",
+      }
       : null;
 
     const reviews = (data.reviews || []).map((r: any) => ({
@@ -2333,12 +2339,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
       images: r.images || [],
       response: r.response
         ? {
-            snippet:
-              r.response.snippet ||
-              r.response.extracted_snippet?.original ||
-              "",
-            date: r.response.date || "",
-          }
+          snippet:
+            r.response.snippet ||
+            r.response.extracted_snippet?.original ||
+            "",
+          date: r.response.date || "",
+        }
         : null,
     }));
 
@@ -2429,8 +2435,8 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
       // Use operating_hours if available for real schedule data
       openHours: r.operating_hours
         ? Object.entries(r.operating_hours)
-            .map(([day, hours]) => `${day}: ${hours}`)
-            .join(" | ")
+          .map(([day, hours]) => `${day}: ${hours}`)
+          .join(" | ")
         : typeof r.hours === "string"
           ? r.hours
           : "",
@@ -2662,7 +2668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ══════════════════════════════════════════════════════════════
   // CRUD: Destination Types (Categories)
   // ══════════════════════════════════════════════════════════════
-  
+
   // Seed destination types, POI types, and admin user on boot
   storage.seedDestinationTypes().catch(e => console.error("Destination type seeding failed:", e));
   storage.seedPoiTypes().catch(e => console.error("POI type seeding failed:", e));
@@ -2675,7 +2681,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       acc[t.destinationtypeId] = t.typeName;
       return acc;
     }, {});
-    
+
     return {
       ...d,
       id: (d.destinationId || d.id)?.toString(),
@@ -2792,41 +2798,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (payload.userId && !payload.ownerId) {
         payload.ownerId = Number(payload.userId);
       }
-      
+
       // Resolve destination string to destinationId
       if (payload.destination && !payload.destinationId) {
         const destRecord = await storage.getDestinationByName(payload.destination);
         if (destRecord) {
-           payload.destinationId = destRecord.destinationId;
+          payload.destinationId = destRecord.destinationId;
         } else {
-           // Fallback if destination doesn't exist? Create it.
-           try {
-             // Basic fallback creation so the trip isn't orphaned
-             const newDest = await storage.createDestination({
-                name: payload.destination,
-                address: payload.destination,
-                latitude: "0",
-                longitude: "0"
-             });
-             payload.destinationId = newDest.destinationId;
-           } catch (e) {
-             console.warn("Could not create destination:", e);
-           }
+          // Fallback if destination doesn't exist? Create it.
+          try {
+            // Basic fallback creation so the trip isn't orphaned
+            const newDest = await storage.createDestination({
+              name: payload.destination,
+              address: payload.destination,
+              latitude: "0",
+              longitude: "0"
+            });
+            payload.destinationId = newDest.destinationId;
+          } catch (e) {
+            console.warn("Could not create destination:", e);
+          }
         }
       }
 
       const trip = await storage.createTrip(payload);
-      
+
       // AI Gen: Save days structure
       if (payload.days && Array.isArray(payload.days)) {
         for (let i = 0; i < payload.days.length; i++) {
           const dayData = payload.days[i];
-          
+
           let dayDate = undefined;
           if (trip.startDate) {
-             const d = new Date(trip.startDate);
-             d.setDate(d.getDate() + (dayData.day ? dayData.day - 1 : i));
-             dayDate = d.toISOString().split('T')[0];
+            const d = new Date(trip.startDate);
+            d.setDate(d.getDate() + (dayData.day ? dayData.day - 1 : i));
+            dayDate = d.toISOString().split('T')[0];
           }
 
           const createdDay = await storage.createItineraryDay({
@@ -2840,17 +2846,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             for (const activity of dayData.activities) {
               let estCost = undefined;
               if (activity.estimatedCost) {
-                 estCost = typeof activity.estimatedCost === 'number' ? activity.estimatedCost.toString() : parseCurrencyToNumeric(activity.estimatedCost)?.toString();
+                estCost = typeof activity.estimatedCost === 'number' ? activity.estimatedCost.toString() : parseCurrencyToNumeric(activity.estimatedCost)?.toString();
               }
-              
+
               let numDuration = 60;
               if (typeof activity.duration === 'string') {
-                 const parsed = parseInt(activity.duration);
-                 if (!isNaN(parsed)) {
-                    numDuration = activity.duration.toLowerCase().includes('giờ') ? parsed * 60 : parsed;
-                 }
+                const parsed = parseInt(activity.duration);
+                if (!isNaN(parsed)) {
+                  numDuration = activity.duration.toLowerCase().includes('giờ') ? parsed * 60 : parsed;
+                }
               } else if (typeof activity.duration === 'number') {
-                 numDuration = activity.duration;
+                numDuration = activity.duration;
               }
 
               try {
@@ -2934,7 +2940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await storage.createExpense(expData);
           }
         }
-        
+
         // Handle deletions
         const dbExpenses = await storage.getExpensesByTrip(id);
         const sentIds = req.body.expenses.map((e: any) => e.id).filter((id: any) => id && !id.startsWith("temp-"));
@@ -2971,7 +2977,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tripId = req.query.tripId ? Number(req.query.tripId) : undefined;
       const itemId = req.query.itemId ? Number(req.query.itemId) : undefined;
       const destinationId = req.query.destinationId ? Number(req.query.destinationId) : undefined;
-      
+
       const reviews = await storage.getReviews({ tripId, itemId, destinationId });
       sendResponse(res, 200, "Reviews retrieved successfully", reviews);
     }),
@@ -2983,9 +2989,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Handle field mapping from frontend (DataContext/itinerary screen) to backend schema
       const tripId = req.body.tripId || req.body.itineraryId;
       const itemId = req.body.itemId || req.body.activityId || req.body.poiId;
-      
+
       const payload = { ...req.body };
-      
+
       let review;
       if (itemId) {
         payload.itemId = Number(itemId);
@@ -2996,7 +3002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         throw new AppError(400, "tripId or itemId required");
       }
-      
+
       sendResponse(res, 201, "Review created successfully", review);
     }),
   );
