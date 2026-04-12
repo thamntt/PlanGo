@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Platform,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -103,7 +104,14 @@ export default function TripsScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, deleteItinerary, updateItinerary } = useData();
+  const { itineraries, deleteItinerary, updateItinerary, refreshData } = useData();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshData();
+    setRefreshing(false);
+  }, [refreshData]);
 
   const myTrips = useMemo(() => {
     if (!user) return [];
@@ -166,6 +174,7 @@ export default function TripsScreen() {
         renderItem={({ item }) => <TripCard item={item} colors={colors} onDelete={() => handleDelete(item.id)} isJoined={!!user && item.userId !== user.id} />}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Ionicons name="map-outline" size={48} color={colors.textTertiary} />

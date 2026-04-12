@@ -10,6 +10,7 @@ import {
   Alert,
   Linking,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -56,7 +57,14 @@ export default function DestinationDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, itineraries, reviews, addReview, updateReview, deleteReview } = useData();
+  const { destinations, itineraries, reviews, addReview, updateReview, deleteReview, refreshData } = useData();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshData();
+    setRefreshing(false);
+  }, [refreshData]);
 
   const destination = destinations.find((d) => d.id === id);
 
@@ -252,7 +260,10 @@ export default function DestinationDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+      >
         <View style={{ position: "relative" }}>
           <Image source={{ uri: destination.images[imageIndex] }} style={styles.heroImage} contentFit="cover" />
           <Pressable
@@ -542,13 +553,13 @@ export default function DestinationDetailScreen() {
               </View>
             ) : (
               <>
-                {(showAllUserReviews ? destUserReviews : destUserReviews.slice(0, 3)).map((review) => {
+                {(showAllUserReviews ? destUserReviews : destUserReviews.slice(0, 3)).map((review, idx) => {
                   const isOwn = user?.id === review.userId;
                   const dateStr = new Date(review.createdAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
                   const avatarColors = ["#6C5CE7", "#00B894", "#E17055", "#0984E3", "#FDCB6E", "#E84393"];
                   const avatarBg = avatarColors[review.userName.charCodeAt(0) % avatarColors.length];
                   return (
-                    <View key={review.id} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderLeftWidth: 3, borderLeftColor: isOwn ? colors.primary : colors.accent }]}>
+                    <View key={`${review.id}-${idx}`} style={[styles.reviewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderLeftWidth: 3, borderLeftColor: isOwn ? colors.primary : colors.accent }]}>
                       <View style={styles.reviewHeader}>
                         <View style={[styles.reviewAvatar, { backgroundColor: avatarBg }]}>
                           <Text style={styles.reviewAvatarText}>{review.userName.charAt(0).toUpperCase()}</Text>
