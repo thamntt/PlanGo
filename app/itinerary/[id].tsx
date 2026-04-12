@@ -946,11 +946,11 @@ export default function ItineraryDetailScreen() {
         userId: user!.id,
         userName: user!.fullName,
         destinationId: reviewModal.destinationId || "",
-        poiId,
-        poiName,
-        activityId: reviewModal.activityId,
-        activityTitle: reviewModal.activityTitle,
-        itineraryId: undefined, // Clear tripId to treat as Item/POI review
+        poiId: poiId || undefined,
+        poiName: poiName || undefined,
+        activityId: reviewModal.activityId || undefined,
+        activityTitle: reviewModal.activityTitle || undefined,
+        itineraryId: (reviewModal.activityId || poiId) ? undefined : id,
         rating: reviewRating,
         comment: taggedComment,
       });
