@@ -97,25 +97,23 @@ function mapTripToFrontend(trip: any) {
     mapped.destination = mapped.destination.name;
   }
 
-  if (mapped.days && Array.isArray(mapped.days)) {
-    // Sort days by dayIndex to ensure chronological order
-    const sortedDays = [...mapped.days].sort((a, b) => (a.dayIndex || 0) - (b.dayIndex || 0));
-
-    mapped.days = sortedDays.map((day: any) => ({
-      ...day,
-      day: day.dayIndex,
-      activities: day.items ? [...day.items]
-        .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
-        .map((item: any) => ({
-          ...item,
-          id: item.itemId,
-          title: item.customName,
-          time: item.startTime,
-          description: item.note,
-          estimatedCost: item.estimatedCost ? Number(item.estimatedCost) : 0,
-          actualCost: item.actualCost ? Number(item.actualCost) : 0,
-          isCompleted: item.status === "completed"
-        })) : []
+  if (mapped.expenses && Array.isArray(mapped.expenses)) {
+    mapped.expenses = mapped.expenses.map((e: any) => ({
+      ...e,
+      id: (e.expenseId || "").toString(),
+      title: e.description || e.title || "",
+      amount: Number(e.amount || 0),
+      date: e.expenseDate || e.date || "",
+      category: e.expenseType ? e.expenseType.name : "Khác",
+      payer: e.paidByInfo ? (e.paidByInfo.fullName || e.paidByInfo.userName) : "Không rõ",
+      paidByUserId: e.paidByInfo ? e.paidByInfo.userId.toString() : undefined,
+      splitType: e.splitMethod || "none",
+      activityId: e.itemId ? e.itemId.toString() : undefined,
+      splits: e.splits ? e.splits.map((s: any) => ({
+        userId: s.userId?.toString() || "",
+        userName: s.user ? (s.user.fullName || s.user.userName) : "",
+        amount: Number(s.amount || 0)
+      })) : []
     }));
   }
 
@@ -128,14 +126,83 @@ function mapTripToFrontend(trip: any) {
   }
 
   if (mapped.expenses && Array.isArray(mapped.expenses)) {
-    mapped.expenses = mapped.expenses.map((e: any) => ({
-      ...e,
-      id: (e.expenseId || "").toString(),
-      title: e.description || e.title || "",
-      amount: Number(e.amount || 0),
-      date: e.expenseDate || e.date || "",
-      category: e.expenseType ? e.expenseType.name : "Khác",
-      payer: e.paidByInfo ? (e.paidByInfo.fullName || e.paidByInfo.userName) : "Không rõ"
+    const typeInverseMap: Record<string, string> = {
+      'Di chuyển': 'transport',
+      'Mua sắm': 'shopping',
+      'Ăn uống': 'food',
+      'Tham quan': 'sightseeing',
+      'Khác': 'other'
+    };
+
+    mapped.expenses = mapped.expenses.map((e: any) => {
+      const payerName = e.paidByInfo ? (e.paidByInfo.fullName || e.paidByInfo.userName) : (e.payer || "Không rõ");
+      const rawType = e.expenseType ? e.expenseType.name : "Khác";
+      return {
+        ...e,
+        id: (e.expenseId || "").toString(),
+        title: e.description || e.title || "",
+        amount: Number(e.amount || 0),
+        date: e.expenseDate || e.date || "",
+        type: typeInverseMap[rawType] || "other",
+        payer: payerName,
+        paidBy: payerName, // Use name uniformly to fix dashboard duplicates (e.g. "test" vs "5")
+        paidByUserId: e.paidByInfo ? e.paidByInfo.userId.toString() : e.paidBy?.toString(),
+        splitType: e.splitMethod || "none",
+        activityId: e.itemId ? e.itemId.toString() : undefined,
+        splits: e.splits ? e.splits.map((s: any) => {
+          let uName = s.user ? (s.user.fullName || s.user.userName) : "";
+          if (!uName && mapped.companions) {
+            const comp = mapped.companions.find((c: any) => c.userId === s.userId?.toString());
+            if (comp) uName = comp.userName;
+          }
+          return {
+            userId: s.userId?.toString() || "",
+            userName: uName,
+            amount: Number(s.amount || 0)
+          };
+        }) : []
+      };
+    });
+  }
+
+  // Map activities and link them with expenses for payer info
+  const activitiesWithExpenses = new Map<string, any>();
+  if (mapped.expenses) {
+    mapped.expenses.forEach((e: any) => {
+      if (e.activityId) {
+        activitiesWithExpenses.set(e.activityId, e);
+      }
+    });
+  }
+
+  let totalActivityCost = 0;
+  if (mapped.days && Array.isArray(mapped.days)) {
+    // Sort days by dayIndex to ensure chronological order
+    const sortedDays = [...mapped.days].sort((a, b) => (a.dayIndex || 0) - (b.dayIndex || 0));
+
+    mapped.days = sortedDays.map((day: any) => ({
+      ...day,
+      day: day.dayIndex,
+      activities: day.items ? [...day.items]
+        .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
+        .map((item: any) => {
+          const itemIdStr = item.itemId.toString();
+          const linkedExp = activitiesWithExpenses.get(itemIdStr);
+          const actualCost = item.actualCost ? Number(item.actualCost) : 0;
+          totalActivityCost += actualCost;
+          return {
+            ...item,
+            id: item.itemId,
+            title: item.customName,
+            time: item.startTime,
+            description: item.note,
+            estimatedCost: item.estimatedCost ? Number(item.estimatedCost) : 0,
+            actualCost,
+            paidBy: linkedExp ? linkedExp.payer : undefined,
+            paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
+            isCompleted: item.status === "completed"
+          };
+        }) : []
     }));
   }
 
@@ -143,7 +210,12 @@ function mapTripToFrontend(trip: any) {
     mapped.budget = Number(mapped.budget).toString();
     mapped.totalBudget = Number(mapped.budget);
   }
-  mapped.spentAmount = mapped.expenses ? mapped.expenses.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0) : 0;
+
+  // Calculate spentAmount: Only sum activities + expenses that are NOT linked to activities (to avoid double counting)
+  const manualExpensesAmount = mapped.expenses
+    ? mapped.expenses.filter((e: any) => !e.activityId).reduce((sum: number, e: any) => sum + e.amount, 0)
+    : 0;
+  mapped.spentAmount = totalActivityCost + manualExpensesAmount;
 
   // Ensure id is present and stringified for frontend
   mapped.id = (trip.tripId || "").toString();
@@ -2921,31 +2993,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle nested expenses update
       if (req.body.expenses && Array.isArray(req.body.expenses)) {
+        const processedExpenseIds = new Set<number>();
+
         // Simple approach: sync expenses by ensuring all sent ones exist
         for (const exp of req.body.expenses) {
           const expData = {
             tripId: id,
             description: exp.title || exp.description,
             amount: exp.amount ? exp.amount.toString() : "0",
-            expenseDate: exp.date || new Date().toISOString(),
-            paidBy: exp.userId ? Number(exp.userId) : (exp.payerId ? Number(exp.payerId) : trip.ownerId),
+            paidBy: exp.paidByUserId ? Number(exp.paidByUserId) : (exp.userId ? Number(exp.userId) : trip.ownerId),
+            splitMethod: exp.splitType || "none",
+            itemId: exp.activityId && !isNaN(Number(exp.activityId)) ? Number(exp.activityId) : undefined,
+            expenseTypeId: await resolveExpenseTypeId(exp.type),
           };
 
-          if (exp.id && !exp.id.startsWith("temp-")) {
-            const expId = Number(exp.id);
-            if (!isNaN(expId)) {
-              await storage.updateExpense(expId, expData);
-            }
+          if (exp.date || exp.createdAt) {
+            (expData as any).createdAt = new Date(exp.date || exp.createdAt);
+          }
+
+          let finalExpId: number | undefined;
+
+          // Check if ID is a valid database ID (numeric)
+          let expIdParsed = NaN;
+          if (exp.id && typeof exp.id === "string" && !exp.id.startsWith("temp-")) {
+            expIdParsed = Number(exp.id);
+          } else if (typeof exp.id === "number") {
+            expIdParsed = exp.id;
+          }
+
+          if (!isNaN(expIdParsed) && String(expIdParsed) === String(exp.id).trim()) {
+            await storage.updateExpense(expIdParsed, expData);
+            finalExpId = expIdParsed;
           } else {
-            await storage.createExpense(expData);
+            const created = await storage.createExpense(expData);
+            if (created && created.expenseId) {
+              finalExpId = created.expenseId;
+            }
+          }
+
+          if (finalExpId) {
+            processedExpenseIds.add(finalExpId);
+            // Re-sync splits
+            await storage.deleteExpenseSplits(finalExpId);
+            if (exp.splitType !== "none" && exp.splits && Array.isArray(exp.splits)) {
+              for (const split of exp.splits) {
+                await storage.createExpenseSplit({
+                  expenseId: finalExpId,
+                  userId: Number(split.userId),
+                  amount: split.amount ? split.amount.toString() : "0",
+                });
+              }
+            }
           }
         }
 
         // Handle deletions
         const dbExpenses = await storage.getExpensesByTrip(id);
-        const sentIds = req.body.expenses.map((e: any) => e.id).filter((id: any) => id && !id.startsWith("temp-"));
         for (const dbExp of dbExpenses) {
-          if (!sentIds.includes(dbExp.expenseId.toString())) {
+          if (!processedExpenseIds.has(dbExp.expenseId)) {
             await storage.deleteExpense(dbExp.expenseId);
           }
         }
@@ -3063,6 +3168,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const types = await storage.getPoiTypes();
     const found = types.find((t: any) => t.typeName === typeName);
     return found?.poitypeId;
+  }
+
+  async function resolveExpenseTypeId(typeName: string | undefined): Promise<number | undefined> {
+    if (!typeName) return undefined;
+    const types = await storage.getExpenseTypes();
+    const typeMap: Record<string, string> = {
+      'transport': 'Di chuyển',
+      'shopping': 'Mua sắm',
+      'food': 'Ăn uống',
+      'sightseeing': 'Tham quan',
+      'other': 'Khác'
+    };
+    const translated = typeMap[typeName] || typeName;
+    const found = types.find((t: any) => t.name === translated || t.name === typeName);
+    return found?.expenseTypeId;
   }
 
   // Helper: enrich a raw POI row with type string + opening hours string
