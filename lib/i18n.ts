@@ -142,6 +142,14 @@ const vi = {
     selectDateRange: "Chọn khoảng ngày",
     selectEndDate: "Chọn ngày kết thúc",
     days: "ngày",
+    aiLoading: {
+      analyzing: "Đang phân tích sở thích của bạn...",
+      finding: "Đang tìm kiếm các địa điểm phù hợp...",
+      optimizing: "Đang tối ưu hóa lộ trình di chuyển...",
+      calculating: "Đang tính toán ngân sách dự kiến...",
+      finalizing: "Đang hoàn tất lịch trình của bạn...",
+      generating: "AI đang làm việc nhiệt tình...",
+    },
   },
 
   itinerary: {

@@ -158,8 +158,8 @@ export interface IStorage {
   // Reviews
   getReviews(filters?: { tripId?: number; itemId?: number; destinationId?: number }): Promise<any[]>;
   getTripReviews(tripId: number): Promise<TripReview[]>;
-  createTripReview(data: InsertTripReview): Promise<TripReview>;
-  updateTripReview(tripId: number, userId: number, data: Partial<TripReview>): Promise<TripReview | undefined>;
+  createTripReview(data: InsertTripReview): Promise<any>;
+  updateTripReview(tripId: number, userId: number, data: Partial<TripReview>): Promise<any | undefined>;
   deleteTripReview(tripId: number, userId: number): Promise<boolean>;
 
   // Itinerary Days
@@ -184,8 +184,8 @@ export interface IStorage {
 
   // Item Reviews
   getItemReviews(itemId: number): Promise<ItemReview[]>;
-  createItemReview(data: InsertItemReview): Promise<ItemReview>;
-  updateItemReview(itemId: number, userId: number, data: Partial<ItemReview>): Promise<ItemReview | undefined>;
+  createItemReview(data: InsertItemReview): Promise<any>;
+  updateItemReview(itemId: number, userId: number, data: Partial<ItemReview>): Promise<any | undefined>;
   deleteItemReview(itemId: number, userId: number): Promise<boolean>;
 
   // Expenses
@@ -828,7 +828,9 @@ export class DatabaseStorage implements IStorage {
       await this.updateDestinationStats(trip.destinationId);
     }
     
-    return r;
+    // Return full review object
+    const full = await this.getReviews({ tripId: data.tripId });
+    return full.find(rev => Number(rev.userId) === data.userId) || r;
   }
   
   async updateTripReview(tid: number, uid: number, data: Partial<TripReview>) {
@@ -843,8 +845,11 @@ export class DatabaseStorage implements IStorage {
       if (trip?.destinationId) {
         await this.updateDestinationStats(trip.destinationId);
       }
+      // Return full review object
+      const full = await this.getReviews({ tripId: tid });
+      return full.find(rev => Number(rev.userId) === uid) || r;
     }
-    return r;
+    return undefined;
   }
   
   async deleteTripReview(tid: number, uid: number) {
@@ -960,7 +965,9 @@ export class DatabaseStorage implements IStorage {
       await this.updatePoiStats(item.poiId);
     }
 
-    return r;
+    // Return full review object
+    const full = await this.getReviews({ itemId: data.itemId });
+    return full.find(rev => Number(rev.userId) === data.userId) || r;
   }
 
   async updateItemReview(itemId: number, userId: number, data: Partial<ItemReview>) {
@@ -975,8 +982,11 @@ export class DatabaseStorage implements IStorage {
       if (item?.poiId) {
         await this.updatePoiStats(item.poiId);
       }
+      // Return full review object
+      const full = await this.getReviews({ itemId });
+      return full.find(rev => Number(rev.userId) === userId) || r;
     }
-    return r;
+    return undefined;
   }
 
   async deleteItemReview(itemId: number, userId: number) {

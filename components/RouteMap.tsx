@@ -1,3 +1,4 @@
+"use no memo";
 import React from "react";
 import { View, Text, StyleSheet, Platform, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";

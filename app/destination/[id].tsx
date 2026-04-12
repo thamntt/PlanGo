@@ -11,6 +11,8 @@ import {
   Linking,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  KeyboardAvoidingView,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -165,7 +167,14 @@ export default function DestinationDetailScreen() {
     setSubmittingReview(true);
     try {
       if (editingReviewId) {
-        await updateReview(editingReviewId, { rating: userRating, comment: userComment.trim() });
+        // Find the full review object to preserve itineraryId if it exists
+        const existing = reviews.find((r) => r.id === editingReviewId);
+        await updateReview(editingReviewId, {
+          userId: user.id, // Required by server for validation
+          rating: userRating,
+          comment: userComment.trim(),
+          itineraryId: existing?.itineraryId, // Preserve itineraryId for trip reviews
+        });
       } else {
         await addReview({
           userId: user.id,
@@ -186,7 +195,7 @@ export default function DestinationDetailScreen() {
     } finally {
       setSubmittingReview(false);
     }
-  }, [user, userRating, userComment, editingReviewId, id, addReview, updateReview]);
+  }, [user, userRating, userComment, editingReviewId, id, addReview, updateReview, reviews]);
 
   const handleEditReview = useCallback((review: typeof destUserReviews[0]) => {
     setEditingReviewId(review.id);
@@ -195,9 +204,11 @@ export default function DestinationDetailScreen() {
   }, []);
 
   const handleDeleteReview = useCallback(async (reviewId: string) => {
+    if (!user) return; // Guard for TypeScript
+
     const doDelete = async () => {
       try {
-        await deleteReview(reviewId);
+        await deleteReview(reviewId, { userId: user.id });
         if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         if (editingReviewId === reviewId) {
           setEditingReviewId(null);
@@ -613,6 +624,89 @@ export default function DestinationDetailScreen() {
 
         </View>
       </ScrollView>
+
+      {/* Review Edit Modal */}
+      <Modal
+        visible={!!editingReviewId}
+        transparent
+        animationType="slide"
+        onRequestClose={cancelEdit}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
+        >
+          <Pressable style={styles.modalOverlay} onPress={cancelEdit}>
+            <Pressable
+              style={[styles.modalContent, { backgroundColor: colors.card }]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>
+                  {t().itinerary.editReview}
+                </Text>
+                <Pressable onPress={cancelEdit} hitSlop={8}>
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={styles.ratingContainer}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Pressable
+                      key={star}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setUserRating(star);
+                      }}
+                      style={styles.starBtn}
+                    >
+                      <Ionicons
+                        name={star <= userRating ? "star" : "star-outline"}
+                        size={32}
+                        color="#F59E0B"
+                      />
+                    </Pressable>
+                  ))}
+                </View>
+
+                <View
+                  style={[
+                    styles.inputContainer,
+                    { backgroundColor: colors.inputBg, borderColor: colors.cardBorder },
+                  ]}
+                >
+                  <TextInput
+                    style={[styles.textInput, { color: colors.text, height: 120 }]}
+                    placeholder="Chia sẻ trải nghiệm của bạn..."
+                    placeholderTextColor={colors.textTertiary}
+                    multiline
+                    textAlignVertical="top"
+                    value={userComment}
+                    onChangeText={setUserComment}
+                  />
+                </View>
+
+                <Pressable
+                  onPress={handleSubmitReview}
+                  disabled={submittingReview}
+                  style={({ pressed }) => [
+                    styles.submitBtn,
+                    {
+                      backgroundColor: colors.primary,
+                      opacity: pressed || submittingReview ? 0.8 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={styles.submitBtnText}>
+                    {submittingReview ? "Đang gửi..." : "Cập nhật đánh giá"}
+                  </Text>
+                </Pressable>
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -727,4 +821,55 @@ const styles = StyleSheet.create({
   ratingBarFill: { height: "100%", borderRadius: 3 },
   ratingBarCount: { fontSize: 11, fontFamily: "Inter_500Medium", width: 18, textAlign: "right" },
   reviewFormTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingTop: 16,
+    maxHeight: "80%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: "Inter_700Bold",
+  },
+  ratingContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 12,
+    marginBottom: 24,
+  },
+  starBtn: {
+    padding: 4,
+  },
+  inputContainer: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 24,
+  },
+  textInput: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+  },
+  submitBtn: {
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: "center",
+  },
+  submitBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+  },
 });

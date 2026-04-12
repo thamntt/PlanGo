@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Modal,
 } from "react-native";
+import { BlurView } from "expo-blur";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -286,6 +287,7 @@ export default function CreateTripScreen() {
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const aiDays = await fetchAIDays();
+
     if (aiDays && aiDays.length > 0) {
       setPreviewDays(aiDays);
       setPreviewExpandedDay(0);
@@ -398,6 +400,19 @@ export default function CreateTripScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Simplified AI Loading Modal */}
+      <Modal visible={loading} transparent animationType="fade">
+        <View style={styles.loadingOverlay}>
+          <BlurView intensity={20} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+          <View style={[styles.loadingCard, { backgroundColor: colors.card, borderColor: colors.inputBorder }]}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.text }]}>
+              AI đang phân tích và tạo chuyến đi của bạn, vui lòng chờ...
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
       <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
         <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)")}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -1098,5 +1113,42 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
     color: "#fff",
+  },
+  // AI Loading Modal Styles
+  loadingOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+    backgroundColor: "rgba(0,0,0,0.2)",
+  },
+  loadingCard: {
+    width: "100%",
+    maxWidth: 280,
+    padding: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    gap: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.1,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 8,
+      },
+      web: {
+        boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+      },
+    }),
+  },
+  loadingText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    textAlign: "center",
+    lineHeight: 20,
   },
 });

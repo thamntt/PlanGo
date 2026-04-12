@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+"use no memo";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -51,13 +52,13 @@ export default function MapScreen() {
   }, [permission?.granted]);
 
   const activeDestinations = destinations.filter((d) => d.isActive);
-  const mapPoints = activeDestinations.map((d) => ({
+  const mapPoints = useMemo(() => activeDestinations.map((d) => ({
     lat: d.latitude,
     lng: d.longitude,
     name: d.name,
     type: d.category.toLowerCase(),
     destId: d.id,
-  }));
+  })), [activeDestinations]);
 
   // Find the itinerary that contains a given destination
   const findItineraryForDestination = (destId: string, destName: string) => {
@@ -95,7 +96,7 @@ export default function MapScreen() {
     }
   };
 
-  const userLoc = location ? { lat: location.coords.latitude, lng: location.coords.longitude } : null;
+  const userLoc = useMemo(() => location ? { lat: location.coords.latitude, lng: location.coords.longitude } : null, [location]);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
