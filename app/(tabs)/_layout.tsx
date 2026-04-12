@@ -95,8 +95,6 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
+  // Use ClassicTabLayout for stability and to avoid reconciliation issues with experimental native tabs
   return <ClassicTabLayout />;
 }

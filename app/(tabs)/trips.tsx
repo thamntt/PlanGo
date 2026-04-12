@@ -8,6 +8,10 @@ import {
   Platform,
   Alert,
   RefreshControl,
+  Modal,
+  TextInput,
+  ScrollView,
+  KeyboardAvoidingView,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,7 +30,26 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   completed: { bg: "#DBEAFE", text: "#1E40AF" },
 };
 
-function TripCard({ item, colors, onDelete, isJoined }: { item: Itinerary; colors: ReturnType<typeof useThemeColors>; onDelete: () => void; isJoined: boolean }) {
+const REVIEW_STATUS_COLORS = {
+  pending: { bg: "#FFF7ED", text: "#EA580C" }, // light orange
+  done: { bg: "#F0FDF4", text: "#16A34A" },    // light green
+};
+
+function TripCard({
+  item,
+  colors,
+  onDelete,
+  onReview,
+  isJoined,
+  isReviewed,
+}: {
+  item: Itinerary;
+  colors: ReturnType<typeof useThemeColors>;
+  onDelete: () => void;
+  onReview: () => void;
+  isJoined: boolean;
+  isReviewed: boolean;
+}) {
   const statusColor = STATUS_COLORS[item.status] || STATUS_COLORS.draft;
   const dayCount = item.days.length;
 
@@ -78,6 +101,29 @@ function TripCard({ item, colors, onDelete, isJoined }: { item: Itinerary; color
       <View style={styles.cardBottom}>
         <Text style={[styles.budgetText, { color: colors.primary }]}>{item.budget}</Text>
         <View style={styles.cardActions}>
+          {item.status === "completed" && (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onReview();
+              }}
+              style={[
+                styles.reviewBadge,
+                { backgroundColor: isReviewed ? REVIEW_STATUS_COLORS.done.bg : REVIEW_STATUS_COLORS.pending.bg },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.reviewText,
+                  { color: isReviewed ? REVIEW_STATUS_COLORS.done.text : REVIEW_STATUS_COLORS.pending.text },
+                ]}
+              >
+                {isReviewed ? "Đã đánh giá" : "Đánh giá"}
+              </Text>
+            </Pressable>
+          )}
+
           {isJoined && (
             <View style={[styles.joinedBadge, { backgroundColor: colors.primary + "20" }]}>
               <Ionicons name="people" size={12} color={colors.primary} />
@@ -104,8 +150,13 @@ export default function TripsScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, deleteItinerary, updateItinerary, refreshData } = useData();
+  const { itineraries, deleteItinerary, updateItinerary, refreshData, reviews, addReview, destinations } = useData();
   const [refreshing, setRefreshing] = useState(false);
+
+  const [reviewModal, setReviewModal] = useState<Itinerary | null>(null);
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -148,52 +199,175 @@ export default function TripsScreen() {
     }
   };
 
+  const handleReviewSubmit = async () => {
+    if (!reviewModal || !user) return;
+    if (!comment.trim()) {
+      Alert.alert("Lỗi", "Vui lòng nhập nhận xét của bạn");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // Find destination ID
+      const dest = destinations.find(
+        (d) =>
+          d.name.toLowerCase() === reviewModal.destination.toLowerCase() ||
+          reviewModal.destination.toLowerCase().includes(d.name.toLowerCase())
+      );
+
+      await addReview({
+        userId: user.id,
+        userName: user.fullName,
+        itineraryId: reviewModal.id,
+        destinationId: dest?.id || "",
+        rating,
+        comment,
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setReviewModal(null);
+      setRating(5);
+      setComment("");
+    } catch (error) {
+      console.error("Review submit error:", error);
+      Alert.alert("Lỗi", "Không thể gửi đánh giá. Vui lòng thử lại.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>{t().trips.title}</Text>
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push("/create-trip");
+    <>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>{t().trips.title}</Text>
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/create-trip");
+            }}
+            style={({ pressed }) => [
+              styles.addButton,
+              { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            <Ionicons name="add" size={22} color="#fff" />
+          </Pressable>
+        </View>
+
+        <FlatList
+          data={myTrips}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            const isReviewed = reviews.some((r) => r.userId === user?.id && r.itineraryId === item.id && !r.activityId);
+            return (
+              <TripCard
+                item={item}
+                colors={colors}
+                onDelete={() => handleDelete(item.id)}
+                onReview={() => {
+                  if (isReviewed) {
+                    const review = reviews.find((r) => r.userId === user?.id && r.itineraryId === item.id && !r.activityId);
+                    if (review?.destinationId) {
+                      router.push(`/destination/${review.destinationId}`);
+                    }
+                    return;
+                  }
+                  setRating(5);
+                  setComment("");
+                  setReviewModal(item);
+                }}
+                isJoined={!!user && item.userId !== user.id}
+                isReviewed={isReviewed}
+              />
+            );
           }}
-          style={({ pressed }) => [
-            styles.addButton,
-            { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-          ]}
-        >
-          <Ionicons name="add" size={22} color="#fff" />
-        </Pressable>
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons name="map-outline" size={48} color={colors.textTertiary} />
+              <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>{t().trips.emptyTitle}</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>{t().trips.emptySubtitle}</Text>
+              <Pressable
+                onPress={() => router.push("/create-trip")}
+                style={({ pressed }) => [
+                  styles.createButton,
+                  { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+                ]}
+              >
+                <Ionicons name="add" size={20} color="#fff" />
+                <Text style={styles.createButtonText}>{t().trips.planTrip}</Text>
+              </Pressable>
+            </View>
+          }
+        />
       </View>
 
-      <FlatList
-        data={myTrips}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <TripCard item={item} colors={colors} onDelete={() => handleDelete(item.id)} isJoined={!!user && item.userId !== user.id} />}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="map-outline" size={48} color={colors.textTertiary} />
-            <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>{t().trips.emptyTitle}</Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>{t().trips.emptySubtitle}</Text>
-            <Pressable
-              onPress={() => router.push("/create-trip")}
-              style={({ pressed }) => [
-                styles.createButton,
-                { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-              ]}
-            >
-              <Ionicons name="add" size={20} color="#fff" />
-              <Text style={styles.createButtonText}>{t().trips.planTrip}</Text>
+      <Modal visible={!!reviewModal} transparent animationType="slide" onRequestClose={() => setReviewModal(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+          <Pressable style={styles.modalOverlay} onPress={() => setReviewModal(null)}>
+            <Pressable style={[styles.modalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Đánh giá chuyến đi</Text>
+                <Pressable onPress={() => setReviewModal(null)} hitSlop={8}>
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+                  {reviewModal?.title}
+                </Text>
+
+                <View style={styles.ratingContainer}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Pressable
+                      key={star}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setRating(star);
+                      }}
+                      style={styles.starBtn}
+                    >
+                      <Ionicons name={star <= rating ? "star" : "star-outline"} size={32} color="#F59E0B" />
+                    </Pressable>
+                  ))}
+                </View>
+
+                <View style={[styles.inputContainer, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder }]}>
+                  <TextInput
+                    style={[styles.textInput, { color: colors.text, height: 120 }]}
+                    placeholder="Chia sẻ trải nghiệm của bạn về chuyến đi này..."
+                    placeholderTextColor={colors.textTertiary}
+                    multiline
+                    textAlignVertical="top"
+                    value={comment}
+                    onChangeText={setComment}
+                  />
+                </View>
+
+                <Pressable
+                  onPress={handleReviewSubmit}
+                  disabled={isSubmitting}
+                  style={({ pressed }) => [
+                    styles.submitBtn,
+                    { backgroundColor: colors.primary, opacity: pressed || isSubmitting ? 0.8 : 1 },
+                  ]}
+                >
+                  <Text style={styles.submitBtnText}>
+                    {isSubmitting ? "Đang gửi..." : "Gửi đánh giá"}
+                  </Text>
+                </Pressable>
+              </ScrollView>
             </Pressable>
-          </View>
-        }
-      />
-    </View>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+    </>
   );
 }
 
@@ -236,4 +410,70 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   createButtonText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  reviewBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginRight: 4,
+  },
+  reviewText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingTop: 16,
+    maxHeight: "80%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: "Inter_700Bold",
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    marginBottom: 20,
+  },
+  ratingContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 12,
+    marginBottom: 24,
+  },
+  starBtn: {
+    padding: 4,
+  },
+  inputContainer: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 24,
+  },
+  textInput: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+  },
+  submitBtn: {
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: "center",
+  },
+  submitBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+  },
 });

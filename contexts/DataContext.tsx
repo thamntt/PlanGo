@@ -124,20 +124,29 @@ function mapItinerary(i: any): Itinerary {
 }
 
 function mapReview(r: any): Review {
-  return {
-    id: (r.id || r.reviewId || r.itemId || r.activity_id || r.activityId || r.tripId || r.itineraryId)?.toString() || `${r.userId}-${r.tripId}`,
-    userId: (r.userId ?? r.user_id ?? "")?.toString(),
-    userName: r.userName ?? r.user_name ?? "",
-    destinationId: (r.destinationId ?? r.destination_id ?? "")?.toString(),
-    poiId: (r.poiId ?? r.poi_id ?? "")?.toString(),
-    poiName: r.poiName ?? r.poi_name ?? "",
-    activityId: (r.activityId ?? r.activity_id)?.toString(),
-    activityTitle: r.activityTitle ?? r.activity_title,
-    itineraryId: (r.itineraryId ?? r.itinerary_id ?? r.tripId)?.toString(),
-    rating: r.rating ? Number(r.rating) : 0,
-    comment: r.comment || "",
+  const destinationId = r.destinationId ?? r.destination_id;
+  const poiId = r.poiId ?? r.poi_id;
+  const itineraryId = r.itineraryId ?? r.itinerary_id ?? r.tripId;
+  const activityId = r.activityId ?? r.activity_id;
+  const userId = r.userId ?? r.user_id;
+
+  const review: any = {
+    id: (r.id || r.reviewId || r.itemId || r.activity_id || r.activityId || r.tripId || r.itineraryId)?.toString() || `${r.userId || userId}-${r.tripId || itineraryId}`,
+    rating: r.rating !== undefined ? Number(r.rating) : 0,
+    comment: r.comment ?? "",
     createdAt: r.createdAt ?? r.created_at ?? new Date().toISOString(),
   };
+
+  if (userId !== undefined) review.userId = userId.toString();
+  if (r.userName || r.user_name) review.userName = r.userName ?? r.user_name;
+  if (destinationId !== undefined) review.destinationId = destinationId.toString();
+  if (poiId !== undefined) review.poiId = poiId.toString();
+  if (r.poiName || r.poi_name) review.poiName = r.poiName ?? r.poi_name;
+  if (activityId !== undefined) review.activityId = activityId.toString();
+  if (r.activityTitle || r.activity_title) review.activityTitle = r.activityTitle ?? r.activity_title;
+  if (itineraryId !== undefined) review.itineraryId = itineraryId.toString();
+
+  return review as Review;
 }
 
 function mapNotification(n: any): Notification {
@@ -543,8 +552,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const updateReview = useCallback(async (id: string, data: Partial<Review> & { userId?: number | string }) => {
     const res = await apiRequest("PUT", `/api/reviews/${id}`, data);
-    const updated = mapReview(await unwrapResponse(res));
-    setReviews((prev) => prev.map((r) => (r.id === id ? updated : r)));
+    const serverResult = await unwrapResponse(res);
+    const updated = mapReview(serverResult);
+    
+    setReviews((prev) => prev.map((r) => {
+      if (r.id === id) {
+        // Only merge if we actually found a match
+        return { ...r, ...updated };
+      }
+      return r;
+    }));
   }, []);
 
   const deleteReview = useCallback(async (id: string, params?: { userId: string | number; type?: string }) => {
