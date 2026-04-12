@@ -2771,8 +2771,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get(
     "/api/destinations",
-    asyncHandler(async (_req, res) => {
-      const destinations = await storage.getDestinations();
+    asyncHandler(async (req, res) => {
+      const typeId = req.query.typeId ? Number(req.query.typeId) : undefined;
+      const destinations = await storage.getDestinations(
+        typeId && !isNaN(typeId) ? { destinationTypeId: typeId } : undefined
+      );
       const enriched = await Promise.all(destinations.map(enrichDestination));
       sendResponse(res, 200, "Destinations retrieved successfully", enriched);
     }),

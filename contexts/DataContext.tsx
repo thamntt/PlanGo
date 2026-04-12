@@ -7,6 +7,7 @@ import {
   type Review,
   type Notification,
   type POI,
+  type DestinationType,
   generateId,
   formatVND,
 } from "@/lib/storage";
@@ -15,6 +16,7 @@ import { apiRequest, getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 interface DataContextValue {
   destinations: Destination[];
+  destinationTypes: DestinationType[];
   itineraries: Itinerary[];
   reviews: Review[];
   notifications: Notification[];
@@ -49,7 +51,7 @@ interface DataContextValue {
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: (userId: string) => Promise<void>;
   clearNotifications: (userId: string) => Promise<void>;
-  refreshData: () => Promise<void>;
+  refreshData: (filters?: { destinationTypeId?: string | number }) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -95,6 +97,14 @@ function mapDestination(d: any): Destination {
     googleReviews: d.googleReviews ?? d.google_reviews ?? [],
   };
   return mapped;
+}
+
+function mapDestinationType(t: any): DestinationType {
+  return {
+    id: (t.destinationtypeId || t.id)?.toString() || "",
+    typeName: t.typeName || "",
+    description: t.description || "",
+  };
 }
 
 function mapItinerary(i: any): Itinerary {
@@ -395,6 +405,7 @@ function generateDays(
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [destinations, setDestinations] = useState<Destination[]>([]);
+  const [destinationTypes, setDestinationTypes] = useState<DestinationType[]>([]);
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -446,6 +457,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         fetchEntity("/api/pois", mapPoi, setPois),
         fetchEntity("/api/reviews", mapReview, setReviews), // Might 404, handled by fetchEntity try-catch
         fetchEntity("/api/notifications", mapNotification, setNotifications),
+        fetchEntity("/api/destination-types", mapDestinationType, setDestinationTypes),
       ]);
 
     } catch (err) {
@@ -453,6 +465,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
       console.log("[Data] loadData complete.");
+    }
+  }, []);
+
+  const fetchDestinations = useCallback(async (filters?: { destinationTypeId?: string | number }) => {
+    try {
+      let url = "/api/destinations";
+      if (filters?.destinationTypeId) {
+        url += `?typeId=${filters.destinationTypeId}`;
+      }
+      const res = await apiRequest("GET", url);
+      const data = await unwrapResponse(res);
+      if (Array.isArray(data)) {
+        setDestinations(data.map(mapDestination));
+        console.log(`[Data] Cached destinations updated (filtered: ${!!filters?.destinationTypeId})`);
+      }
+    } catch (err) {
+      console.error("[Data] Error fetching destinations:", err);
     }
   }, []);
 
@@ -735,13 +764,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return created;
   }, [addItinerary, addNotification, destinations, pois]);
 
-  const refreshData = useCallback(async () => {
-    await loadData();
-  }, [loadData]);
+  const refreshData = useCallback(async (filters?: { destinationTypeId?: string | number }) => {
+    if (filters) {
+      await fetchDestinations(filters);
+    } else {
+      await loadData();
+    }
+  }, [loadData, fetchDestinations]);
 
   const value = useMemo(
     () => ({
       destinations,
+      destinationTypes,
       itineraries,
       reviews,
       notifications,
@@ -767,7 +801,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       clearNotifications,
       refreshData,
     }),
-    [destinations, itineraries, reviews, notifications, pois, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, importItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, addPOI, updatePOI, deletePOI, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
+    [destinations, destinationTypes, itineraries, reviews, notifications, pois, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, importItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, addPOI, updatePOI, deletePOI, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

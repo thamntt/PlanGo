@@ -24,6 +24,12 @@ async function setJSON(key: string, data: unknown): Promise<void> {
   await AsyncStorage.setItem(key, JSON.stringify(data));
 }
 
+export interface DestinationType {
+  id: string;
+  typeName: string;
+  description?: string;
+}
+
 export interface UserData {
   id: string;
   username: string;

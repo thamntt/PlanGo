@@ -18,7 +18,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
-import { CATEGORIES } from "@/lib/seed-data";
 import { t } from "@/lib/i18n";
 import type { Destination } from "@/lib/storage";
 import { formatVND } from "@/lib/storage";
@@ -64,7 +63,7 @@ export default function ExploreScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, refreshData, isLoading, notifications } = useData();
+  const { destinations, destinationTypes, refreshData, isLoading, notifications } = useData();
 
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -73,13 +72,18 @@ export default function ExploreScreen() {
   const filteredDestinations = useMemo(() => {
     return destinations.filter((d) => {
       if (!d.isActive) return false;
-      const matchesSearch = !search || d.name.toLowerCase().includes(search.toLowerCase()) ||
+      const matchesSearch =
+        !search ||
+        d.name.toLowerCase().includes(search.toLowerCase()) ||
         d.address.toLowerCase().includes(search.toLowerCase()) ||
         d.tags.some((t) => t.toLowerCase().includes(search.toLowerCase()));
-      const matchesCategory = !selectedCategory || d.category === selectedCategory;
-      return matchesSearch && matchesCategory;
+      
+      // Since we now filter by API, matchesCategory is handled by the server response
+      // but we keep it here as a safety check or if the local state wasn't updated yet.
+      // However, the user request asks for API filtering, so we trust the 'destinations' from context.
+      return matchesSearch;
     });
-  }, [destinations, search, selectedCategory]);
+  }, [destinations, search]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -150,17 +154,19 @@ export default function ExploreScreen() {
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
-          data={[null, ...CATEGORIES]}
-          keyExtractor={(item) => item || "all"}
+          data={[null, ...destinationTypes]}
+          keyExtractor={(item) => item?.id || "all"}
           contentContainerStyle={styles.categoryList}
           renderItem={({ item }) => {
-            const isSelected = item === null ? !selectedCategory : selectedCategory === item;
-            const label = item === null ? t().common.all : (t().categories[item] || item);
+            const isSelected = item === null ? !selectedCategory : selectedCategory === item.id;
+            const label = item === null ? t().common.all : item.typeName;
             return (
               <Pressable
                 onPress={() => {
                   Haptics.selectionAsync();
-                  setSelectedCategory(item);
+                  const newCatId = item?.id || null;
+                  setSelectedCategory(newCatId);
+                  refreshData(newCatId ? { destinationTypeId: newCatId } : undefined);
                 }}
                 style={[
                   styles.categoryChip,
