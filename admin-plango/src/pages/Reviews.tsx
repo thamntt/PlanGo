@@ -99,12 +99,7 @@ const Reviews: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                 <button className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-100 transition-colors" title="Duyệt">
-                    <CheckCircle size={20} />
-                 </button>
-                 <button onClick={() => handleDelete(review.id, reviewer?.fullName || 'Người dùng ẩn danh')} className="p-3 bg-rose-50 text-rose-600 rounded-2xl hover:bg-rose-100 transition-colors" title="Xoá">
-                    <Trash2 size={20} />
-                 </button>
+                 {/* Các nút lệnh đã được ẩn theo yêu cầu */}
               </div>
             </div>
 

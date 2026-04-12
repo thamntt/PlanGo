@@ -102,7 +102,7 @@ export interface IStorage {
   // Destinations
   getDestination(id: number): Promise<Destination | undefined>;
   getDestinationByName(name: string): Promise<Destination | undefined>;
-  getDestinations(): Promise<Destination[]>;
+  getDestinations(filters?: { destinationTypeId?: number }): Promise<Destination[]>;
   createDestination(dest: InsertDestination): Promise<Destination>;
   updateDestination(
     id: number,
@@ -404,7 +404,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(destinations.name, name));
     return r;
   }
-  async getDestinations() {
+  async getDestinations(filters?: { destinationTypeId?: number }) {
+    if (filters?.destinationTypeId) {
+      return db.select().from(destinations).where(eq(destinations.destinationTypeId, filters.destinationTypeId));
+    }
     return db.select().from(destinations);
   }
   async createDestination(data: any) {

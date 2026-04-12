@@ -216,18 +216,10 @@ const POIs: React.FC = () => {
               {filteredPOIs.map((poi) => (
                 <tr key={poi.id} className="border-t border-slate-50 hover:bg-slate-50/30 transition-all group">
                   <td className="px-8 py-6">
-                    <div className="flex items-center gap-4">
-                      <div className="relative shrink-0">
-                        <img src={poi.images?.[0] || 'https://via.placeholder.com/100'} className="w-16 h-16 rounded-2xl object-cover ring-4 ring-slate-50 group-hover:ring-primary/10 transition-all bg-slate-100" alt="" />
-                        <div className="absolute -bottom-1 -right-1 bg-white p-1 rounded-lg border border-slate-100 shadow-sm">
-                           <MapPin size={10} className="text-primary" />
-                        </div>
-                      </div>
-                      <div className="flex flex-col">
+                    <div className="flex flex-col">
                         <span className="text-base font-black text-slate-800">{poi.name}</span>
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{getDestName(poi.destinationId)}</span>
                       </div>
-                    </div>
                   </td>
                   <td className="px-8 py-6">
                     <div className="flex justify-center">
@@ -396,12 +388,7 @@ const POIs: React.FC = () => {
                   <textarea rows={3} value={poiDesc} onChange={e => setPoiDesc(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 resize-none" />
                 </div>
                 
-                {poiPhotos.length > 0 && (
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ảnh xem trước</label>
-                    <img src={getPhotoUrl(poiPhotos[0].name)} alt="Preview" className="w-full h-40 object-cover rounded-xl" />
-                  </div>
-                )}
+
               </div>
             </div>
 
