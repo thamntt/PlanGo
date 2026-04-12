@@ -174,6 +174,7 @@ export default function DestinationDetailScreen() {
           rating: userRating,
           comment: userComment.trim(),
           itineraryId: existing?.itineraryId, // Preserve itineraryId for trip reviews
+          type: 'trip',
         });
       } else {
         await addReview({

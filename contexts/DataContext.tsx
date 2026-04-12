@@ -28,7 +28,7 @@ interface DataContextValue {
   updateItinerary: (id: string, data: Partial<Itinerary>) => Promise<void>;
   deleteItinerary: (id: string) => Promise<void>;
   addReview: (review: Omit<Review, "id" | "createdAt">) => Promise<Review>;
-  updateReview: (id: string, data: Partial<Review> & { userId?: number | string }) => Promise<void>;
+  updateReview: (id: string, data: Partial<Review> & { userId?: number | string; type?: 'trip' | 'item' }) => Promise<void>;
   deleteReview: (id: string, params?: { userId: string | number; type?: string }) => Promise<void>;
   addPOI: (poi: Omit<POI, "id">) => Promise<POI>;
   updatePOI: (id: string, data: Partial<POI>) => Promise<void>;
@@ -550,8 +550,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return finalReview;
   }, []);
 
-  const updateReview = useCallback(async (id: string, data: Partial<Review> & { userId?: number | string }) => {
-    const res = await apiRequest("PUT", `/api/reviews/${id}`, data);
+  const updateReview = useCallback(async (id: string, data: Partial<Review> & { userId?: number | string; type?: 'trip' | 'item' }) => {
+    const { type, ...body } = data;
+    const res = await apiRequest("PUT", `/api/reviews/${id}${type ? `?type=${type}` : ""}`, body);
     const serverResult = await unwrapResponse(res);
     const updated = mapReview(serverResult);
     

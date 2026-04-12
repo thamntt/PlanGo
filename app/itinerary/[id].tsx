@@ -948,7 +948,14 @@ export default function ItineraryDetailScreen() {
     }
 
     if (reviewModal.editReviewId) {
-      await updateReview(reviewModal.editReviewId, { userId: user!.id, rating: reviewRating, comment: taggedComment, poiId, poiName });
+      await updateReview(reviewModal.editReviewId, { 
+        userId: user!.id, 
+        rating: reviewRating, 
+        comment: taggedComment, 
+        poiId, 
+        poiName, 
+        type: 'item' 
+      });
     } else {
       await addReview({
         userId: user!.id,

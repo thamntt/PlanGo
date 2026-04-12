@@ -3012,7 +3012,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id);
       const userId = Number(req.body.userId || req.query.userId);
-      const type = req.query.type || (req.body.poiId || req.body.activityId ? 'item' : 'trip');
+      const type = req.query.type || req.body.type || (req.body.poiId || req.body.activityId ? 'item' : 'trip');
 
       if (isNaN(id) || isNaN(userId)) throw new AppError(400, "Invalid ID or User ID");
 
