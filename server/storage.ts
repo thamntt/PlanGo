@@ -772,12 +772,16 @@ export class DatabaseStorage implements IStorage {
       destinationId: itineraryDay.tripId, 
       poiId: itineraryItems.poiId,
       activityId: itineraryItems.itemId,
+      activityTitle: itineraryItems.customName,
+      poiName: pois.name,
     })
     .from(itemReviews)
     .innerJoin(users, eq(itemReviews.userId, users.userId))
     .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
     .innerJoin(itineraryDay, eq(itineraryItems.dayId, itineraryDay.dayId))
-    .innerJoin(trips, eq(itineraryDay.tripId, trips.tripId));
+    .innerJoin(trips, eq(itineraryDay.tripId, trips.tripId))
+    .leftJoin(pois, eq(itineraryItems.poiId, pois.poiId));
+
 
     if (filters?.itemId) {
       itemRevQuery.where(eq(itemReviews.itemId, filters.itemId));

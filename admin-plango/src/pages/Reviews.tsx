@@ -8,16 +8,20 @@ type ReviewTab = 'item' | 'trip';
 const Reviews: React.FC = () => {
   const { reviews, users, destinations, pois, deleteReview } = useData();
   const [activeTab, setActiveTab] = useState<ReviewTab>('item');
-
   const getTargetInfo = (review: Review) => {
     if (review.reviewType === 'item') {
+
       // Item review → Địa điểm (POI)
+      const name = review.poiName || review.activityTitle;
+      if (name) return { label: name };
+      
+      // Fallback to local lookup if backend fields are missing for some reason
       if (review.poiId) {
         const p = pois.find(x => x.id === review.poiId);
         if (p) return { label: p.name };
       }
-      if (review.activityTitle) return { label: review.activityTitle };
       return { label: `Hoạt động #${review.activityId || '?'}` };
+
     } else {
       // Trip review → Điểm đến (Destination)
       if (review.destinationId) {

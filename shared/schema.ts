@@ -152,9 +152,11 @@ export const tripReviews = pgTable("trip_reviews", {
   tripId: integer("trip_id").notNull().references(() => trips.tripId, { onDelete: "cascade" }),
   rating: decimal("rating", { precision: 3, scale: 2 }),
   comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.userId, table.tripId] }),
 }));
+
 
 export const notifications = pgTable("notifications", {
   notificationId: serial("notification_id").primaryKey(),
@@ -174,7 +176,9 @@ export const notifications = pgTable("notifications", {
 export const itineraryItems = pgTable("itinerary_items", {
   itemId: serial("item_id").primaryKey(),
   dayId: integer("day_id").references(() => itineraryDay.dayId, { onDelete: "cascade" }),
+  tripId: integer("trip_id").references(() => trips.tripId, { onDelete: "cascade" }),
   poiId: integer("poi_id").references(() => pois.poiId),
+
   customName: varchar("custom_name", { length: 255 }),
   startTime: time("start_time"),
   duration: integer("duration"),
@@ -190,9 +194,11 @@ export const itemReviews = pgTable("item_reviews", {
   itemId: integer("item_id").notNull().references(() => itineraryItems.itemId, { onDelete: "cascade" }),
   rating: decimal("rating", { precision: 3, scale: 2 }),
   comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.userId, table.itemId] }),
 }));
+
 
 export const expenses = pgTable("expenses", {
   expenseId: serial("expense_id").primaryKey(),
