@@ -226,6 +226,7 @@ export default function ItineraryDetailScreen() {
   const [expenseTitle, setExpenseTitle] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseType, setExpenseType] = useState<"transport" | "shopping" | "food" | "sightseeing" | "other">("transport");
+  const [expenseTypeId, setExpenseTypeId] = useState<string | number | undefined>(undefined);
   const [expensePaidBy, setExpensePaidBy] = useState("");
   const [expensePaidByUserId, setExpensePaidByUserId] = useState("");
   const [expenseSplitType, setExpenseSplitType] = useState<"none" | "equal" | "custom">("none");
@@ -1406,6 +1407,7 @@ export default function ItineraryDetailScreen() {
           title: expenseTitle.trim(),
           amount,
           type: expenseType,
+          expenseTypeId: expenseTypeId,
           paidBy: expensePaidBy.trim() || undefined,
           paidByUserId: expensePaidByUserId || undefined,
           splitType: expenseSplitType,
@@ -1433,6 +1435,7 @@ export default function ItineraryDetailScreen() {
         title: expenseTitle.trim(),
         amount,
         type: expenseType,
+        expenseTypeId: expenseTypeId,
         paidBy: expensePaidBy.trim() || undefined,
         paidByUserId: expensePaidByUserId || undefined,
         splitType: expenseSplitType,
@@ -1457,6 +1460,7 @@ export default function ItineraryDetailScreen() {
     setExpensePaidBy("");
     setExpensePaidByUserId("");
     setExpenseType("transport");
+    setExpenseTypeId(undefined);
     setExpenseSplitType("none");
     setExpenseSplitChecked({});
     setExpenseSplitAmounts({});
@@ -1497,6 +1501,7 @@ export default function ItineraryDetailScreen() {
     setExpenseTitle(expense.title);
     setExpenseAmount(expense.amount.toString());
     setExpenseType(expense.type);
+    setExpenseTypeId(expense.expenseTypeId);
     setExpensePaidBy(expense.paidBy || "");
     setExpensePaidByUserId(expense.paidByUserId || "");
     setExpenseSplitType(expense.splitType || "none");
@@ -3269,17 +3274,45 @@ export default function ItineraryDetailScreen() {
                 placeholder="VD: Taxi sân bay"
                 placeholderTextColor={colors.textTertiary}
               />
-              <View style={styles.typeRow}>
-                {(["transport", "shopping", "food", "sightseeing", "other"] as const).map((tp) => (
-                  <Pressable
-                    key={tp}
-                    onPress={() => setExpenseType(tp)}
-                    style={[styles.typeChip, { backgroundColor: expenseType === tp ? colors.primary : colors.inputBg, borderColor: expenseType === tp ? colors.primary : colors.inputBorder }]}
-                  >
-                    <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={expenseType === tp ? "#fff" : colors.textSecondary} />
-                    <Text style={[styles.typeChipText, { color: expenseType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
-                  </Pressable>
-                ))}
+              <View style={[styles.typeRow, { flexWrap: 'wrap' }]}>
+                {expenseTypes.map((et) => {
+                  const isSelected = expenseTypeId?.toString() === et.id.toString();
+                  return (
+                    <Pressable
+                      key={et.id}
+                      onPress={() => {
+                        const idStr = et.id.toString();
+                        setExpenseTypeId(et.id);
+                        // Map core types for legacy compatibility if possible
+                        if (idStr === "1") setExpenseType("food");
+                        else if (idStr === "2") setExpenseType("transport");
+                        else if (idStr === "3") setExpenseType("other"); // accommodation mapped to other for legacy
+                        else if (idStr === "4") setExpenseType("sightseeing");
+                        else if (idStr === "5") setExpenseType("shopping");
+                        else setExpenseType("other");
+                      }}
+                      style={[styles.typeChip, {
+                        backgroundColor: isSelected ? colors.primary : colors.inputBg,
+                        borderColor: isSelected ? colors.primary : colors.inputBorder,
+                        marginBottom: 8
+                      }]}
+                    >
+                      <Ionicons
+                        name={getActivityTypeIcon(
+                          et.id.toString() === "1" ? "food" :
+                          et.id.toString() === "2" ? "transport" :
+                          et.id.toString() === "4" ? "sightseeing" :
+                          et.id.toString() === "5" ? "shopping" : "other"
+                        ) as any}
+                        size={14}
+                        color={isSelected ? "#fff" : colors.textSecondary}
+                      />
+                      <Text style={[styles.typeChipText, { color: isSelected ? "#fff" : colors.textSecondary }]}>
+                        {et.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
               <TextInput
                 style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
