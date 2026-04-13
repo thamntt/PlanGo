@@ -200,7 +200,8 @@ function mapTripToFrontend(trip: any) {
             actualCost,
             paidBy: linkedExp ? linkedExp.payer : undefined,
             paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
-            isCompleted: item.status === "completed"
+            isCompleted: item.status === "completed",
+            expenseTypeId: item.expenseTypeId
           };
         }) : []
     }));
@@ -2238,10 +2239,12 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
           if (Object.keys(updates).length > 0) {
             await storage.updatePoi(existingPoi.poiId, updates);
           }
+          // Link POI ID to activity for itinerary_items creation
+          act.poiId = existingPoi.poiId;
           continue;
         }
 
-        await storage.createPoi({
+        const createdPoi = await storage.createPoi({
           destinationId: resolvedDestId !== null ? resolvedDestId : undefined,
           name: placeName,
           address: act.address || "",
@@ -2254,6 +2257,8 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
             : undefined,
           googlePlaceId: act.googlePlaceId || undefined,
         });
+        // Link newly created POI ID to activity for itinerary_items creation
+        if (createdPoi?.poiId) act.poiId = createdPoi.poiId;
         savedCount++;
       } catch (err) {
         console.warn(`[POI] Failed to save POI for "${act.title}":`, err);
@@ -2770,6 +2775,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.get(
+    "/api/expense-types",
+    asyncHandler(async (_req, res) => {
+      const types = await storage.getExpenseTypes();
+      sendResponse(res, 200, "Expense types retrieved successfully", types);
+    }),
+  );
+
+  app.get(
     "/api/destinations",
     asyncHandler(async (req, res) => {
       const typeId = req.query.typeId ? Number(req.query.typeId) : undefined;
@@ -2937,6 +2950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               try {
                 await storage.createItineraryItem({
                   dayId: createdDay.dayId,
+                  poiId: activity.poiId ? Number(activity.poiId) : undefined,
                   customName: activity.title,
                   startTime: activity.time,
                   duration: numDuration,
@@ -2944,6 +2958,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   note: activity.description,
                   estimatedCost: estCost,
                   status: activity.isCompleted ? "completed" : "pending",
+                  expenseTypeId: activity.expenseTypeId ? Number(activity.expenseTypeId) : undefined,
                 });
               } catch (err) {
                 console.warn("Failed to create itinerary item:", err);
@@ -2986,6 +3001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   await storage.updateItineraryItem(actId, {
                     status: act.isCompleted ? "completed" : "pending",
                     actualCost: act.actualCost ? act.actualCost.toString() : null,
+                    expenseTypeId: act.expenseTypeId ? Number(act.expenseTypeId) : undefined,
                   });
                 }
               }
@@ -3207,7 +3223,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       'other': 'Khác'
     };
     const translated = typeMap[typeName] || typeName;
-    const found = types.find((t: any) => t.name === translated || t.name === typeName);
+    const found = types.find((t: any) => 
+      t.name === translated || t.name === typeName
+      || t.description === translated || t.description === typeName
+    );
     return found?.expenseTypeId;
   }
 

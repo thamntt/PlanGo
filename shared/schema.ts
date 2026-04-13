@@ -188,6 +188,7 @@ export const itineraryItems = pgTable("itinerary_items", {
   estimatedCost: decimal("estimated_cost", { precision: 12, scale: 2 }),
   actualCost: decimal("actual_cost", { precision: 12, scale: 2 }),
   status: varchar("status", { length: 50 }),
+  expenseTypeId: integer("expense_type_id").references(() => expenseType.expenseTypeId),
 });
 
 export const itemReviews = pgTable("item_reviews", {

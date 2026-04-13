@@ -24,10 +24,19 @@ import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import * as Clipboard from "expo-clipboard";
-import { formatVND, generateId } from "@/lib/storage";
+import {
+  type ItineraryActivity,
+  type Review,
+  type Notification,
+  type POI,
+  type DestinationType,
+  type ExpenseType,
+  generateId,
+  formatVND,
+} from "@/lib/storage";
 import { t } from "@/lib/i18n";
 import { getApiUrl, getApiHeaders, apiRequest } from "@/lib/query-client";
-import type { ItineraryActivity, Expense, ExpenseSplit, TripCompanion, POI } from "@/lib/storage";
+import type { Expense, ExpenseSplit, TripCompanion } from "@/lib/storage";
 import RouteMap from "@/components/RouteMap";
 
 function getStatusLabel(status: string): string {
@@ -38,7 +47,11 @@ function getStatusLabel(status: string): string {
   return status;
 }
 
-function getActivityTypeLabel(type: string): string {
+function getActivityTypeLabel(type: string, ets?: ExpenseType[]): string {
+  if (ets) {
+    const found = ets.find(et => et.id.toString() === type.toString() || et.name === type);
+    if (found) return found.name;
+  }
   const labels = t().itinerary;
   const map: Record<string, string> = {
     sightseeing: labels.sightseeing,
@@ -180,7 +193,9 @@ export default function ItineraryDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview, pois, refreshData } = useData();
+  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview, pois, expenseTypes,
+    refreshData,
+  } = useData();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -193,7 +208,7 @@ export default function ItineraryDetailScreen() {
   const [activeTab, setActiveTab] = useState<"itinerary" | "expenses" | "companions">("itinerary");
   const [expandedDay, setExpandedDay] = useState<number | null>(0);
   const [noteModal, setNoteModal] = useState<{ activityId: string; dayIdx: number; note: string; editIndex?: number } | null>(null);
-  const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; estimatedCost: string; paidBy: string; activityTitle: string } | null>(null);
+  const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; estimatedCost: string; paidBy: string; activityTitle: string; type: string; expenseTypeId?: string | number } | null>(null);
   const [costPaidByDropdown, setCostPaidByDropdown] = useState(false);
   const [costSplitType, setCostSplitType] = useState<"none" | "equal" | "custom">("none");
   const [costSplitChecked, setCostSplitChecked] = useState<Record<string, boolean>>({});
@@ -211,6 +226,7 @@ export default function ItineraryDetailScreen() {
   const [expenseTitle, setExpenseTitle] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseType, setExpenseType] = useState<"transport" | "shopping" | "food" | "sightseeing" | "other">("transport");
+  const [expenseTypeId, setExpenseTypeId] = useState<string | number | undefined>(undefined);
   const [expensePaidBy, setExpensePaidBy] = useState("");
   const [expensePaidByUserId, setExpensePaidByUserId] = useState("");
   const [expenseSplitType, setExpenseSplitType] = useState<"none" | "equal" | "custom">("none");
@@ -1076,6 +1092,7 @@ export default function ItineraryDetailScreen() {
         activity.actualCost = newActualCost;
       }
       activity.paidBy = costModal.paidBy.trim() || undefined;
+      activity.expenseTypeId = costModal.expenseTypeId;
 
       // Auto-create or update linked expense for this activity
       const newExpenses = [...expenses];
@@ -1090,7 +1107,7 @@ export default function ItineraryDetailScreen() {
             ...newExpenses[existingIdx],
             title: activity.title,
             amount: newActualCost,
-            type: activity.activityType as Expense["type"],
+            type: (costModal.type || activity.activityType || "other") as Expense["type"],
             paidBy: paidByName,
             paidByUserId: paidByMember?.userId,
             splitType: costSplitType,
@@ -1104,13 +1121,14 @@ export default function ItineraryDetailScreen() {
             id: generateId(),
             title: activity.title,
             amount: newActualCost,
-            type: activity.activityType as Expense["type"],
+            type: (costModal.type || activity.activityType || "other") as Expense["type"],
             paidBy: paidByName,
             paidByUserId: paidByMember?.userId,
             splitType: costSplitType,
             splits: newSplits,
             dayIndex: costModal.dayIdx,
             activityId: costModal.activityId,
+            expenseTypeId: costModal.expenseTypeId,
             createdAt: new Date().toISOString(),
           });
         }
@@ -1389,6 +1407,7 @@ export default function ItineraryDetailScreen() {
           title: expenseTitle.trim(),
           amount,
           type: expenseType,
+          expenseTypeId: expenseTypeId,
           paidBy: expensePaidBy.trim() || undefined,
           paidByUserId: expensePaidByUserId || undefined,
           splitType: expenseSplitType,
@@ -1416,6 +1435,7 @@ export default function ItineraryDetailScreen() {
         title: expenseTitle.trim(),
         amount,
         type: expenseType,
+        expenseTypeId: expenseTypeId,
         paidBy: expensePaidBy.trim() || undefined,
         paidByUserId: expensePaidByUserId || undefined,
         splitType: expenseSplitType,
@@ -1440,6 +1460,7 @@ export default function ItineraryDetailScreen() {
     setExpensePaidBy("");
     setExpensePaidByUserId("");
     setExpenseType("transport");
+    setExpenseTypeId(undefined);
     setExpenseSplitType("none");
     setExpenseSplitChecked({});
     setExpenseSplitAmounts({});
@@ -1480,6 +1501,7 @@ export default function ItineraryDetailScreen() {
     setExpenseTitle(expense.title);
     setExpenseAmount(expense.amount.toString());
     setExpenseType(expense.type);
+    setExpenseTypeId(expense.expenseTypeId);
     setExpensePaidBy(expense.paidBy || "");
     setExpensePaidByUserId(expense.paidByUserId || "");
     setExpenseSplitType(expense.splitType || "none");
@@ -1967,7 +1989,22 @@ export default function ItineraryDetailScreen() {
                               if (itinerary.status === "active") return true;
                               return false;
                             })() && (
-                                <Pressable onPress={() => { setCostPaidByDropdown(false); setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || 0).toString(), estimatedCost: (activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || user?.fullName || "", activityTitle: activity.title }); }} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Pressable 
+                                  onPress={() => { 
+                                    setCostPaidByDropdown(false); 
+                                    setCostModal({ 
+                                      activityId: activity.id, 
+                                      dayIdx, 
+                                      cost: (activity.actualCost || 0).toString(), 
+                                      estimatedCost: (activity.estimatedCost || 0).toString(), 
+                                      paidBy: activity.paidBy || user?.fullName || "", 
+                                      activityTitle: activity.title,
+                                      expenseTypeId: activity.expenseTypeId,
+                                      type: activity.activityType || "other"
+                                    }); 
+                                  }} 
+                                  style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
+                                >
                                   <Ionicons name="cash-outline" size={14} color={colors.accent} />
                                 </Pressable>
                               )}
@@ -2103,11 +2140,12 @@ export default function ItineraryDetailScreen() {
               // Stats by category
               const catMap: Record<string, number> = {};
               for (const a of allActivities) {
-                const cat = a.activityType || "other";
+                const cat = a.expenseTypeId?.toString() || a.activityType || "other";
                 catMap[cat] = (catMap[cat] || 0) + (a.actualCost || 0);
               }
               for (const e of manualExps) {
-                catMap[e.type] = (catMap[e.type] || 0) + e.amount;
+                const cat = e.expenseTypeId?.toString() || e.type || "other";
+                catMap[cat] = (catMap[cat] || 0) + e.amount;
               }
               const catEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
 
@@ -2131,6 +2169,11 @@ export default function ItineraryDetailScreen() {
                 transport: "#45B7D1",
                 shopping: "#FFA07A",
                 other: "#9B59B6",
+                "1": "#FF6B6B", // Food
+                "2": "#45B7D1", // Transport
+                "3": "#FFA07A", // Shopping
+                "4": "#4ECDC4", // Sightseeing
+                "5": "#9B59B6", // Other
               };
               const payerColors = ["#6C5CE7", "#00B894", "#FDCB6E", "#E17055", "#0984E3", "#D63031", "#00CEC9", "#E84393"];
 
@@ -2346,7 +2389,7 @@ export default function ItineraryDetailScreen() {
                           {manualExps.map((exp: any, idx: number) => (
                             <View key={exp.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40" }]}>
                               <Text style={[sumStyles.tdCell, sumStyles.cellName, { color: colors.text }]} numberOfLines={1}>{exp.title}</Text>
-                              <Text style={[sumStyles.tdCell, sumStyles.cellType, { color: colors.textTertiary }]}>{getActivityTypeLabel(exp.type)}</Text>
+                              <Text style={[sumStyles.tdCell, sumStyles.cellType, { color: colors.textTertiary }]}>{getActivityTypeLabel(exp.expenseTypeId?.toString() || exp.type, expenseTypes)}</Text>
                               <Text style={[sumStyles.tdCell, sumStyles.cellCost, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>{formatVND(exp.amount)}</Text>
                               <Text style={[sumStyles.tdCell, sumStyles.cellPayer, { color: exp.paidBy ? colors.textSecondary : colors.textTertiary }]} numberOfLines={1}>
                                 {exp.paidBy || "—"}
@@ -2393,7 +2436,7 @@ export default function ItineraryDetailScreen() {
                               <View key={cat} style={sumStyles.statRow}>
                                 <View style={sumStyles.statLabelRow}>
                                   <View style={[sumStyles.statDot, { backgroundColor: barColor }]} />
-                                  <Text style={[sumStyles.statLabel, { color: colors.text }]}>{getActivityTypeLabel(cat)}</Text>
+                                  <Text style={[sumStyles.statLabel, { color: colors.text }]}>{getActivityTypeLabel(cat, expenseTypes)}</Text>
                                   <Text style={[sumStyles.statPct, { color: colors.textTertiary }]}>{pct.toFixed(1)}%</Text>
                                 </View>
                                 <View style={[sumStyles.statBarBg, { backgroundColor: colors.inputBg }]}>
@@ -2458,7 +2501,7 @@ export default function ItineraryDetailScreen() {
                       <Text style={[styles.expenseTitle, { color: colors.text }]}>{expense.title}</Text>
                       <View style={styles.expenseMeta}>
                         <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}>
-                          {new Date(expense.createdAt).toLocaleDateString("vi-VN")} • {getActivityTypeLabel(expense.type)}
+                          {new Date(expense.createdAt).toLocaleDateString("vi-VN")} • {getActivityTypeLabel(expense.expenseTypeId?.toString() || expense.type, expenseTypes)}
                         </Text>
                         {expense.paidBy && (
                           <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}> • {txt.paidBy}: {expense.paidBy}</Text>
@@ -2904,6 +2947,28 @@ export default function ItineraryDetailScreen() {
                   />
                 </>
               )}
+
+              {/* Loại chi phí (Category Selector) */}
+              <Text style={[styles.modalSubLabel, { color: colors.textSecondary, marginTop: 8 }]}>{txt.expenseType}</Text>
+              <View style={[styles.typeRow, { flexWrap: "wrap", marginBottom: 12 }]}>
+                {expenseTypes.map((et) => (
+                  <Pressable
+                    key={et.id}
+                    onPress={() => costModal && setCostModal({ ...costModal, expenseTypeId: et.id, type: et.name.toLowerCase() })}
+                    style={[
+                      styles.typeChip, 
+                      { 
+                        backgroundColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBg, 
+                        borderColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBorder,
+                        marginBottom: 6
+                      }
+                    ]}
+                  >
+                    <Ionicons name={getActivityTypeIcon(et.name.toLowerCase() as any) as any} size={14} color={costModal?.expenseTypeId?.toString() === et.id.toString() ? "#fff" : colors.textSecondary} />
+                    <Text style={[styles.typeChipText, { color: costModal?.expenseTypeId?.toString() === et.id.toString() ? "#fff" : colors.textSecondary }]}>{et.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
               {/* Người trả - Dropdown style like expense modal */}
               <Text style={[styles.splitLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
               <Pressable
@@ -3209,17 +3274,45 @@ export default function ItineraryDetailScreen() {
                 placeholder="VD: Taxi sân bay"
                 placeholderTextColor={colors.textTertiary}
               />
-              <View style={styles.typeRow}>
-                {(["transport", "shopping", "food", "sightseeing", "other"] as const).map((tp) => (
-                  <Pressable
-                    key={tp}
-                    onPress={() => setExpenseType(tp)}
-                    style={[styles.typeChip, { backgroundColor: expenseType === tp ? colors.primary : colors.inputBg, borderColor: expenseType === tp ? colors.primary : colors.inputBorder }]}
-                  >
-                    <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={expenseType === tp ? "#fff" : colors.textSecondary} />
-                    <Text style={[styles.typeChipText, { color: expenseType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
-                  </Pressable>
-                ))}
+              <View style={[styles.typeRow, { flexWrap: 'wrap' }]}>
+                {expenseTypes.map((et) => {
+                  const isSelected = expenseTypeId?.toString() === et.id.toString();
+                  return (
+                    <Pressable
+                      key={et.id}
+                      onPress={() => {
+                        const idStr = et.id.toString();
+                        setExpenseTypeId(et.id);
+                        // Map core types for legacy compatibility if possible
+                        if (idStr === "1") setExpenseType("food");
+                        else if (idStr === "2") setExpenseType("transport");
+                        else if (idStr === "3") setExpenseType("other"); // accommodation mapped to other for legacy
+                        else if (idStr === "4") setExpenseType("sightseeing");
+                        else if (idStr === "5") setExpenseType("shopping");
+                        else setExpenseType("other");
+                      }}
+                      style={[styles.typeChip, {
+                        backgroundColor: isSelected ? colors.primary : colors.inputBg,
+                        borderColor: isSelected ? colors.primary : colors.inputBorder,
+                        marginBottom: 8
+                      }]}
+                    >
+                      <Ionicons
+                        name={getActivityTypeIcon(
+                          et.id.toString() === "1" ? "food" :
+                          et.id.toString() === "2" ? "transport" :
+                          et.id.toString() === "4" ? "sightseeing" :
+                          et.id.toString() === "5" ? "shopping" : "other"
+                        ) as any}
+                        size={14}
+                        color={isSelected ? "#fff" : colors.textSecondary}
+                      />
+                      <Text style={[styles.typeChipText, { color: isSelected ? "#fff" : colors.textSecondary }]}>
+                        {et.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
               <TextInput
                 style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}

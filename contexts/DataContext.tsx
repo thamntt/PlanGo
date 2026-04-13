@@ -8,6 +8,7 @@ import {
   type Notification,
   type POI,
   type DestinationType,
+  type ExpenseType,
   generateId,
   formatVND,
 } from "@/lib/storage";
@@ -21,6 +22,7 @@ interface DataContextValue {
   reviews: Review[];
   notifications: Notification[];
   pois: POI[];
+  expenseTypes: ExpenseType[];
   isLoading: boolean;
   addDestination: (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive"> & { rating?: number; reviewCount?: number }) => Promise<Destination>;
   updateDestination: (id: string, data: Partial<Destination>) => Promise<void>;
@@ -103,6 +105,14 @@ function mapDestinationType(t: any): DestinationType {
   return {
     id: (t.destinationtypeId || t.id)?.toString() || "",
     typeName: t.typeName || "",
+    description: t.description || "",
+  };
+}
+
+function mapExpenseType(t: any): ExpenseType {
+  return {
+    id: (t.expenseTypeId || t.id)?.toString() || "",
+    name: t.name || "",
     description: t.description || "",
   };
 }
@@ -410,6 +420,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pois, setPois] = useState<POI[]>([]);
+  const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(async () => {
@@ -458,6 +469,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         fetchEntity("/api/reviews", mapReview, setReviews), // Might 404, handled by fetchEntity try-catch
         fetchEntity("/api/notifications", mapNotification, setNotifications),
         fetchEntity("/api/destination-types", mapDestinationType, setDestinationTypes),
+        fetchEntity("/api/expense-types", mapExpenseType, setExpenseTypes),
       ]);
 
     } catch (err) {
@@ -780,6 +792,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       reviews,
       notifications,
       pois,
+      expenseTypes,
       isLoading,
       addDestination,
       updateDestination,
