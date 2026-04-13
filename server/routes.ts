@@ -2998,8 +2998,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.body.expenses && Array.isArray(req.body.expenses) && trip.status !== "completed") {
         const processedExpenseIds = new Set<number>();
 
-        // Simple approach: sync expenses by ensuring all sent ones exist
+        // Deduplicate expenses to ensure only ONE expense per activityId is saved
+        const expensesToProcess = [];
+        const seenItemIdsForExpenses = new Set<number>();
         for (const exp of req.body.expenses) {
+          if (exp.activityId && !isNaN(Number(exp.activityId))) {
+            const actId = Number(exp.activityId);
+            if (seenItemIdsForExpenses.has(actId)) {
+              continue; // Skip duplicates; they will be deleted during cleanup
+            }
+            seenItemIdsForExpenses.add(actId);
+          }
+          expensesToProcess.push(exp);
+        }
+
+        for (const exp of expensesToProcess) {
           const expData = {
             tripId: id,
             description: exp.title || exp.description,

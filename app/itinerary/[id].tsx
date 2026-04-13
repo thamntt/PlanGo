@@ -1082,7 +1082,7 @@ export default function ItineraryDetailScreen() {
       if (itinerary.status !== "draft" && newActualCost > 0) {
         const paidByName = costModal.paidBy.trim() || undefined;
         const paidByMember = tripMembers.find((m) => m.userName === paidByName);
-        const existingIdx = newExpenses.findIndex((e) => e.activityId === costModal.activityId);
+        const existingIdx = newExpenses.findIndex((e) => e.activityId === costModal.activityId.toString());
         if (existingIdx >= 0) {
           // Update existing linked expense
           const updatedSplits = buildCostSplits(costSplitType, costSplitChecked, costSplitAmounts, newActualCost);
@@ -1116,7 +1116,7 @@ export default function ItineraryDetailScreen() {
         }
       } else if (itinerary.status !== "draft") {
         // If actual cost is 0, remove linked expense if exists
-        const existingIdx = newExpenses.findIndex((e) => e.activityId === costModal.activityId);
+        const existingIdx = newExpenses.findIndex((e) => e.activityId === costModal.activityId.toString());
         if (existingIdx >= 0) newExpenses.splice(existingIdx, 1);
       }
 
@@ -2153,7 +2153,7 @@ export default function ItineraryDetailScreen() {
                     const comp = (itinerary.companions || []).find(c => c.userName === paidByName);
                     if (comp) {
                       paidByUserId = comp.userId;
-                    } else if (user?.fullName === paidByName || user?.userName === paidByName) {
+                    } else if (user?.fullName === paidByName || user?.username === paidByName) {
                       paidByUserId = user.id.toString();
                     }
                   }
@@ -3013,9 +3013,23 @@ export default function ItineraryDetailScreen() {
                 <Pressable onPress={() => { setCostModal(null); setCostPaidByDropdown(false); setCostSplitType("none"); setCostSplitChecked({}); setCostSplitAmounts({}); }} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
                   <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
                 </Pressable>
-                <Pressable onPress={saveCost} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
-                  <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
-                </Pressable>
+                {(() => {
+                  const total = parseInt((costModal?.cost || "0").replace(/[^0-9]/g, ""), 10) || 0;
+                  const sum = Object.entries(costSplitAmounts)
+                    .filter(([uid]) => costSplitChecked[uid])
+                    .reduce((s, [, v]) => s + (parseInt(v.replace(/[^0-9]/g, ""), 10) || 0), 0);
+                  const isInvalid = costSplitType === "custom" && total !== sum;
+
+                  return (
+                    <Pressable 
+                      onPress={saveCost} 
+                      disabled={isInvalid}
+                      style={[styles.modalBtn, { backgroundColor: colors.primary, opacity: isInvalid ? 0.5 : 1 }]}
+                    >
+                      <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
+                    </Pressable>
+                  );
+                })()}
               </View>
             </ScrollView>
           </View>
