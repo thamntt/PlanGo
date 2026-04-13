@@ -72,7 +72,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const res = await apiRequest("GET", `/api/users/${saved.id}`);
           const data = await unwrapResponse(res);
           const fresh = mapUser(data);
-          if (!fresh.isLocked) {
+          // Block admin role on mobile
+          if (!fresh.isLocked && fresh.role !== "admin") {
             setUser(fresh);
             await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(fresh));
           } else {
@@ -81,8 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         } catch {
           // Server unreachable, use cached data
-          if (!saved.isLocked) {
+          if (!saved.isLocked && saved.role !== "admin") {
             setUser(saved);
+          } else {
+            setUser(null);
+            await AsyncStorage.removeItem(CURRENT_USER_KEY);
           }
         }
       }
@@ -129,6 +133,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await apiRequest("POST", "/api/auth/login", { username, password });
       const data = await unwrapResponse(res);
       const found = mapUser(data);
+      if (found.role === "admin") {
+        return { success: false, error: "Tài khoản hoặc mật khẩu không đúng" };
+      }
       setUser(found);
       await AsyncStorage.setItem(CURRENT_USER_KEY, JSON.stringify(found));
       return { success: true };
@@ -136,9 +143,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const msg = err.message || "Login failed";
       if (msg.includes("401")) return { success: false, error: "Sai tên đăng nhập hoặc mật khẩu" };
       if (msg.includes("403")) {
-        if (msg.includes("Admin")) {
-          return { success: false, error: "Tài khoản hoặc mật khẩu không đúng" };
-        }
         return { success: false, error: "Tài khoản đã bị khóa" };
       }
       return { success: false, error: msg };

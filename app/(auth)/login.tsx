@@ -55,7 +55,7 @@ export default function LoginScreen() {
         setPendingRedirect(redirect);
         router.replace(redirect as any);
       } else {
-        router.replace(isAdmin ? "/admin" : "/(tabs)");
+        router.replace("/(tabs)");
       }
     } else {
       setErrors({ general: result.error || t().auth.loginFailed });

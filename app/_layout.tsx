@@ -49,10 +49,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           router.replace(redirect as any);
         } catch (e) {
           console.warn("[AuthGate] Redirect failed, going to tabs:", e);
-          router.replace(isAdmin ? "/admin" : "/(tabs)");
+          router.replace("/(tabs)");
         }
       } else {
-        router.replace(isAdmin ? "/admin" : "/(tabs)");
+        router.replace("/(tabs)");
       }
     }
   }, [user, isLoading, segments]);

@@ -276,12 +276,7 @@ export default function ProfileScreen() {
           <Text style={pStyles.userName}>{user?.fullName}</Text>
           <Text style={pStyles.userHandle}>@{user?.username}</Text>
           <View style={pStyles.badgeRow}>
-            {isAdmin && (
-              <View style={pStyles.adminBadge}>
-                <Ionicons name="shield-checkmark" size={11} color="#fff" />
-                <Text style={pStyles.adminBadgeText}>Admin</Text>
-              </View>
-            )}
+
             {memberSince ? (
               <View style={[pStyles.memberBadge, { backgroundColor: "rgba(255,255,255,0.25)" }]}>
                 <Ionicons name="calendar-outline" size={11} color="#fff" />
@@ -428,27 +423,7 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {isAdmin && (
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/admin");
-            }}
-            style={({ pressed }) => [
-              pStyles.adminButton,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder, transform: [{ scale: pressed ? 0.98 : 1 }] },
-            ]}
-          >
-            <View style={[pStyles.adminBtnIcon, { backgroundColor: colors.accent + "20" }]}>
-              <Ionicons name="settings" size={20} color={colors.accent} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[pStyles.adminBtnTitle, { color: colors.text }]}>{txt.profile.adminDashboard}</Text>
-              <Text style={[pStyles.adminBtnSub, { color: colors.textSecondary }]}>{txt.profile.adminDesc}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
-          </Pressable>
-        )}
+
 
         {/* Join by code section */}
         <View style={pStyles.section}>
