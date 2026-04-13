@@ -51,7 +51,17 @@ const Dashboard: React.FC = () => {
           />
           <DoughnutChart 
             title="Trạng thái Chuyến đi" 
-            data={adminStats.tripStatus} 
+            data={Object.fromEntries(
+              Object.entries(adminStats.tripStatus as Record<string, number>).map(([key, value]) => {
+                const map: Record<string, string> = {
+                  draft: 'Bản nháp',
+                  active: 'Đang diễn ra',
+                  completed: 'Đã hoàn thành',
+                  cancelled: 'Đã hủy'
+                };
+                return [map[key] || key, value];
+              })
+            )} 
             colors={['#94A3B8', '#0891B2', '#10B981', '#F43F5E']}
           />
         </div>
