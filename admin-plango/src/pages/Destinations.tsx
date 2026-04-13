@@ -77,19 +77,31 @@ const Destinations: React.FC = () => {
     setIsSearching(false);
   };
 
+  const extractDescription = (raw: unknown): string => {
+    if (!raw) return "";
+    if (typeof raw === "string") return raw;
+    if (typeof raw === "object" && raw !== null) {
+      const obj = raw as Record<string, unknown>;
+      if (typeof obj.text === "string") return obj.text;
+      if (typeof obj.overview === "string") return obj.overview;
+    }
+    return "";
+  };
+
   const selectGooglePlace = async (place: PlaceSearchResult) => {
     setDestName(place.name);
     setDestAddr(place.address);
     setDestLat(place.latitude.toString());
     setDestLng(place.longitude.toString());
-    setDestDesc(place.editorialSummary || "");
+    setDestDesc(extractDescription(place.editorialSummary));
     setDestGoogleId(place.placeId);
     setDestPhotos(place.photos || []);
     
     // Attempt to get more details
     const details = await getPlaceDetails(place.placeId);
     if (details) {
-      if (details.editorialSummary) setDestDesc(details.editorialSummary);
+      const desc = extractDescription(details.editorialSummary);
+      if (desc) setDestDesc(desc);
       if (details.photos?.length) setDestPhotos(details.photos);
     }
     
@@ -177,7 +189,7 @@ const Destinations: React.FC = () => {
       address: destAddr,
       latitude: lat,
       longitude: lng,
-      description: destDesc || "Một điểm đến tuyệt vời",
+      description: (typeof destDesc === "string" && destDesc.trim()) ? destDesc.trim() : undefined,
       googlePlaceId: destGoogleId || undefined,
       googlePhotos: destPhotos.length > 0 ? destPhotos : undefined,
       images: uploadedImageUrl 

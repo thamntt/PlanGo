@@ -78,6 +78,17 @@ const POIs: React.FC = () => {
     setIsSearching(false);
   };
 
+  const extractDescription = (raw: unknown): string => {
+    if (!raw) return "";
+    if (typeof raw === "string") return raw;
+    if (typeof raw === "object" && raw !== null) {
+      const obj = raw as Record<string, unknown>;
+      if (typeof obj.text === "string") return obj.text;
+      if (typeof obj.overview === "string") return obj.overview;
+    }
+    return "";
+  };
+
   const selectGooglePlace = async (place: PlaceSearchResult) => {
     setPoiName(place.name);
     setPoiAddr(place.address);
@@ -93,7 +104,8 @@ const POIs: React.FC = () => {
     if (details) {
       if (details.rating > 0) setPoiRating(details.rating.toString());
       if (details.reviewCount > 0) setPoiReviewCount(details.reviewCount.toString());
-      if (details.editorialSummary) setPoiDesc(details.editorialSummary);
+      const desc = extractDescription(details.editorialSummary);
+      if (desc) setPoiDesc(desc);
       if (details.openingHours?.length) setPoiOpenHours(details.openingHours.join(" | "));
       if (details.photos?.length) setPoiPhotos(details.photos);
     }
@@ -169,7 +181,7 @@ const POIs: React.FC = () => {
       reviewCount: parseInt(poiReviewCount) || 0,
       openHours: `${poiOpenDayStart} - ${poiOpenDayEnd} | ${poiTimeStart} - ${poiTimeEnd}`,
       estimatedCost: parseInt(poiCost) || undefined,
-      description: poiDesc || undefined,
+      description: (typeof poiDesc === "string" && poiDesc.trim()) ? poiDesc.trim() : undefined,
       images: poiPhotos.length > 0 ? poiPhotos.slice(0, 3).map(p => getPhotoUrl(p.name)) : ["https://images.unsplash.com/photo-1599708153386-62dc3942360b?w=800"],
       googlePlaceId: poiGoogleId || undefined,
       googlePhotos: poiPhotos.length > 0 ? poiPhotos : undefined,
