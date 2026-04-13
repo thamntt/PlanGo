@@ -135,7 +135,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err: any) {
       const msg = err.message || "Login failed";
       if (msg.includes("401")) return { success: false, error: "Sai tên đăng nhập hoặc mật khẩu" };
-      if (msg.includes("403")) return { success: false, error: "Tài khoản đã bị khóa" };
+      if (msg.includes("403")) {
+        if (msg.includes("Admin")) {
+          return { success: false, error: "Tài khoản hoặc mật khẩu không đúng" };
+        }
+        return { success: false, error: "Tài khoản đã bị khóa" };
+      }
       return { success: false, error: msg };
     }
   };
