@@ -6,9 +6,12 @@ const GlobalLoading: React.FC = () => {
 
   useEffect(() => {
     // Subscribe to global loading state from API client
-    return subscribeToLoading((loading) => {
+    const unsubscribe = subscribeToLoading((loading) => {
       setIsLoading(loading);
     });
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   if (!isLoading) return null;

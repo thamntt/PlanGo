@@ -13,7 +13,9 @@ function notifyListeners() {
 export const subscribeToLoading = (l: LoadingListener) => {
   listeners.add(l);
   l(activeRequests > 0);
-  return () => listeners.delete(l);
+  return () => {
+    listeners.delete(l);
+  };
 };
 
 // Since we have Vite proxy configured, we can just hit /api directly
