@@ -47,7 +47,11 @@ function getStatusLabel(status: string): string {
   return status;
 }
 
-function getActivityTypeLabel(type: string): string {
+function getActivityTypeLabel(type: string, ets?: ExpenseType[]): string {
+  if (ets) {
+    const found = ets.find(et => et.id.toString() === type.toString() || et.name === type);
+    if (found) return found.name;
+  }
   const labels = t().itinerary;
   const map: Record<string, string> = {
     sightseeing: labels.sightseeing,
@@ -2131,11 +2135,12 @@ export default function ItineraryDetailScreen() {
               // Stats by category
               const catMap: Record<string, number> = {};
               for (const a of allActivities) {
-                const cat = a.activityType || "other";
+                const cat = a.expenseTypeId?.toString() || a.activityType || "other";
                 catMap[cat] = (catMap[cat] || 0) + (a.actualCost || 0);
               }
               for (const e of manualExps) {
-                catMap[e.type] = (catMap[e.type] || 0) + e.amount;
+                const cat = e.expenseTypeId?.toString() || e.type || "other";
+                catMap[cat] = (catMap[cat] || 0) + e.amount;
               }
               const catEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
 
@@ -2159,6 +2164,11 @@ export default function ItineraryDetailScreen() {
                 transport: "#45B7D1",
                 shopping: "#FFA07A",
                 other: "#9B59B6",
+                "1": "#FF6B6B", // Food
+                "2": "#45B7D1", // Transport
+                "3": "#FFA07A", // Shopping
+                "4": "#4ECDC4", // Sightseeing
+                "5": "#9B59B6", // Other
               };
               const payerColors = ["#6C5CE7", "#00B894", "#FDCB6E", "#E17055", "#0984E3", "#D63031", "#00CEC9", "#E84393"];
 
@@ -2374,7 +2384,7 @@ export default function ItineraryDetailScreen() {
                           {manualExps.map((exp: any, idx: number) => (
                             <View key={exp.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40" }]}>
                               <Text style={[sumStyles.tdCell, sumStyles.cellName, { color: colors.text }]} numberOfLines={1}>{exp.title}</Text>
-                              <Text style={[sumStyles.tdCell, sumStyles.cellType, { color: colors.textTertiary }]}>{getActivityTypeLabel(exp.type)}</Text>
+                              <Text style={[sumStyles.tdCell, sumStyles.cellType, { color: colors.textTertiary }]}>{getActivityTypeLabel(exp.expenseTypeId?.toString() || exp.type, expenseTypes)}</Text>
                               <Text style={[sumStyles.tdCell, sumStyles.cellCost, { color: colors.text, fontFamily: "Inter_600SemiBold" }]}>{formatVND(exp.amount)}</Text>
                               <Text style={[sumStyles.tdCell, sumStyles.cellPayer, { color: exp.paidBy ? colors.textSecondary : colors.textTertiary }]} numberOfLines={1}>
                                 {exp.paidBy || "—"}
@@ -2421,7 +2431,7 @@ export default function ItineraryDetailScreen() {
                               <View key={cat} style={sumStyles.statRow}>
                                 <View style={sumStyles.statLabelRow}>
                                   <View style={[sumStyles.statDot, { backgroundColor: barColor }]} />
-                                  <Text style={[sumStyles.statLabel, { color: colors.text }]}>{getActivityTypeLabel(cat)}</Text>
+                                  <Text style={[sumStyles.statLabel, { color: colors.text }]}>{getActivityTypeLabel(cat, expenseTypes)}</Text>
                                   <Text style={[sumStyles.statPct, { color: colors.textTertiary }]}>{pct.toFixed(1)}%</Text>
                                 </View>
                                 <View style={[sumStyles.statBarBg, { backgroundColor: colors.inputBg }]}>
@@ -2486,7 +2496,7 @@ export default function ItineraryDetailScreen() {
                       <Text style={[styles.expenseTitle, { color: colors.text }]}>{expense.title}</Text>
                       <View style={styles.expenseMeta}>
                         <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}>
-                          {new Date(expense.createdAt).toLocaleDateString("vi-VN")} • {getActivityTypeLabel(expense.type)}
+                          {new Date(expense.createdAt).toLocaleDateString("vi-VN")} • {getActivityTypeLabel(expense.expenseTypeId?.toString() || expense.type, expenseTypes)}
                         </Text>
                         {expense.paidBy && (
                           <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}> • {txt.paidBy}: {expense.paidBy}</Text>
