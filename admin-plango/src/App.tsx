@@ -10,6 +10,7 @@ import Reviews from './pages/Reviews';
 import Login from './pages/Login';
 import { DataProvider } from './contexts/DataContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import GlobalLoading from './components/GlobalLoading';
 
 const ProtectedLayout: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -61,6 +62,7 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <GlobalLoading />
         <Routes>
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/*" element={<ProtectedLayout />} />
