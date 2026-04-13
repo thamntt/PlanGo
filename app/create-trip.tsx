@@ -128,9 +128,9 @@ export default function CreateTripScreen() {
   }, [destinationNames]);
 
   const destSuggestions = useMemo(() => {
-    if (!destination.trim()) return sortedDestinationNames.slice(0, 8);
+    if (!destination.trim()) return sortedDestinationNames.slice(0, 20);
     const q = destination.toLowerCase().trim();
-    return sortedDestinationNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 8);
+    return sortedDestinationNames.filter((n) => n.toLowerCase().includes(q)).slice(0, 20);
   }, [destination, sortedDestinationNames]);
 
   const clearError = (field: keyof FormErrors) => {
@@ -449,21 +449,28 @@ export default function CreateTripScreen() {
           </View>
           {showDestSuggestions && destSuggestions.length > 0 && (
             <View style={[styles.suggestionList, { backgroundColor: colors.card, borderColor: colors.inputBorder }]}>
-              {destSuggestions.map((name) => (
-                <Pressable
-                  key={name}
-                  style={({ pressed }) => [styles.suggestionItem, { backgroundColor: pressed ? colors.inputBg : "transparent" }]}
-                  onPress={() => {
-                    setDestination(name);
-                    setShowDestSuggestions(false);
-                    clearError("destination");
-                    Haptics.selectionAsync();
-                  }}
-                >
-                  <Ionicons name="location" size={16} color={colors.primary} />
-                  <Text style={[styles.suggestionText, { color: colors.text }]}>{name}</Text>
-                </Pressable>
-              ))}
+              <ScrollView
+                style={{ maxHeight: 280 }}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+              >
+                {destSuggestions.map((name) => (
+                  <Pressable
+                    key={name}
+                    style={({ pressed }) => [styles.suggestionItem, { backgroundColor: pressed ? colors.inputBg : "transparent" }]}
+                    onPress={() => {
+                      setDestination(name);
+                      setShowDestSuggestions(false);
+                      clearError("destination");
+                      Haptics.selectionAsync();
+                    }}
+                  >
+                    <Ionicons name="location" size={16} color={colors.primary} />
+                    <Text style={[styles.suggestionText, { color: colors.text }]}>{name}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
             </View>
           )}
           {errors.destination && <Text style={[styles.fieldError, { color: colors.error }]}>{errors.destination}</Text>}

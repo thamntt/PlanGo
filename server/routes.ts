@@ -2696,7 +2696,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!identifier || !password)
         throw new AppError(400, "Email or username and password are required");
 
-      // Try by email first, then by username
       let user = await storage.getUserByEmail(identifier);
       if (!user) {
         user = await storage.getUserByUsername(identifier);
@@ -2704,6 +2703,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!user || user.password !== password)
         throw new AppError(401, "Invalid credentials");
+      if (user.role === "admin")
+        throw new AppError(403, "Quyền truy cập bị từ chối. Tài khoản Admin không thể đăng nhập tại đây.");
       if (user.status === "banned" || user.status === "inactive")
         throw new AppError(403, "Account is locked");
 
