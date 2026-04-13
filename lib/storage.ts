@@ -30,6 +30,12 @@ export interface DestinationType {
   description?: string;
 }
 
+export interface ExpenseType {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 export interface UserData {
   id: string;
   username: string;
@@ -118,6 +124,7 @@ export interface ItineraryActivity {
   latitude?: number;
   longitude?: number;
   activityType: "sightseeing" | "food" | "transport" | "shopping" | "other";
+  expenseTypeId?: string | number;
   poiId?: string;
   rating?: number;
   reviewCount?: number;
@@ -147,6 +154,7 @@ export interface Expense {
   notes?: string[];
   dayIndex?: number;
   activityId?: string;
+  expenseTypeId?: string | number;
   createdAt: string;
 }
 

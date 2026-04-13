@@ -24,10 +24,19 @@ import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import * as Clipboard from "expo-clipboard";
-import { formatVND, generateId } from "@/lib/storage";
+import {
+  type ItineraryActivity,
+  type Review,
+  type Notification,
+  type POI,
+  type DestinationType,
+  type ExpenseType,
+  generateId,
+  formatVND,
+} from "@/lib/storage";
 import { t } from "@/lib/i18n";
 import { getApiUrl, getApiHeaders, apiRequest } from "@/lib/query-client";
-import type { ItineraryActivity, Expense, ExpenseSplit, TripCompanion, POI } from "@/lib/storage";
+import type { Expense, ExpenseSplit, TripCompanion } from "@/lib/storage";
 import RouteMap from "@/components/RouteMap";
 
 function getStatusLabel(status: string): string {
@@ -180,7 +189,9 @@ export default function ItineraryDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview, pois, refreshData } = useData();
+  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview, pois, expenseTypes,
+    refreshData,
+  } = useData();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -193,7 +204,7 @@ export default function ItineraryDetailScreen() {
   const [activeTab, setActiveTab] = useState<"itinerary" | "expenses" | "companions">("itinerary");
   const [expandedDay, setExpandedDay] = useState<number | null>(0);
   const [noteModal, setNoteModal] = useState<{ activityId: string; dayIdx: number; note: string; editIndex?: number } | null>(null);
-  const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; estimatedCost: string; paidBy: string; activityTitle: string } | null>(null);
+  const [costModal, setCostModal] = useState<{ activityId: string; dayIdx: number; cost: string; estimatedCost: string; paidBy: string; activityTitle: string; type: string; expenseTypeId?: string | number } | null>(null);
   const [costPaidByDropdown, setCostPaidByDropdown] = useState(false);
   const [costSplitType, setCostSplitType] = useState<"none" | "equal" | "custom">("none");
   const [costSplitChecked, setCostSplitChecked] = useState<Record<string, boolean>>({});
@@ -1076,6 +1087,7 @@ export default function ItineraryDetailScreen() {
         activity.actualCost = newActualCost;
       }
       activity.paidBy = costModal.paidBy.trim() || undefined;
+      activity.expenseTypeId = costModal.expenseTypeId;
 
       // Auto-create or update linked expense for this activity
       const newExpenses = [...expenses];
@@ -1090,7 +1102,7 @@ export default function ItineraryDetailScreen() {
             ...newExpenses[existingIdx],
             title: activity.title,
             amount: newActualCost,
-            type: activity.activityType as Expense["type"],
+            type: (costModal.type || activity.activityType || "other") as Expense["type"],
             paidBy: paidByName,
             paidByUserId: paidByMember?.userId,
             splitType: costSplitType,
@@ -1104,13 +1116,14 @@ export default function ItineraryDetailScreen() {
             id: generateId(),
             title: activity.title,
             amount: newActualCost,
-            type: activity.activityType as Expense["type"],
+            type: (costModal.type || activity.activityType || "other") as Expense["type"],
             paidBy: paidByName,
             paidByUserId: paidByMember?.userId,
             splitType: costSplitType,
             splits: newSplits,
             dayIndex: costModal.dayIdx,
             activityId: costModal.activityId,
+            expenseTypeId: costModal.expenseTypeId,
             createdAt: new Date().toISOString(),
           });
         }
@@ -1967,7 +1980,22 @@ export default function ItineraryDetailScreen() {
                               if (itinerary.status === "active") return true;
                               return false;
                             })() && (
-                                <Pressable onPress={() => { setCostPaidByDropdown(false); setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || 0).toString(), estimatedCost: (activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || user?.fullName || "", activityTitle: activity.title }); }} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
+                                <Pressable 
+                                  onPress={() => { 
+                                    setCostPaidByDropdown(false); 
+                                    setCostModal({ 
+                                      activityId: activity.id, 
+                                      dayIdx, 
+                                      cost: (activity.actualCost || 0).toString(), 
+                                      estimatedCost: (activity.estimatedCost || 0).toString(), 
+                                      paidBy: activity.paidBy || user?.fullName || "", 
+                                      activityTitle: activity.title,
+                                      expenseTypeId: activity.expenseTypeId,
+                                      type: activity.activityType || "other"
+                                    }); 
+                                  }} 
+                                  style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
+                                >
                                   <Ionicons name="cash-outline" size={14} color={colors.accent} />
                                 </Pressable>
                               )}
@@ -2904,6 +2932,28 @@ export default function ItineraryDetailScreen() {
                   />
                 </>
               )}
+
+              {/* Loại chi phí (Category Selector) */}
+              <Text style={[styles.modalSubLabel, { color: colors.textSecondary, marginTop: 8 }]}>{txt.expenseType}</Text>
+              <View style={[styles.typeRow, { flexWrap: "wrap", marginBottom: 12 }]}>
+                {expenseTypes.map((et) => (
+                  <Pressable
+                    key={et.id}
+                    onPress={() => costModal && setCostModal({ ...costModal, expenseTypeId: et.id, type: et.name.toLowerCase() })}
+                    style={[
+                      styles.typeChip, 
+                      { 
+                        backgroundColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBg, 
+                        borderColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBorder,
+                        marginBottom: 6
+                      }
+                    ]}
+                  >
+                    <Ionicons name={getActivityTypeIcon(et.name.toLowerCase() as any) as any} size={14} color={costModal?.expenseTypeId?.toString() === et.id.toString() ? "#fff" : colors.textSecondary} />
+                    <Text style={[styles.typeChipText, { color: costModal?.expenseTypeId?.toString() === et.id.toString() ? "#fff" : colors.textSecondary }]}>{et.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
               {/* Người trả - Dropdown style like expense modal */}
               <Text style={[styles.splitLabel, { color: colors.textSecondary }]}>{txt.paidBy}</Text>
               <Pressable
