@@ -1,5 +1,23 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Simple event system for global loading state
+type LoadingListener = (isLoading: boolean) => void;
+const listeners = new Set<LoadingListener>();
+let activeRequests = 0;
+
+function notifyListeners() {
+  const isLoading = activeRequests > 0;
+  listeners.forEach(l => l(isLoading));
+}
+
+export const subscribeToLoading = (l: LoadingListener) => {
+  listeners.add(l);
+  l(activeRequests > 0);
+  return () => {
+    listeners.delete(l);
+  };
+};
+
 /**
  * Gets the base URL for the Express API server (e.g., "http://192.168.1.20:5001")
  * @returns {string} The API base URL
@@ -52,22 +70,30 @@ export async function apiRequest(
   route: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const baseUrl = getApiUrl();
-  const url = new URL(route, baseUrl);
+  activeRequests++;
+  notifyListeners();
 
-  const res = await fetch(url.toString(), {
-    method,
-    headers: {
-      ...getApiHeaders(),
-      ...(data ? { "Content-Type": "application/json" } : {}),
-    },
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  try {
+    const baseUrl = getApiUrl();
+    const url = new URL(route, baseUrl);
 
-  await throwIfResNotOk(res);
+    const res = await fetch(url.toString(), {
+      method,
+      headers: {
+        ...getApiHeaders(),
+        ...(data ? { "Content-Type": "application/json" } : {}),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
 
-  return res;
+    await throwIfResNotOk(res);
+
+    return res;
+  } finally {
+    activeRequests = Math.max(0, activeRequests - 1);
+    notifyListeners();
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -76,24 +102,32 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const baseUrl = getApiUrl();
-    const url = new URL(queryKey.join("/") as string, baseUrl);
+    activeRequests++;
+    notifyListeners();
 
-    const res = await fetch(url.toString(), {
-      headers: getApiHeaders(),
-      credentials: "include",
-    });
+    try {
+      const baseUrl = getApiUrl();
+      const url = new URL(queryKey.join("/") as string, baseUrl);
 
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+      const res = await fetch(url.toString(), {
+        headers: getApiHeaders(),
+        credentials: "include",
+      });
+
+      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+        return null;
+      }
+
+      await throwIfResNotOk(res);
+      const json = await res.json();
+      if (json && typeof json === 'object' && 'status' in json && 'message' in json && 'data' in json) {
+        return json.data;
+      }
+      return json;
+    } finally {
+      activeRequests = Math.max(0, activeRequests - 1);
+      notifyListeners();
     }
-
-    await throwIfResNotOk(res);
-    const json = await res.json();
-    if (json && typeof json === 'object' && 'status' in json && 'message' in json && 'data' in json) {
-      return json.data;
-    }
-    return json;
   };
 
 export const queryClient = new QueryClient({

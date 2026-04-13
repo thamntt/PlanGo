@@ -2995,7 +2995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Handle nested expenses update
-      if (req.body.expenses && Array.isArray(req.body.expenses)) {
+      if (req.body.expenses && Array.isArray(req.body.expenses) && trip.status !== "completed") {
         const processedExpenseIds = new Set<number>();
 
         // Simple approach: sync expenses by ensuring all sent ones exist
@@ -3024,7 +3024,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             expIdParsed = exp.id;
           }
 
-          if (!isNaN(expIdParsed) && String(expIdParsed) === String(exp.id).trim()) {
+          // If no valid ID provided but this is an activity-linked expense, 
+          // try to find an exitsting expense for that activity ID to prevent duplicates
+          if (isNaN(expIdParsed) && expData.itemId) {
+            const tripExps = await storage.getExpensesByTrip(id);
+            const existingMatch = tripExps.find(e => e.itemId === expData.itemId);
+            if (existingMatch) {
+              expIdParsed = existingMatch.expenseId;
+            }
+          }
+
+          if (!isNaN(expIdParsed)) {
             await storage.updateExpense(expIdParsed, expData);
             finalExpId = expIdParsed;
           } else {
@@ -3497,6 +3507,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/trips/:tripId/expenses",
     asyncHandler(async (req, res) => {
+      const trip = await storage.getTrip(Number(req.params.tripId));
+      if (!trip) throw new AppError(404, "Trip not found");
+      if (trip.status === "completed") throw new AppError(400, "Cannot add expense to a completed trip");
+
       const expense = await storage.createExpense({
         ...req.body,
         tripId: Number(req.params.tripId),

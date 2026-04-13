@@ -1961,11 +1961,10 @@ export default function ItineraryDetailScreen() {
                                 <Ionicons name="document-text-outline" size={14} color={colors.primary} />
                               </Pressable>
                             )}
-                            {/* Cost: draft=estimated only, active/completed=both/actual */}
+                            {/* Cost: draft=estimated only, active=both/actual, completed=locked */}
                             {canEdit && (() => {
                               if (itinerary.status === "draft") return true;
                               if (itinerary.status === "active") return true;
-                              if (itinerary.status === "completed") return true;
                               return false;
                             })() && (
                                 <Pressable onPress={() => { setCostPaidByDropdown(false); setCostModal({ activityId: activity.id, dayIdx, cost: (activity.actualCost || 0).toString(), estimatedCost: (activity.estimatedCost || 0).toString(), paidBy: activity.paidBy || user?.fullName || "", activityTitle: activity.title }); }} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
@@ -2143,11 +2142,43 @@ export default function ItineraryDetailScreen() {
                 setSummaryPaidByDropdown(false);
                 const newDays = [...itinerary.days];
                 const act = newDays[editingSummaryRow.dayIdx].activities.find((a) => a.id === editingSummaryRow.actId);
+                
                 if (act) {
-                  act.actualCost = parseInt(editingSummaryRow.cost.replace(/[^0-9]/g, ""), 10) || 0;
-                  act.paidBy = editingSummaryRow.paidBy.trim() || undefined;
-                  const newSpent = recalcSpent(newDays, expenses);
-                  await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
+                  const amount = parseInt(editingSummaryRow.cost.replace(/[^0-9]/g, ""), 10) || 0;
+                  const paidByName = editingSummaryRow.paidBy.trim();
+                  
+                  // Find matching user ID from companions or current user
+                  let paidByUserId = undefined;
+                  if (paidByName) {
+                    const comp = (itinerary.companions || []).find(c => c.userName === paidByName);
+                    if (comp) {
+                      paidByUserId = comp.userId;
+                    } else if (user?.fullName === paidByName || user?.userName === paidByName) {
+                      paidByUserId = user.id.toString();
+                    }
+                  }
+
+                  act.actualCost = amount;
+                  act.paidBy = paidByName || undefined;
+                  
+                  // Sync corresponding expense
+                  const newExpenses = [...expenses];
+                  const expIdx = newExpenses.findIndex(e => e.activityId === act.id.toString());
+                  if (expIdx !== -1) {
+                    newExpenses[expIdx] = {
+                      ...newExpenses[expIdx],
+                      amount,
+                      paidBy: paidByName || undefined,
+                      paidByUserId: paidByUserId,
+                    };
+                  }
+
+                  const newSpent = recalcSpent(newDays, newExpenses);
+                  await updateItinerary(itinerary.id, { 
+                    days: newDays, 
+                    expenses: newExpenses,
+                    spentAmount: newSpent 
+                  });
                 }
                 setEditingSummaryRow(null);
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -2272,9 +2303,11 @@ export default function ItineraryDetailScreen() {
                                   <Ionicons name="checkmark-circle" size={20} color={"#00B894"} />
                                 </Pressable>
                               ) : (
-                                <Pressable onPress={() => { setSummaryPaidByDropdown(false); setEditingSummaryRow({ dayIdx: act._dayIdx, actId: act.id, cost: (act.actualCost || 0).toString(), paidBy: act.paidBy || "" }); }} hitSlop={6}>
-                                  <Ionicons name="create-outline" size={16} color={colors.primary} />
-                                </Pressable>
+                                canEdit && itinerary.status !== "completed" && (
+                                  <Pressable onPress={() => { setSummaryPaidByDropdown(false); setEditingSummaryRow({ dayIdx: act._dayIdx, actId: act.id, cost: (act.actualCost || 0).toString(), paidBy: act.paidBy || "" }); }} hitSlop={6}>
+                                    <Ionicons name="create-outline" size={16} color={colors.primary} />
+                                  </Pressable>
+                                )
                               )}
                             </View>
                           </View>
@@ -2322,9 +2355,11 @@ export default function ItineraryDetailScreen() {
                                 {exp.splitType === "equal" ? txt.splitEqual : exp.splitType === "custom" ? txt.splitCustom : txt.noSplit}
                               </Text>
                               <View style={sumStyles.cellAction}>
-                                <Pressable onPress={() => openEditExpense(exp)} hitSlop={6}>
-                                  <Ionicons name="create-outline" size={16} color={colors.primary} />
-                                </Pressable>
+                                {canEdit && itinerary.status !== "completed" && (
+                                  <Pressable onPress={() => openEditExpense(exp)} hitSlop={6}>
+                                    <Ionicons name="create-outline" size={16} color={colors.primary} />
+                                  </Pressable>
+                                )}
                               </View>
                             </View>
                           ))}
@@ -2455,7 +2490,7 @@ export default function ItineraryDetailScreen() {
                         <View key={noteIdx} style={[styles.noteBox, { backgroundColor: colors.inputBg }]}>
                           <Ionicons name="document-text-outline" size={14} color={colors.textSecondary} />
                           <Text style={[styles.noteText, { color: colors.textSecondary }]}>{noteItem}</Text>
-                          {canEdit && (
+                          {canEdit && itinerary.status !== "completed" && (
                             <>
                               <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: noteItem, editIndex: noteIdx })} hitSlop={6}>
                                 <Ionicons name="create-outline" size={14} color={colors.primary} />
@@ -2470,7 +2505,7 @@ export default function ItineraryDetailScreen() {
                     </View>
                   )}
 
-                  {canEdit && (
+                  {canEdit && itinerary.status !== "completed" && (
                     <View style={styles.expenseActions}>
                       <Pressable onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: "" })} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                         <Ionicons name="document-text-outline" size={14} color={colors.primary} />
@@ -2478,11 +2513,9 @@ export default function ItineraryDetailScreen() {
                       <Pressable onPress={() => openEditExpense(expense)} style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}>
                         <Ionicons name="create-outline" size={14} color={colors.accent} />
                       </Pressable>
-                      {itinerary.status !== "completed" && (
-                        <Pressable onPress={() => deleteExpense(expense.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
-                          <Ionicons name="trash-outline" size={14} color={colors.error} />
-                        </Pressable>
-                      )}
+                      <Pressable onPress={() => deleteExpense(expense.id)} style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}>
+                        <Ionicons name="trash-outline" size={14} color={colors.error} />
+                      </Pressable>
                     </View>
                   )}
                 </View>

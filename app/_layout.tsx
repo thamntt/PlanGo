@@ -16,6 +16,7 @@ import { queryClient } from "@/lib/query-client";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { DataProvider } from "@/contexts/DataContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
+import GlobalLoading from "@/components/GlobalLoading";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -103,6 +104,7 @@ export default function RootLayout() {
             <SettingsProvider>
               <AuthProvider>
                 <DataProvider>
+                  <GlobalLoading />
                   <RootLayoutNav />
                 </DataProvider>
               </AuthProvider>
