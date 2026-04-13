@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Edit, Lock, Unlock, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lock, Unlock, Trash2 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { UserData } from '../lib/types';
 
@@ -36,9 +36,7 @@ const Users: React.FC = () => {
   const { users, updateUser, deleteUser } = useData();
   const [filterMode, setFilterMode] = useState<"all" | "active" | "locked">("all");
   
-  // Modal states
-  const [editingUser, setEditingUser] = useState<UserData | null>(null);
-  const [editForm, setEditForm] = useState({ fullName: "", email: "", role: "user" as "user" | "admin" });
+  
 
   const filteredUsers = users.filter(u => {
     // 1. Hide Admin accounts
@@ -51,17 +49,6 @@ const Users: React.FC = () => {
     return true;
   });
 
-  const handleEditClick = (u: UserData) => {
-    setEditingUser(u);
-    setEditForm({ fullName: u.fullName, email: u.email, role: u.role });
-  };
-
-  const handleSaveEdit = async () => {
-    if (editingUser) {
-      await updateUser(editingUser.id, editForm);
-      setEditingUser(null);
-    }
-  };
 
   const toggleLock = async (u: UserData) => {
     await updateUser(u.id, { isLocked: !u.isLocked });
@@ -143,9 +130,6 @@ const Users: React.FC = () => {
                      <button onClick={() => toggleLock(user)} className="p-2 text-slate-400 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition-colors" title={user.isLocked ? "Mở khoá người dùng" : "Khoá người dùng"}>
                        {user.isLocked ? <Unlock size={16} /> : <Lock size={16} />}
                      </button>
-                     <button onClick={() => handleEditClick(user)} className="p-2 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors" title="Chỉnh sửa">
-                       <Edit size={16} />
-                     </button>
                      <button onClick={() => handleDelete(user)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="Xoá người dùng">
                        <Trash2 size={16} />
                      </button>
@@ -181,61 +165,6 @@ const Users: React.FC = () => {
         </p>
       </footer>
 
-      {/* Edit User Modal */}
-      {editingUser && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl">
-            <h3 className="text-2xl font-black text-slate-800 tracking-tight mb-6">Chỉnh sửa Người dùng</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Họ và Tên</label>
-                <input 
-                  type="text" 
-                  value={editForm.fullName}
-                  onChange={e => setEditForm({...editForm, fullName: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Email</label>
-                <input 
-                  type="email" 
-                  value={editForm.email}
-                  onChange={e => setEditForm({...editForm, email: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vai trò</label>
-                <select 
-                  value={editForm.role}
-                  onChange={e => setEditForm({...editForm, role: e.target.value as any})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all appearance-none"
-                >
-                  <option value="user">Người dùng</option>
-                  <option value="admin">Quản trị viên</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-8 flex gap-3">
-              <button 
-                onClick={() => setEditingUser(null)}
-                className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-colors"
-              >
-                Hủy
-              </button>
-              <button 
-                onClick={handleSaveEdit}
-                className="flex-1 py-3 bg-primary text-white font-bold text-sm rounded-xl shadow-lg shadow-primary/20 hover:scale-105 transition-all active:scale-95"
-              >
-                Lưu thay đổi
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

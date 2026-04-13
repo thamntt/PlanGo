@@ -88,6 +88,7 @@ export const pois = pgTable("pois", {
   rating: decimal("rating", { precision: 3, scale: 2 }),
   reviewCounts: integer("review_counts").default(0),
   googlePlaceId: varchar("google_place_id", { length: 255 }),
+  description: text("description"),
 });
 
 export const trips = pgTable("trips", {

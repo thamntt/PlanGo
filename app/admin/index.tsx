@@ -80,8 +80,8 @@ export default function AdminDashboard() {
   const [destRating, setDestRating] = useState(0);
   const [destReviewCount, setDestReviewCount] = useState(0);
   const [destGooglePlaceId, setDestGooglePlaceId] = useState("");
-  const [destGooglePhotos, setDestGooglePhotos] = useState<{name:string;attributions:string[]}[]>([]);
-  const [destGoogleReviews, setDestGoogleReviews] = useState<{author:string;rating:number;text:string;time:string}[]>([]);
+  const [destGooglePhotos, setDestGooglePhotos] = useState<{ name: string; attributions: string[] }[]>([]);
+  const [destGoogleReviews, setDestGoogleReviews] = useState<{ author: string; rating: number; text: string; time: string }[]>([]);
   const [destErrors, setDestErrors] = useState<DestFormErrors>({});
 
   const [userDetailId, setUserDetailId] = useState<string | null>(null);
@@ -126,8 +126,8 @@ export default function AdminDashboard() {
   const [poiDesc, setPoiDesc] = useState("");
   const [poiOpenHours, setPoiOpenHours] = useState("");
   const [poiGooglePlaceId, setPoiGooglePlaceId] = useState("");
-  const [poiGooglePhotos, setPoiGooglePhotos] = useState<{name:string;attributions:string[]}[]>([]);
-  const [poiGoogleReviews, setPoiGoogleReviews] = useState<{author:string;rating:number;text:string;time:string}[]>([]);
+  const [poiGooglePhotos, setPoiGooglePhotos] = useState<{ name: string; attributions: string[] }[]>([]);
+  const [poiGoogleReviews, setPoiGoogleReviews] = useState<{ author: string; rating: number; text: string; time: string }[]>([]);
   const [poiSearch, setPoiSearch] = useState("");
   const [poiFilterDest, setPoiFilterDest] = useState<string>("all");
   const [poiGoogleQuery, setPoiGoogleQuery] = useState("");
@@ -189,7 +189,7 @@ export default function AdminDashboard() {
       try {
         const imgResults = await searchPlaces(`${place.name} du lịch`);
         if (imgResults.length > 0) {
-          const photosFromSearch: {name: string; attributions: string[]}[] = [];
+          const photosFromSearch: { name: string; attributions: string[] }[] = [];
           for (const r of imgResults) {
             if (r.photos && r.photos.length > 0) {
               photosFromSearch.push(...r.photos);
@@ -643,10 +643,10 @@ export default function AdminDashboard() {
   const selectedUser = userDetailId ? users.find((u) => u.id === userDetailId) : null;
   const userTrips = selectedUser
     ? itineraries.filter(
-        (i) =>
-          i.userId === selectedUser.id ||
-          (i.companions || []).some((c) => c.userId === selectedUser.id)
-      )
+      (i) =>
+        i.userId === selectedUser.id ||
+        (i.companions || []).some((c) => c.userId === selectedUser.id)
+    )
     : [];
   const userOwnedTrips = selectedUser ? itineraries.filter((i) => i.userId === selectedUser.id) : [];
   const userReviews = selectedUser ? reviews.filter((r) => r.userId === selectedUser.id) : [];

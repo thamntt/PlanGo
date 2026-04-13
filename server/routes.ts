@@ -3202,11 +3202,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const hours = await storage.getPoiOpeningHours(poi.poiId);
       if (hours && hours.length > 0) {
-        const dayNames = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
-        enriched.openHours = hours
-          .sort((a: any, b: any) => a.dayOfWeek - b.dayOfWeek)
-          .map((h: any) => `${dayNames[h.dayOfWeek] || h.dayOfWeek}: ${h.openTime || "?"}-${h.closeTime || "?"}`)
-          .join(" | ");
+        const dayNamesShort = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+        const dayNamesFull = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+        
+        // Sort by dayOfWeek
+        const sorted = hours.sort((a: any, b: any) => a.dayOfWeek - b.dayOfWeek);
+        
+        // If all days have same time, try to summarize as range
+        const first = sorted[0];
+        const allSame = sorted.every((h: any) => h.openTime === first.openTime && h.closeTime === first.closeTime);
+        
+        if (allSame && sorted.length > 1) {
+          const startDay = dayNamesFull[sorted[0].dayOfWeek];
+          const endDay = dayNamesFull[sorted[sorted.length - 1].dayOfWeek];
+          const openT = (first.openTime || "00:00").slice(0, 5);
+          const closeT = (first.closeTime || "00:00").slice(0, 5);
+          enriched.openHours = `${startDay} - ${endDay} | ${openT} - ${closeT}`;
+        } else {
+          // Fallback to legacy detailed format
+          enriched.openHours = sorted
+            .map((h: any) => `${dayNamesShort[h.dayOfWeek] || h.dayOfWeek}: ${(h.openTime || "?").slice(0, 5)}-${(h.closeTime || "?").slice(0, 5)}`)
+            .join(" | ");
+        }
       }
     } catch (_e) { /* opening hours table may not exist yet */ }
     return enriched;
@@ -3219,12 +3236,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try { await storage.deletePoiOpeningHours(poiId); } catch (_e) { /* ignore */ }
 
     const trimmed = openHoursStr.trim();
-    // Check if it contains day prefixes like "T2:" or "CN:"
-    const hasDayPrefix = /^(CN|T[2-7])\s*:/i.test(trimmed);
+    const dayMap: Record<string, number> = { 
+      "CN": 0, "CHỦ NHẬT": 0, 
+      "T2": 1, "THỨ 2": 1, 
+      "T3": 2, "THỨ 3": 2, 
+      "T4": 3, "THỨ 4": 3, 
+      "T5": 4, "THỨ 5": 4, 
+      "T6": 5, "THỨ 6": 5, 
+      "T7": 6, "THỨ 7": 6 
+    };
 
+    // 1. Check for New Format: "Thứ 2 - Thứ 6 | 08:00 - 22:00"
+    if (trimmed.includes('|')) {
+      const [daysPart, timesPart] = trimmed.split('|').map(s => s.trim());
+      if (daysPart && timesPart) {
+        const days = daysPart.split('-').map(s => s.trim().toUpperCase());
+        const times = timesPart.split('-').map(s => s.trim());
+        
+        if (days.length >= 2 && times.length >= 2) {
+          const startDayIdx = dayMap[days[0]] ?? 1;
+          const endDayIdx = dayMap[days[1]] ?? 0;
+          const openTime = times[0];
+          const closeTime = times[1];
+          
+          // Handle range (wrapping around if needed, though usually sequential)
+          let current = startDayIdx;
+          const target = endDayIdx;
+          const daysToSave = [];
+          
+          let safety = 0;
+          while (safety < 10) {
+            daysToSave.push(current);
+            if (current === target) break;
+            current = (current + 1) % 7;
+            safety++;
+          }
+          
+          for (const d of daysToSave) {
+            try {
+              await storage.createPoiOpeningHours({ poiId, dayOfWeek: d, openTime, closeTime });
+            } catch (_e) {}
+          }
+          return;
+        }
+      }
+    }
+
+    // 2. Check for legacy day-specific format: "T2: 08:00-22:00 | T3: ..."
+    const hasDayPrefix = /^(CN|T[2-7])\s*:/i.test(trimmed);
     if (hasDayPrefix) {
-      // Format: "T2: 08:00-22:00 | T3: 08:00-22:00 | ..."
-      const dayMap: Record<string, number> = { "CN": 0, "T2": 1, "T3": 2, "T4": 3, "T5": 4, "T6": 5, "T7": 6 };
       const segments = trimmed.split("|").map((s: string) => s.trim());
       for (const seg of segments) {
         const match = seg.match(/^(CN|T[2-7])\s*:\s*(.+)$/i);
@@ -3243,7 +3303,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
     } else {
-      // Simple format: "08:00 - 22:00" → apply to all 7 days
+      // 3. Simple format: "08:00 - 22:00" → apply to all 7 days
       const times = trimmed.split("-").map((t: string) => t.trim());
       const openTime = times[0] || null;
       const closeTime = times[1] || null;
@@ -3281,7 +3341,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     delete data.tags;
     delete data.priceLevel;
     delete data.estimatedDuration;
-    delete data.description; // pois table has no description column
+    // data.description is now a column in pois table
     delete data.images; // pois table has no images column
     delete data.category; // destinations-only field
     // Map reviewCount to reviewCounts if provided

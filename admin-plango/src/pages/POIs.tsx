@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Landmark, Utensils, Coffee, Hotel, ShoppingBag, Star, MapPin, Search, Plus, X, Edit, Trash2 } from 'lucide-react';
+import { Landmark, Utensils, Coffee, Hotel, ShoppingBag, Star, MapPin, Search, Plus, X, Edit, Trash2, Calendar, Clock } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { POI } from '../lib/types';
 import { searchPlaces, getPlaceDetails, getPhotoUrl, mapGoogleTypeToPOIType } from '../lib/places';
 import type { PlaceSearchResult } from '../lib/places';
+
+const DAYS_OF_WEEK = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"];
 
 const TypeBadge: React.FC<{ type: string }> = ({ type }) => {
   const t = type.toLowerCase();
@@ -47,6 +49,10 @@ const POIs: React.FC = () => {
   const [poiCost, setPoiCost] = useState("");
   const [poiDesc, setPoiDesc] = useState("");
   const [poiOpenHours, setPoiOpenHours] = useState("");
+  const [poiOpenDayStart, setPoiOpenDayStart] = useState("Thứ 2");
+  const [poiOpenDayEnd, setPoiOpenDayEnd] = useState("Chủ nhật");
+  const [poiTimeStart, setPoiTimeStart] = useState("08:00");
+  const [poiTimeEnd, setPoiTimeEnd] = useState("22:00");
   const [poiGoogleId, setPoiGoogleId] = useState("");
   const [poiPhotos, setPoiPhotos] = useState<{name:string, attributions:string[]}[]>([]);
 
@@ -102,6 +108,8 @@ const POIs: React.FC = () => {
     setPoiDestId(destinations.length > 0 ? destinations[0].id : "");
     setPoiLat(""); setPoiLng(""); setPoiRating(""); setPoiReviewCount("");
     setPoiCost(""); setPoiDesc(""); setPoiOpenHours("");
+    setPoiOpenDayStart("Thứ 2"); setPoiOpenDayEnd("Chủ nhật");
+    setPoiTimeStart("08:00"); setPoiTimeEnd("22:00");
     setPoiGoogleId(""); setPoiPhotos([]); setGoogleQuery(""); setGoogleResults([]);
     setIsModalOpen(true);
   };
@@ -119,6 +127,28 @@ const POIs: React.FC = () => {
     setPoiCost(poi.estimatedCost?.toString() || "");
     setPoiDesc(poi.description || "");
     setPoiOpenHours(poi.openHours || "");
+    
+    // Parse structured hours if available
+    if (poi.openHours && poi.openHours.includes('|')) {
+      const [daysPart, timesPart] = poi.openHours.split('|').map(s => s.trim());
+      if (daysPart && daysPart.includes('-')) {
+        const [dStart, dEnd] = daysPart.split('-').map(s => s.trim());
+        if (DAYS_OF_WEEK.includes(dStart)) setPoiOpenDayStart(dStart);
+        if (DAYS_OF_WEEK.includes(dEnd)) setPoiOpenDayEnd(dEnd);
+      }
+      if (timesPart && timesPart.includes('-')) {
+        const [tStart, tEnd] = timesPart.split('-').map(s => s.trim());
+        setPoiTimeStart(tStart);
+        setPoiTimeEnd(tEnd);
+      }
+    } else if (poi.openHours && poi.openHours.includes('-')) {
+      // Legacy format HH:mm - HH:mm
+      setPoiTimeStart(poi.openHours.split('-')[0].trim());
+      setPoiTimeEnd(poi.openHours.split('-')[1].trim());
+      setPoiOpenDayStart("Thứ 2");
+      setPoiOpenDayEnd("Chủ nhật");
+    }
+
     setPoiGoogleId(poi.googlePlaceId || "");
     setPoiPhotos(poi.googlePhotos || []);
     setGoogleQuery(""); setGoogleResults([]);
@@ -137,7 +167,7 @@ const POIs: React.FC = () => {
       longitude: parseFloat(poiLng) || 0,
       rating: parseFloat(poiRating) || 0,
       reviewCount: parseInt(poiReviewCount) || 0,
-      openHours: poiOpenHours || undefined,
+      openHours: `${poiOpenDayStart} - ${poiOpenDayEnd} | ${poiTimeStart} - ${poiTimeEnd}`,
       estimatedCost: parseInt(poiCost) || undefined,
       description: poiDesc || undefined,
       images: poiPhotos.length > 0 ? poiPhotos.slice(0, 3).map(p => getPhotoUrl(p.name)) : ["https://images.unsplash.com/photo-1599708153386-62dc3942360b?w=800"],
@@ -360,26 +390,58 @@ const POIs: React.FC = () => {
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Chi phí (VND)</label>
                     <input type="text" value={poiCost} onChange={e => setPoiCost(e.target.value)} placeholder="0" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Giờ mở cửa</label>
-                    <input 
-                      type="text" 
-                      value={poiOpenHours} 
-                      onChange={e => {
-                        const val = e.target.value.replace(/\D/g, '').slice(0, 8);
-                        let formatted = val;
-                        if (val.length >= 7) {
-                          formatted = `${val.slice(0, 2)}:${val.slice(2, 4)} - ${val.slice(4, 6)}:${val.slice(6, 8)}`;
-                        } else if (val.length >= 5) {
-                          formatted = `${val.slice(0, 2)}:${val.slice(2, 4)} - ${val.slice(4)}`;
-                        } else if (val.length >= 3) {
-                          formatted = `${val.slice(0, 2)}:${val.slice(2)}`;
-                        }
-                        setPoiOpenHours(formatted);
-                      }} 
-                      placeholder="08:00 - 22:00" 
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" 
-                    />
+                  <div className="md:col-span-2 space-y-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Calendar className="text-primary" size={14} />
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ngày hoạt động</label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="relative">
+                        <label className="absolute -top-2 left-3 bg-white px-1 text-[10px] font-bold text-slate-400 uppercase">Từ ngày</label>
+                        <select 
+                          value={poiOpenDayStart} 
+                          onChange={e => setPoiOpenDayStart(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20 appearance-none pointer-events-auto"
+                        >
+                          {DAYS_OF_WEEK.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                      <div className="relative">
+                        <label className="absolute -top-2 left-3 bg-white px-1 text-[10px] font-bold text-slate-400 uppercase">Đến ngày</label>
+                        <select 
+                          value={poiOpenDayEnd} 
+                          onChange={e => setPoiOpenDayEnd(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20 appearance-none pointer-events-auto"
+                        >
+                          {DAYS_OF_WEEK.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 mb-1">
+                      <Clock className="text-primary" size={14} />
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Khung giờ mở cửa</label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="relative">
+                        <label className="absolute -top-2 left-3 bg-white px-1 text-[10px] font-bold text-slate-400 uppercase">Mở cửa lúc</label>
+                        <input 
+                          type="time" 
+                          value={poiTimeStart} 
+                          onChange={e => setPoiTimeStart(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                      <div className="relative">
+                        <label className="absolute -top-2 left-3 bg-white px-1 text-[10px] font-bold text-slate-400 uppercase">Đóng cửa lúc</label>
+                        <input 
+                          type="time" 
+                          value={poiTimeEnd} 
+                          onChange={e => setPoiTimeEnd(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
