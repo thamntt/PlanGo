@@ -198,7 +198,11 @@ function mapTripToFrontend(trip: any) {
             id: item.itemId,
             title: item.customName,
             time: item.startTime,
-            description: item.note || (poi ? poi.description : undefined),
+            // description comes from POI (static place info), note is user-added per trip
+            description: poi ? poi.description : undefined,
+            note: item.note || undefined,
+            // For backwards compat: notes array if note exists
+            notes: item.note ? [item.note] : undefined,
             estimatedCost: item.estimatedCost ? Number(item.estimatedCost) : (poi?.estimatedCost ? Number(poi.estimatedCost) : 0),
             actualCost,
             paidBy: linkedExp ? linkedExp.payer : undefined,
@@ -1728,7 +1732,7 @@ async function extractAndSavePOIsFromItinerary(
   for (const act of allActivities) {
     try {
       // Skip activities without useful data
-      if (!act.title || (!act.latitude && !act.address)) continue;
+      if (!act.title) continue;
 
       // Extract place name from title
       const placeName = extractPlaceName(act.title);
@@ -2206,7 +2210,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
     for (const act of allActivities) {
       try {
         // Skip activities without useful data
-        if (!act.title || (!act.latitude && !act.address)) continue;
+        if (!act.title) continue;
 
         // Extract place name from title
         const placeName = extractPlaceName(act.title);
@@ -2960,15 +2964,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
 
               try {
+                let resolvedPoiId = activity.poiId ? Number(activity.poiId) : undefined;
+
+                // Nếu chưa có poiId nhưng có mô tả, bắt buộc phải tìm hoặc tạo POI để lưu trữ
+                if (!resolvedPoiId && (activity.description || activity.title)) {
+                  const placeName = extractPlaceName(activity.title);
+                  let existing = await storage.getPoiByName(placeName);
+                  if (!existing && activity.googlePlaceId) {
+                    existing = await storage.getPoiByGooglePlaceId(activity.googlePlaceId);
+                  }
+
+                  if (existing) {
+                    resolvedPoiId = existing.poiId;
+                    // Cập nhật mô tả nếu POI hiện tại đang trống
+                    if (!existing.description && activity.description) {
+                      await storage.updatePoi(existing.poiId, { description: activity.description });
+                    }
+                  } else {
+                    // Tạo mới một POI "lite" để giữ mô tả
+                    const newPoi = await storage.createPoi({
+                      name: placeName,
+                      description: activity.description || undefined,
+                      destinationId: payload.destinationId,
+                      latitude: activity.latitude ? activity.latitude.toString() : "0",
+                      longitude: activity.longitude ? activity.longitude.toString() : "0",
+                      address: activity.address || "",
+                      googlePlaceId: activity.googlePlaceId || undefined,
+                    });
+                    resolvedPoiId = newPoi.poiId;
+                  }
+                }
+
                 await storage.createItineraryItem({
                   dayId: createdDay.dayId,
                   tripId: trip.tripId,
-                  poiId: activity.poiId ? Number(activity.poiId) : undefined,
+                  poiId: resolvedPoiId,
                   customName: activity.title,
                   startTime: activity.time,
                   duration: numDuration,
                   orderIndex: orderIndex++,
-                  note: activity.description,
+                  note: null, // Tuyệt đối không lưu vào note
                   estimatedCost: estCost,
                   status: activity.isCompleted ? "completed" : "pending",
                   expenseTypeId: activity.expenseTypeId ? Number(activity.expenseTypeId) : undefined,
@@ -3003,20 +3038,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const trip = await storage.updateTrip(id, payload);
       if (!trip) throw new AppError(404, "Trip not found");
 
-      // Handle nested itinerary item updates (like toggling checkbox)
+      // Handle nested itinerary item updates: add, update, delete
       if (req.body.days && Array.isArray(req.body.days)) {
         for (const day of req.body.days) {
-          if (day.activities && Array.isArray(day.activities)) {
-            for (const act of day.activities) {
-              if (act.id) {
-                const actId = Number(act.id);
-                if (!isNaN(actId)) {
-                  await storage.updateItineraryItem(actId, {
-                    status: act.isCompleted ? "completed" : "pending",
-                    actualCost: act.actualCost ? act.actualCost.toString() : null,
-                    expenseTypeId: act.expenseTypeId ? Number(act.expenseTypeId) : undefined,
-                  });
+          if (!day.activities || !Array.isArray(day.activities)) continue;
+
+          // Get the dayId for this day — find by dayIndex
+          const dbDays = await storage.getItineraryDaysByTrip(id);
+          const matchedDay = dbDays.find((d: any) => d.dayIndex === (day.day || day.dayIndex));
+          if (!matchedDay) continue;
+
+          const dayId = matchedDay.dayId;
+
+          // Get existing items for this day to detect deletions
+          const existingItems = await storage.getItineraryItemsByDay(dayId);
+          const incomingIds = new Set<number>();
+
+          let orderIndex = 0;
+          for (const act of day.activities) {
+            const actId = act.id ? Number(act.id) : NaN;
+            const isExistingDbRecord = !isNaN(actId);
+
+              if (isExistingDbRecord) {
+                incomingIds.add(actId);
+                
+                // Calculate duration if provided
+                let numDuration = undefined;
+                if (act.duration !== undefined) {
+                  if (typeof act.duration === 'string') {
+                    const parsed = parseInt(act.duration);
+                    if (!isNaN(parsed)) numDuration = act.duration.toLowerCase().includes('giờ') ? parsed * 60 : parsed;
+                  } else if (typeof act.duration === 'number') {
+                    numDuration = act.duration;
+                  }
                 }
+
+                // Update existing item: status, note, cost, expenseType, time, title, duration
+                const updatePayload: Record<string, any> = {
+                  status: act.isCompleted ? "completed" : "pending",
+                  orderIndex: orderIndex++,
+                };
+                
+                if (act.time) updatePayload.startTime = act.time;
+                if (act.title) updatePayload.customName = act.title;
+                if (numDuration !== undefined) updatePayload.duration = numDuration;
+                if (act.actualCost !== undefined) updatePayload.actualCost = act.actualCost ? act.actualCost.toString() : null;
+                if (act.expenseTypeId !== undefined) updatePayload.expenseTypeId = act.expenseTypeId ? Number(act.expenseTypeId) : null;
+                
+                // Save note from user — this is the only place notes should be persisted
+                if (act.notes !== undefined) {
+                  updatePayload.note = Array.isArray(act.notes) && act.notes.length > 0 ? act.notes.join('\n---\n') : null;
+                } else if (act.note !== undefined) {
+                  updatePayload.note = act.note || null;
+                }
+                await storage.updateItineraryItem(actId, updatePayload);
+              } else {
+              // New activity — create itinerary_item and optionally create/link POI
+              let estCost = undefined;
+              if (act.estimatedCost) {
+                estCost = typeof act.estimatedCost === 'number' ? act.estimatedCost.toString() : parseCurrencyToNumeric(act.estimatedCost)?.toString();
+              }
+              let numDuration = 60;
+              if (typeof act.duration === 'string') {
+                const parsed = parseInt(act.duration);
+                if (!isNaN(parsed)) numDuration = act.duration.toLowerCase().includes('giờ') ? parsed * 60 : parsed;
+              } else if (typeof act.duration === 'number') {
+                numDuration = act.duration;
+              }
+
+              let resolvedPoiId = act.poiId ? Number(act.poiId) : undefined;
+              // Auto-link or create POI if activity has description
+              if (!resolvedPoiId && act.title) {
+                const placeName = extractPlaceName(act.title);
+                const existing = await storage.getPoiByName(placeName);
+                if (existing) {
+                  resolvedPoiId = existing.poiId;
+                  if (!existing.description && act.description) {
+                    await storage.updatePoi(existing.poiId, { description: act.description });
+                  }
+                } else if (act.description || act.title) {
+                  const newPoi = await storage.createPoi({
+                    name: placeName,
+                    description: act.description || undefined,
+                    latitude: act.latitude ? act.latitude.toString() : "0",
+                    longitude: act.longitude ? act.longitude.toString() : "0",
+                    address: act.address || "",
+                    googlePlaceId: act.googlePlaceId || undefined,
+                  });
+                  resolvedPoiId = newPoi.poiId;
+                }
+              }
+
+              try {
+                await storage.createItineraryItem({
+                  dayId,
+                  tripId: id,
+                  poiId: resolvedPoiId,
+                  customName: act.title,
+                  startTime: act.time,
+                  duration: numDuration,
+                  orderIndex: orderIndex++,
+                  note: null, // New activities never get note at creation time
+                  estimatedCost: estCost,
+                  status: act.isCompleted ? "completed" : "pending",
+                  expenseTypeId: act.expenseTypeId ? Number(act.expenseTypeId) : undefined,
+                });
+              } catch (err) {
+                console.warn("[PUT /trips] Failed to create new activity:", err);
+              }
+            }
+          }
+
+          // Delete activities that were removed from the day
+          for (const existing of existingItems) {
+            if (!incomingIds.has(existing.itemId)) {
+              try {
+                await storage.deleteItineraryItem(existing.itemId);
+              } catch (err) {
+                console.warn("[PUT /trips] Failed to delete removed activity:", err);
               }
             }
           }

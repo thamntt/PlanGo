@@ -124,13 +124,29 @@ function minutesToTime(mins: number): string {
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 }
 
-function parseDurationToMinutes(duration: string): number {
+function parseDurationToMinutes(duration: any): number {
+  if (typeof duration === "number") return duration;
+  if (!duration || typeof duration !== "string") return 60;
+  
   const hourMatch = duration.match(/([\d.]+)\s*giờ/);
   const minMatch = duration.match(/(\d+)\s*phút/);
   let total = 0;
   if (hourMatch) total += parseFloat(hourMatch[1]) * 60;
   if (minMatch) total += parseInt(minMatch[1], 10);
   return total > 0 ? total : 60;
+}
+
+function formatDuration(duration: any): string {
+  const mins = parseDurationToMinutes(duration);
+  if (mins <= 0) return "";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  
+  const labels = t().itinerary;
+  let res = "";
+  if (h > 0) res += `${h} giờ`;
+  if (m > 0) res += `${h > 0 ? " " : ""}${m} phút`;
+  return res.trim();
 }
 
 function TravelConnector({ from, to, colors: c }: { from: ItineraryActivity; to: ItineraryActivity; colors: any }) {
@@ -1843,7 +1859,7 @@ export default function ItineraryDetailScreen() {
                                   <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textTertiary }}>Google Maps</Text>
                                 </View>
                               ) : null}
-                              {activity.duration ? <Text style={[styles.activityDuration, { color: colors.textTertiary }]}>{activity.duration}</Text> : null}
+                              {activity.duration ? <Text style={[styles.activityDuration, { color: colors.textTertiary }]}>{formatDuration(activity.duration)}</Text> : null}
                             </View>
                           </View>
 
