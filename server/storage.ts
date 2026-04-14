@@ -406,9 +406,11 @@ export class DatabaseStorage implements IStorage {
   }
   async getDestinations(filters?: { destinationTypeId?: number }) {
     if (filters?.destinationTypeId) {
-      return db.select().from(destinations).where(eq(destinations.destinationTypeId, filters.destinationTypeId));
+      return db.select().from(destinations).where(
+        and(eq(destinations.destinationTypeId, filters.destinationTypeId), eq(destinations.active, true))
+      );
     }
-    return db.select().from(destinations);
+    return db.select().from(destinations).where(eq(destinations.active, true));
   }
   async createDestination(data: any) {
     const payload = { ...data };
@@ -468,7 +470,8 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteDestination(id: number) {
     const r = await db
-      .delete(destinations)
+      .update(destinations)
+      .set({ active: false })
       .where(eq(destinations.destinationId, id))
       .returning();
     return r.length > 0;

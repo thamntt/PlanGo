@@ -70,6 +70,7 @@ export const destinations = pgTable("destinations", {
   images: jsonb("images"),
   rating: decimal("rating", { precision: 3, scale: 2 }),
   reviewCounts: integer("review_counts").default(0),
+  active: boolean("active").default(true),
 });
 
 // ==============================================================================

@@ -37,7 +37,9 @@ function getGoongKey(): string {
 
 function getSerpApiKey(): string {
   const key = process.env.SERPAPI_KEY || "";
-  console.log(`[Debug] Using SerpAPI Key: ${key.slice(0, 5)}...${key.slice(-5)}`);
+  console.log(
+    `[Debug] Using SerpAPI Key: ${key.slice(0, 5)}...${key.slice(-5)}`,
+  );
   return key;
 }
 
@@ -83,7 +85,7 @@ function parseCurrencyToNumeric(val: any): string | number | undefined {
   return val;
 }
 
-/** 
+/**
  * Centralized mapping from Drizzle's relational structure to the frontend's expected schema.
  * - flattens trip.destination.name to trip.destination
  * - maps trip.days[].dayIndex to trip.days[].day
@@ -105,37 +107,43 @@ function mapTripToFrontend(trip: any) {
       amount: Number(e.amount || 0),
       date: e.expenseDate || e.date || "",
       category: e.expenseType ? e.expenseType.name : "Khác",
-      payer: e.paidByInfo ? (e.paidByInfo.fullName || e.paidByInfo.userName) : "Không rõ",
+      payer: e.paidByInfo
+        ? e.paidByInfo.fullName || e.paidByInfo.userName
+        : "Không rõ",
       paidByUserId: e.paidByInfo ? e.paidByInfo.userId.toString() : undefined,
       splitType: e.splitMethod || "none",
       activityId: e.itemId ? e.itemId.toString() : undefined,
-      splits: e.splits ? e.splits.map((s: any) => ({
-        userId: s.userId?.toString() || "",
-        userName: s.user ? (s.user.fullName || s.user.userName) : "",
-        amount: Number(s.amount || 0)
-      })) : []
+      splits: e.splits
+        ? e.splits.map((s: any) => ({
+            userId: s.userId?.toString() || "",
+            userName: s.user ? s.user.fullName || s.user.userName : "",
+            amount: Number(s.amount || 0),
+          }))
+        : [],
     }));
   }
 
   if (mapped.members && Array.isArray(mapped.members)) {
     mapped.companions = mapped.members.map((m: any) => ({
       userId: (m.userId || "").toString(),
-      userName: m.user ? (m.user.fullName || m.user.userName) : "",
-      role: m.role || "member"
+      userName: m.user ? m.user.fullName || m.user.userName : "",
+      role: m.role || "member",
     }));
   }
 
   if (mapped.expenses && Array.isArray(mapped.expenses)) {
     const typeInverseMap: Record<string, string> = {
-      'Di chuyển': 'transport',
-      'Mua sắm': 'shopping',
-      'Ăn uống': 'food',
-      'Tham quan': 'sightseeing',
-      'Khác': 'other'
+      "Di chuyển": "transport",
+      "Mua sắm": "shopping",
+      "Ăn uống": "food",
+      "Tham quan": "sightseeing",
+      Khác: "other",
     };
 
     mapped.expenses = mapped.expenses.map((e: any) => {
-      const payerName = e.paidByInfo ? (e.paidByInfo.fullName || e.paidByInfo.userName) : (e.payer || "Không rõ");
+      const payerName = e.paidByInfo
+        ? e.paidByInfo.fullName || e.paidByInfo.userName
+        : e.payer || "Không rõ";
       const rawType = e.expenseType ? e.expenseType.name : "Khác";
       return {
         ...e,
@@ -146,21 +154,27 @@ function mapTripToFrontend(trip: any) {
         type: typeInverseMap[rawType] || "other",
         payer: payerName,
         paidBy: payerName, // Use name uniformly to fix dashboard duplicates (e.g. "test" vs "5")
-        paidByUserId: e.paidByInfo ? e.paidByInfo.userId.toString() : e.paidBy?.toString(),
+        paidByUserId: e.paidByInfo
+          ? e.paidByInfo.userId.toString()
+          : e.paidBy?.toString(),
         splitType: e.splitMethod || "none",
         activityId: e.itemId ? e.itemId.toString() : undefined,
-        splits: e.splits ? e.splits.map((s: any) => {
-          let uName = s.user ? (s.user.fullName || s.user.userName) : "";
-          if (!uName && mapped.companions) {
-            const comp = mapped.companions.find((c: any) => c.userId === s.userId?.toString());
-            if (comp) uName = comp.userName;
-          }
-          return {
-            userId: s.userId?.toString() || "",
-            userName: uName,
-            amount: Number(s.amount || 0)
-          };
-        }) : []
+        splits: e.splits
+          ? e.splits.map((s: any) => {
+              let uName = s.user ? s.user.fullName || s.user.userName : "";
+              if (!uName && mapped.companions) {
+                const comp = mapped.companions.find(
+                  (c: any) => c.userId === s.userId?.toString(),
+                );
+                if (comp) uName = comp.userName;
+              }
+              return {
+                userId: s.userId?.toString() || "",
+                userName: uName,
+                amount: Number(s.amount || 0),
+              };
+            })
+          : [],
       };
     });
   }
@@ -178,48 +192,69 @@ function mapTripToFrontend(trip: any) {
   let totalActivityCost = 0;
   if (mapped.days && Array.isArray(mapped.days)) {
     // Sort days by dayIndex to ensure chronological order
-    const sortedDays = [...mapped.days].sort((a, b) => (a.dayIndex || 0) - (b.dayIndex || 0));
+    const sortedDays = [...mapped.days].sort(
+      (a, b) => (a.dayIndex || 0) - (b.dayIndex || 0),
+    );
 
     mapped.days = sortedDays.map((day: any) => ({
       ...day,
       day: day.dayIndex,
-      activities: day.items ? [...day.items]
-        .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
-        .map((item: any) => {
-          const itemIdStr = item.itemId.toString();
-          const linkedExp = activitiesWithExpenses.get(itemIdStr);
-          const actualCost = item.actualCost ? Number(item.actualCost) : 0;
-          totalActivityCost += actualCost;
+      activities: day.items
+        ? [...day.items]
+            .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
+            .map((item: any) => {
+              const itemIdStr = item.itemId.toString();
+              const linkedExp = activitiesWithExpenses.get(itemIdStr);
+              const actualCost = item.actualCost ? Number(item.actualCost) : 0;
+              totalActivityCost += actualCost;
 
-          // Merge POI data into activity so display matches preview
-          const poi = item.poi;
-          return {
-            ...item,
-            id: item.itemId,
-            title: item.customName,
-            time: item.startTime,
-            // description comes from POI (static place info), note is user-added per trip
-            description: poi ? poi.description : undefined,
-            note: item.note || undefined,
-            // For backwards compat: notes array if note exists
-            notes: item.note ? [item.note] : undefined,
-            estimatedCost: item.estimatedCost ? Number(item.estimatedCost) : (poi?.estimatedCost ? Number(poi.estimatedCost) : 0),
-            actualCost,
-            paidBy: linkedExp ? linkedExp.payer : undefined,
-            paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
-            isCompleted: item.status === "completed",
-            expenseTypeId: item.expenseTypeId,
-            activityType: item.activityType,
-            // POI-enriched fields — only override if itinerary_items doesn't have them
-            address: item.address || (poi ? poi.address : undefined),
-            latitude: item.latitude ? Number(item.latitude) : (poi?.latitude ? Number(poi.latitude) : undefined),
-            longitude: item.longitude ? Number(item.longitude) : (poi?.longitude ? Number(poi.longitude) : undefined),
-            rating: item.rating ? Number(item.rating) : (poi?.rating ? Number(poi.rating) : undefined),
-            reviewCount: item.reviewCount || poi?.reviewCounts,
-            googlePlaceId: item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
-            poiId: item.poiId,
-          };
-        }) : []
+              // Merge POI data into activity so display matches preview
+              const poi = item.poi;
+              return {
+                ...item,
+                id: item.itemId,
+                title: item.customName,
+                time: item.startTime,
+                // description comes from POI (static place info), note is user-added per trip
+                description: poi ? poi.description : undefined,
+                note: item.note || undefined,
+                // For backwards compat: notes array if note exists
+                notes: item.note ? [item.note] : undefined,
+                estimatedCost: item.estimatedCost
+                  ? Number(item.estimatedCost)
+                  : poi?.estimatedCost
+                    ? Number(poi.estimatedCost)
+                    : 0,
+                actualCost,
+                paidBy: linkedExp ? linkedExp.payer : undefined,
+                paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
+                isCompleted: item.status === "completed",
+                expenseTypeId: item.expenseTypeId,
+                activityType: item.activityType,
+                // POI-enriched fields — only override if itinerary_items doesn't have them
+                address: item.address || (poi ? poi.address : undefined),
+                latitude: item.latitude
+                  ? Number(item.latitude)
+                  : poi?.latitude
+                    ? Number(poi.latitude)
+                    : undefined,
+                longitude: item.longitude
+                  ? Number(item.longitude)
+                  : poi?.longitude
+                    ? Number(poi.longitude)
+                    : undefined,
+                rating: item.rating
+                  ? Number(item.rating)
+                  : poi?.rating
+                    ? Number(poi.rating)
+                    : undefined,
+                reviewCount: item.reviewCount || poi?.reviewCounts,
+                googlePlaceId:
+                  item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
+                poiId: item.poiId,
+              };
+            })
+        : [],
     }));
   }
 
@@ -230,7 +265,9 @@ function mapTripToFrontend(trip: any) {
 
   // Calculate spentAmount: Only sum activities + expenses that are NOT linked to activities (to avoid double counting)
   const manualExpensesAmount = mapped.expenses
-    ? mapped.expenses.filter((e: any) => !e.activityId).reduce((sum: number, e: any) => sum + e.amount, 0)
+    ? mapped.expenses
+        .filter((e: any) => !e.activityId)
+        .reduce((sum: number, e: any) => sum + e.amount, 0)
     : 0;
   mapped.spentAmount = totalActivityCost + manualExpensesAmount;
 
@@ -345,7 +382,7 @@ async function searchPlacesGoong(query: string, language: string) {
                 longitude = loc.lng || 0;
               }
             }
-          } catch { }
+          } catch {}
         }
 
         return {
@@ -1548,7 +1585,7 @@ async function internalGeocode(
           };
         }
       }
-    } catch { }
+    } catch {}
   }
 
   // Cách 2: Goong
@@ -1568,7 +1605,7 @@ async function internalGeocode(
           };
         }
       }
-    } catch { }
+    } catch {}
   }
 
   // Cách 3: Nominatim (miễn phí)
@@ -1587,7 +1624,7 @@ async function internalGeocode(
         };
       }
     }
-  } catch { }
+  } catch {}
 
   return null;
 }
@@ -1606,7 +1643,9 @@ async function shareTrip(req: Request, res: Response) {
   }
 
   // Use frontend's shareCode if provided, otherwise robust fallback
-  const token = req.body.shareCode || Math.random().toString(36).substring(2, 9).toUpperCase();
+  const token =
+    req.body.shareCode ||
+    Math.random().toString(36).substring(2, 9).toUpperCase();
 
   const trip = await storage.updateTrip(Number(tripId), {
     invitationToken: token,
@@ -1627,8 +1666,10 @@ async function getSharedTrip(req: Request, res: Response) {
 // POST /api/share/join — join a shared trip (update companions)
 async function joinSharedTrip(req: Request, res: Response) {
   const shareCode = req.body.shareCode || req.query.shareCode;
-  const userId = req.body.userId || req.query.userId || req.body.companion?.userId;
-  const role = req.body.role || req.query.role || req.body.companion?.role || "viewer";
+  const userId =
+    req.body.userId || req.query.userId || req.body.companion?.userId;
+  const role =
+    req.body.role || req.query.role || req.body.companion?.role || "viewer";
 
   if (!shareCode || !userId)
     throw new AppError(400, "shareCode and userId are required");
@@ -1652,7 +1693,10 @@ async function joinSharedTrip(req: Request, res: Response) {
 
   // Re-fetch trip to include the new member
   const updatedTrip = await storage.getTripByInvitationToken(shareCode);
-  sendResponse(res, 200, "Joined trip", { alreadyJoined: false, trip: mapTripToFrontend(updatedTrip) });
+  sendResponse(res, 200, "Joined trip", {
+    alreadyJoined: false,
+    trip: mapTripToFrontend(updatedTrip),
+  });
 }
 
 // PATCH /api/share/companion — update a companion's role
@@ -1787,7 +1831,7 @@ async function extractAndSavePOIsFromItinerary(
           act.rating &&
           (!existingPoi.rating ||
             parseFloat(act.rating.toString()) >
-            parseFloat(existingPoi.rating || "0"))
+              parseFloat(existingPoi.rating || "0"))
         )
           updates.rating = act.rating.toString();
         if (
@@ -2149,7 +2193,9 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
             `[Enrich] ❌ SerpAPI HTTP ${serpRes.status} for: "${searchQuery}"`,
           );
           if (serpRes.status === 429) {
-            console.warn("[Enrich] 🛑 Quota exceeded. Skipping further enrichment.");
+            console.warn(
+              "[Enrich] 🛑 Quota exceeded. Skipping further enrichment.",
+            );
             quotaExceeded = true;
           }
         }
@@ -2409,42 +2455,52 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
         hl: "vi",
         api_key: apiKey,
       });
-      const searchRes = await fetch(`${SERPAPI_BASE}?${searchParams.toString()}`);
+      const searchRes = await fetch(
+        `${SERPAPI_BASE}?${searchParams.toString()}`,
+      );
 
       if (searchRes.ok) {
         const searchData = await searchRes.json();
-        const firstResultId = searchData.place_id || (searchData.local_results && searchData.local_results[0]?.place_id);
+        const firstResultId =
+          searchData.place_id ||
+          (searchData.local_results && searchData.local_results[0]?.place_id);
 
         if (firstResultId && firstResultId !== placeId) {
-          console.log(`[SerpAPI] Resolved "${searchQuery}" to new place_id=${firstResultId}`);
+          console.log(
+            `[SerpAPI] Resolved "${searchQuery}" to new place_id=${firstResultId}`,
+          );
           data = await fetchReviewsForId(firstResultId);
         }
       }
     }
 
     if (!data) {
-      console.warn(`[SerpAPI] No reviews found for place_id="${placeId}" or query="${q || fallbackQ}"`);
+      console.warn(
+        `[SerpAPI] No reviews found for place_id="${placeId}" or query="${q || fallbackQ}"`,
+      );
       return res.json({
         placeInfo: null,
         reviews: [],
         nextPageToken: null,
-        message: "No reviews found for this location"
+        message: "No reviews found for this location",
       });
     }
 
     if (data.error && data.error.includes("run out of searches")) {
-      return res.status(429).json({ error: "SerpAPI quota exceeded", status: 429 });
+      return res
+        .status(429)
+        .json({ error: "SerpAPI quota exceeded", status: 429 });
     }
 
     // Map response to our format
     const placeInfo = data.place_info
       ? {
-        title: data.place_info.title || "",
-        address: data.place_info.address || "",
-        rating: data.place_info.rating || 0,
-        totalReviews: data.place_info.reviews || 0,
-        type: data.place_info.type || "",
-      }
+          title: data.place_info.title || "",
+          address: data.place_info.address || "",
+          rating: data.place_info.rating || 0,
+          totalReviews: data.place_info.reviews || 0,
+          type: data.place_info.type || "",
+        }
       : null;
 
     const reviews = (data.reviews || []).map((r: any) => ({
@@ -2461,12 +2517,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
       images: r.images || [],
       response: r.response
         ? {
-          snippet:
-            r.response.snippet ||
-            r.response.extracted_snippet?.original ||
-            "",
-          date: r.response.date || "",
-        }
+            snippet:
+              r.response.snippet ||
+              r.response.extracted_snippet?.original ||
+              "",
+            date: r.response.date || "",
+          }
         : null,
     }));
 
@@ -2557,8 +2613,8 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
       // Use operating_hours if available for real schedule data
       openHours: r.operating_hours
         ? Object.entries(r.operating_hours)
-          .map(([day, hours]) => `${day}: ${hours}`)
-          .join(" | ")
+            .map(([day, hours]) => `${day}: ${hours}`)
+            .join(" | ")
         : typeof r.hours === "string"
           ? r.hours
           : "",
@@ -2791,9 +2847,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ══════════════════════════════════════════════════════════════
 
   // Seed destination types, POI types, and admin user on boot
-  storage.seedDestinationTypes().catch(e => console.error("Destination type seeding failed:", e));
-  storage.seedPoiTypes().catch(e => console.error("POI type seeding failed:", e));
-  storage.seedAdminUser().catch(e => console.error("Admin user seeding failed:", e));
+  storage
+    .seedDestinationTypes()
+    .catch((e) => console.error("Destination type seeding failed:", e));
+  storage
+    .seedPoiTypes()
+    .catch((e) => console.error("POI type seeding failed:", e));
+  storage
+    .seedAdminUser()
+    .catch((e) => console.error("Admin user seeding failed:", e));
 
   // Helper to enrich destination with category label
   const enrichDestination = async (d: any) => {
@@ -2806,7 +2868,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return {
       ...d,
       id: (d.destinationId || d.id)?.toString(),
-      category: d.destinationTypeId ? typeMap[d.destinationTypeId] || "Khác" : "Khác"
+      category: d.destinationTypeId
+        ? typeMap[d.destinationTypeId] || "Khác"
+        : "Khác",
     };
   };
 
@@ -2831,7 +2895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const typeId = req.query.typeId ? Number(req.query.typeId) : undefined;
       const destinations = await storage.getDestinations(
-        typeId && !isNaN(typeId) ? { destinationTypeId: typeId } : undefined
+        typeId && !isNaN(typeId) ? { destinationTypeId: typeId } : undefined,
       );
       const enriched = await Promise.all(destinations.map(enrichDestination));
       sendResponse(res, 200, "Destinations retrieved successfully", enriched);
@@ -2911,7 +2975,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const trip: any = await storage.getTrip(id);
       if (!trip) throw new AppError(404, "Trip not found");
 
-      sendResponse(res, 200, "Trip retrieved successfully", mapTripToFrontend(trip));
+      sendResponse(
+        res,
+        200,
+        "Trip retrieved successfully",
+        mapTripToFrontend(trip),
+      );
     }),
   );
 
@@ -2933,7 +3002,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Resolve destination string to destinationId
       if (payload.destination && !payload.destinationId) {
-        const destRecord = await storage.getDestinationByName(payload.destination);
+        const destRecord = await storage.getDestinationByName(
+          payload.destination,
+        );
         if (destRecord) {
           payload.destinationId = destRecord.destinationId;
         } else {
@@ -2944,7 +3015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               name: payload.destination,
               address: payload.destination,
               latitude: "0",
-              longitude: "0"
+              longitude: "0",
             });
             payload.destinationId = newDest.destinationId;
           } catch (e) {
@@ -2964,13 +3035,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (trip.startDate) {
             const d = new Date(trip.startDate);
             d.setDate(d.getDate() + (dayData.day ? dayData.day - 1 : i));
-            dayDate = d.toISOString().split('T')[0];
+            dayDate = d.toISOString().split("T")[0];
           }
 
           const createdDay = await storage.createItineraryDay({
             tripId: trip.tripId,
             date: dayDate,
-            dayIndex: dayData.day || (i + 1),
+            dayIndex: dayData.day || i + 1,
           });
 
           if (dayData.activities && Array.isArray(dayData.activities)) {
@@ -2978,35 +3049,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
             for (const activity of dayData.activities) {
               let estCost = undefined;
               if (activity.estimatedCost) {
-                estCost = typeof activity.estimatedCost === 'number' ? activity.estimatedCost.toString() : parseCurrencyToNumeric(activity.estimatedCost)?.toString();
+                estCost =
+                  typeof activity.estimatedCost === "number"
+                    ? activity.estimatedCost.toString()
+                    : parseCurrencyToNumeric(
+                        activity.estimatedCost,
+                      )?.toString();
               }
 
               let numDuration = 60;
-              if (typeof activity.duration === 'string') {
+              if (typeof activity.duration === "string") {
                 const parsed = parseInt(activity.duration);
                 if (!isNaN(parsed)) {
-                  numDuration = activity.duration.toLowerCase().includes('giờ') ? parsed * 60 : parsed;
+                  numDuration = activity.duration.toLowerCase().includes("giờ")
+                    ? parsed * 60
+                    : parsed;
                 }
-              } else if (typeof activity.duration === 'number') {
+              } else if (typeof activity.duration === "number") {
                 numDuration = activity.duration;
               }
 
               try {
-                let resolvedPoiId = activity.poiId ? Number(activity.poiId) : undefined;
+                let resolvedPoiId = activity.poiId
+                  ? Number(activity.poiId)
+                  : undefined;
 
                 // Nếu chưa có poiId nhưng có mô tả, bắt buộc phải tìm hoặc tạo POI để lưu trữ
-                if (!resolvedPoiId && (activity.description || activity.title)) {
+                if (
+                  !resolvedPoiId &&
+                  (activity.description || activity.title)
+                ) {
                   const placeName = extractPlaceName(activity.title);
                   let existing = await storage.getPoiByName(placeName);
                   if (!existing && activity.googlePlaceId) {
-                    existing = await storage.getPoiByGooglePlaceId(activity.googlePlaceId);
+                    existing = await storage.getPoiByGooglePlaceId(
+                      activity.googlePlaceId,
+                    );
                   }
 
                   if (existing) {
                     resolvedPoiId = existing.poiId;
                     // Cập nhật mô tả nếu POI hiện tại đang trống
                     if (!existing.description && activity.description) {
-                      await storage.updatePoi(existing.poiId, { description: activity.description });
+                      await storage.updatePoi(existing.poiId, {
+                        description: activity.description,
+                      });
                     }
                   } else {
                     // Tạo mới một POI "lite" để giữ mô tả
@@ -3014,8 +3101,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       name: placeName,
                       description: activity.description || undefined,
                       destinationId: payload.destinationId,
-                      latitude: activity.latitude ? activity.latitude.toString() : "0",
-                      longitude: activity.longitude ? activity.longitude.toString() : "0",
+                      latitude: activity.latitude
+                        ? activity.latitude.toString()
+                        : "0",
+                      longitude: activity.longitude
+                        ? activity.longitude.toString()
+                        : "0",
                       address: activity.address || "",
                       googlePlaceId: activity.googlePlaceId || undefined,
                     });
@@ -3037,9 +3128,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   expenseTypeId: activity.expenseTypeId
                     ? Number(activity.expenseTypeId)
                     : mapActivityTypeToExpenseId(activity.activityType),
-                  activityType: activity.activityType 
-                    ? activity.activityType 
-                    : mapExpenseIdToActivityType(activity.expenseTypeId ? Number(activity.expenseTypeId) : null),
+                  activityType: activity.activityType
+                    ? activity.activityType
+                    : mapExpenseIdToActivityType(
+                        activity.expenseTypeId
+                          ? Number(activity.expenseTypeId)
+                          : null,
+                      ),
                 });
               } catch (err) {
                 console.warn("Failed to create itinerary item:", err);
@@ -3050,7 +3145,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const finalTrip = await storage.getTrip(trip.tripId);
-      sendResponse(res, 201, "Trip created successfully", mapTripToFrontend(finalTrip));
+      sendResponse(
+        res,
+        201,
+        "Trip created successfully",
+        mapTripToFrontend(finalTrip),
+      );
     }),
   );
 
@@ -3078,7 +3178,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Get the dayId for this day — find by dayIndex
           const dbDays = await storage.getItineraryDaysByTrip(id);
-          const matchedDay = dbDays.find((d: any) => d.dayIndex === (day.day || day.dayIndex));
+          const matchedDay = dbDays.find(
+            (d: any) => d.dayIndex === (day.day || day.dayIndex),
+          );
           if (!matchedDay) continue;
 
           const dayId = matchedDay.dayId;
@@ -3092,61 +3194,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const actId = act.id ? Number(act.id) : NaN;
             const isExistingDbRecord = !isNaN(actId);
 
-              if (isExistingDbRecord) {
-                incomingIds.add(actId);
-                
-                // Calculate duration if provided
-                let numDuration = undefined;
-                if (act.duration !== undefined) {
-                  if (typeof act.duration === 'string') {
-                    const parsed = parseInt(act.duration);
-                    if (!isNaN(parsed)) numDuration = act.duration.toLowerCase().includes('giờ') ? parsed * 60 : parsed;
-                  } else if (typeof act.duration === 'number') {
-                    numDuration = act.duration;
-                  }
-                }
+            if (isExistingDbRecord) {
+              incomingIds.add(actId);
 
-                // Update existing item: status, note, cost, expenseType, time, title, duration
-                const updatePayload: Record<string, any> = {
-                  status: act.isCompleted ? "completed" : "pending",
-                  orderIndex: orderIndex++,
-                };
-                
-                if (act.time) updatePayload.startTime = act.time;
-                if (act.title) updatePayload.customName = act.title;
-                if (numDuration !== undefined) updatePayload.duration = numDuration;
-                if (act.actualCost !== undefined) updatePayload.actualCost = act.actualCost ? act.actualCost.toString() : null;
-                if (act.expenseTypeId !== undefined) {
-                  const newExpId = act.expenseTypeId ? Number(act.expenseTypeId) : null;
-                  updatePayload.expenseTypeId = newExpId || mapActivityTypeToExpenseId(act.activityType);
-                  // Sync activityType from expenseTypeId
-                  if (newExpId) {
-                    updatePayload.activityType = mapExpenseIdToActivityType(newExpId);
-                  }
+              // Calculate duration if provided
+              let numDuration = undefined;
+              if (act.duration !== undefined) {
+                if (typeof act.duration === "string") {
+                  const parsed = parseInt(act.duration);
+                  if (!isNaN(parsed))
+                    numDuration = act.duration.toLowerCase().includes("giờ")
+                      ? parsed * 60
+                      : parsed;
+                } else if (typeof act.duration === "number") {
+                  numDuration = act.duration;
                 }
-                if (act.activityType !== undefined && act.expenseTypeId === undefined) {
-                  updatePayload.activityType = act.activityType || null;
-                  updatePayload.expenseTypeId = mapActivityTypeToExpenseId(act.activityType);
+              }
+
+              // Update existing item: status, note, cost, expenseType, time, title, duration
+              const updatePayload: Record<string, any> = {
+                status: act.isCompleted ? "completed" : "pending",
+                orderIndex: orderIndex++,
+              };
+
+              if (act.time) updatePayload.startTime = act.time;
+              if (act.title) updatePayload.customName = act.title;
+              if (numDuration !== undefined)
+                updatePayload.duration = numDuration;
+              if (act.actualCost !== undefined)
+                updatePayload.actualCost = act.actualCost
+                  ? act.actualCost.toString()
+                  : null;
+              if (act.expenseTypeId !== undefined) {
+                const newExpId = act.expenseTypeId
+                  ? Number(act.expenseTypeId)
+                  : null;
+                updatePayload.expenseTypeId =
+                  newExpId || mapActivityTypeToExpenseId(act.activityType);
+                // Sync activityType from expenseTypeId
+                if (newExpId) {
+                  updatePayload.activityType =
+                    mapExpenseIdToActivityType(newExpId);
                 }
-                
-                // Save note from user — this is the only place notes should be persisted
-                if (act.notes !== undefined) {
-                  updatePayload.note = Array.isArray(act.notes) && act.notes.length > 0 ? act.notes.join('\n---\n') : null;
-                } else if (act.note !== undefined) {
-                  updatePayload.note = act.note || null;
-                }
-                await storage.updateItineraryItem(actId, updatePayload);
-              } else {
+              }
+              if (
+                act.activityType !== undefined &&
+                act.expenseTypeId === undefined
+              ) {
+                updatePayload.activityType = act.activityType || null;
+                updatePayload.expenseTypeId = mapActivityTypeToExpenseId(
+                  act.activityType,
+                );
+              }
+
+              // Save note from user — this is the only place notes should be persisted
+              if (act.notes !== undefined) {
+                updatePayload.note =
+                  Array.isArray(act.notes) && act.notes.length > 0
+                    ? act.notes.join("\n---\n")
+                    : null;
+              } else if (act.note !== undefined) {
+                updatePayload.note = act.note || null;
+              }
+              await storage.updateItineraryItem(actId, updatePayload);
+            } else {
               // New activity — create itinerary_item and optionally create/link POI
               let estCost = undefined;
               if (act.estimatedCost) {
-                estCost = typeof act.estimatedCost === 'number' ? act.estimatedCost.toString() : parseCurrencyToNumeric(act.estimatedCost)?.toString();
+                estCost =
+                  typeof act.estimatedCost === "number"
+                    ? act.estimatedCost.toString()
+                    : parseCurrencyToNumeric(act.estimatedCost)?.toString();
               }
               let numDuration = 60;
-              if (typeof act.duration === 'string') {
+              if (typeof act.duration === "string") {
                 const parsed = parseInt(act.duration);
-                if (!isNaN(parsed)) numDuration = act.duration.toLowerCase().includes('giờ') ? parsed * 60 : parsed;
-              } else if (typeof act.duration === 'number') {
+                if (!isNaN(parsed))
+                  numDuration = act.duration.toLowerCase().includes("giờ")
+                    ? parsed * 60
+                    : parsed;
+              } else if (typeof act.duration === "number") {
                 numDuration = act.duration;
               }
 
@@ -3158,7 +3285,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (existing) {
                   resolvedPoiId = existing.poiId;
                   if (!existing.description && act.description) {
-                    await storage.updatePoi(existing.poiId, { description: act.description });
+                    await storage.updatePoi(existing.poiId, {
+                      description: act.description,
+                    });
                   }
                 } else if (act.description || act.title) {
                   const newPoi = await storage.createPoi({
@@ -3188,12 +3317,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   expenseTypeId: act.expenseTypeId
                     ? Number(act.expenseTypeId)
                     : mapActivityTypeToExpenseId(act.activityType),
-                  activityType: act.activityType 
-                    ? act.activityType : 
-                    mapExpenseIdToActivityType(act.expenseTypeId ? Number(act.expenseTypeId) : null),
+                  activityType: act.activityType
+                    ? act.activityType
+                    : mapExpenseIdToActivityType(
+                        act.expenseTypeId ? Number(act.expenseTypeId) : null,
+                      ),
                 });
               } catch (err) {
-                console.warn("[PUT /trips] Failed to create new activity:", err);
+                console.warn(
+                  "[PUT /trips] Failed to create new activity:",
+                  err,
+                );
               }
             }
           }
@@ -3204,7 +3338,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               try {
                 await storage.deleteItineraryItem(existing.itemId);
               } catch (err) {
-                console.warn("[PUT /trips] Failed to delete removed activity:", err);
+                console.warn(
+                  "[PUT /trips] Failed to delete removed activity:",
+                  err,
+                );
               }
             }
           }
@@ -3212,7 +3349,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Handle nested expenses update
-      if (req.body.expenses && Array.isArray(req.body.expenses) && trip.status !== "completed") {
+      if (
+        req.body.expenses &&
+        Array.isArray(req.body.expenses) &&
+        trip.status !== "completed"
+      ) {
         const processedExpenseIds = new Set<number>();
 
         // Deduplicate expenses to ensure only ONE expense per activityId is saved
@@ -3234,9 +3375,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             tripId: id,
             description: exp.title || exp.description,
             amount: exp.amount ? exp.amount.toString() : "0",
-            paidBy: exp.paidByUserId ? Number(exp.paidByUserId) : (exp.userId ? Number(exp.userId) : trip.ownerId),
+            paidBy: exp.paidByUserId
+              ? Number(exp.paidByUserId)
+              : exp.userId
+                ? Number(exp.userId)
+                : trip.ownerId,
             splitMethod: exp.splitType || "none",
-            itemId: exp.activityId && !isNaN(Number(exp.activityId)) ? Number(exp.activityId) : undefined,
+            itemId:
+              exp.activityId && !isNaN(Number(exp.activityId))
+                ? Number(exp.activityId)
+                : undefined,
             expenseTypeId: await resolveExpenseTypeId(exp.type),
           };
 
@@ -3248,17 +3396,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Check if ID is a valid database ID (numeric)
           let expIdParsed = NaN;
-          if (exp.id && typeof exp.id === "string" && !exp.id.startsWith("temp-")) {
+          if (
+            exp.id &&
+            typeof exp.id === "string" &&
+            !exp.id.startsWith("temp-")
+          ) {
             expIdParsed = Number(exp.id);
           } else if (typeof exp.id === "number") {
             expIdParsed = exp.id;
           }
 
-          // If no valid ID provided but this is an activity-linked expense, 
+          // If no valid ID provided but this is an activity-linked expense,
           // try to find an exitsting expense for that activity ID to prevent duplicates
           if (isNaN(expIdParsed) && expData.itemId) {
             const tripExps = await storage.getExpensesByTrip(id);
-            const existingMatch = tripExps.find(e => e.itemId === expData.itemId);
+            const existingMatch = tripExps.find(
+              (e) => e.itemId === expData.itemId,
+            );
             if (existingMatch) {
               expIdParsed = existingMatch.expenseId;
             }
@@ -3278,7 +3432,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             processedExpenseIds.add(finalExpId);
             // Re-sync splits
             await storage.deleteExpenseSplits(finalExpId);
-            if (exp.splitType !== "none" && exp.splits && Array.isArray(exp.splits)) {
+            if (
+              exp.splitType !== "none" &&
+              exp.splits &&
+              Array.isArray(exp.splits)
+            ) {
               for (const split of exp.splits) {
                 await storage.createExpenseSplit({
                   expenseId: finalExpId,
@@ -3301,7 +3459,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Re-fetch the final trip state AFTER all nested updates are done
       const finalTrip = await storage.getTrip(id);
-      sendResponse(res, 200, "Trip updated successfully", mapTripToFrontend(finalTrip));
+      sendResponse(
+        res,
+        200,
+        "Trip updated successfully",
+        mapTripToFrontend(finalTrip),
+      );
     }),
   );
 
@@ -3324,9 +3487,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const tripId = req.query.tripId ? Number(req.query.tripId) : undefined;
       const itemId = req.query.itemId ? Number(req.query.itemId) : undefined;
-      const destinationId = req.query.destinationId ? Number(req.query.destinationId) : undefined;
+      const destinationId = req.query.destinationId
+        ? Number(req.query.destinationId)
+        : undefined;
 
-      const reviews = await storage.getReviews({ tripId, itemId, destinationId });
+      const reviews = await storage.getReviews({
+        tripId,
+        itemId,
+        destinationId,
+      });
       sendResponse(res, 200, "Reviews retrieved successfully", reviews);
     }),
   );
@@ -3360,12 +3529,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id);
       const userId = Number(req.body.userId || req.query.userId);
-      const type = req.query.type || req.body.type || (req.body.poiId || req.body.activityId ? 'item' : 'trip');
+      const type =
+        req.query.type ||
+        req.body.type ||
+        (req.body.poiId || req.body.activityId ? "item" : "trip");
 
-      if (isNaN(id) || isNaN(userId)) throw new AppError(400, "Invalid ID or User ID");
+      if (isNaN(id) || isNaN(userId))
+        throw new AppError(400, "Invalid ID or User ID");
 
       let updated;
-      if (type === 'item') {
+      if (type === "item") {
         updated = await storage.updateItemReview(id, userId, req.body);
       } else {
         updated = await storage.updateTripReview(id, userId, req.body);
@@ -3383,12 +3556,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = Number(req.query.userId);
       const type = req.query.type;
 
-      if (isNaN(id) || isNaN(userId)) throw new AppError(400, "Invalid ID or User ID");
+      if (isNaN(id) || isNaN(userId))
+        throw new AppError(400, "Invalid ID or User ID");
 
       let ok = false;
-      if (type === 'item') {
+      if (type === "item") {
         ok = await storage.deleteItemReview(id, userId);
-      } else if (type === 'trip') {
+      } else if (type === "trip") {
         ok = await storage.deleteTripReview(id, userId);
       } else {
         // Fallback: try both if type not specified
@@ -3406,27 +3580,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ══════════════════════════════════════════════════════════════
 
   // Helper: resolve poitypeId from string type name (e.g. "attraction" → 1)
-  async function resolvePoiTypeId(typeName: string | undefined): Promise<number | undefined> {
+  async function resolvePoiTypeId(
+    typeName: string | undefined,
+  ): Promise<number | undefined> {
     if (!typeName) return undefined;
     const types = await storage.getPoiTypes();
     const found = types.find((t: any) => t.typeName === typeName);
     return found?.poitypeId;
   }
 
-  async function resolveExpenseTypeId(typeName: string | undefined): Promise<number | undefined> {
+  async function resolveExpenseTypeId(
+    typeName: string | undefined,
+  ): Promise<number | undefined> {
     if (!typeName) return undefined;
     const types = await storage.getExpenseTypes();
     const typeMap: Record<string, string> = {
-      'transport': 'Di chuyển',
-      'shopping': 'Mua sắm',
-      'food': 'Ăn uống',
-      'sightseeing': 'Tham quan',
-      'other': 'Khác'
+      transport: "Di chuyển",
+      shopping: "Mua sắm",
+      food: "Ăn uống",
+      sightseeing: "Tham quan",
+      other: "Khác",
     };
     const translated = typeMap[typeName] || typeName;
-    const found = types.find((t: any) => 
-      t.name === translated || t.name === typeName
-      || t.description === translated || t.description === typeName
+    const found = types.find(
+      (t: any) =>
+        t.name === translated ||
+        t.name === typeName ||
+        t.description === translated ||
+        t.description === typeName,
     );
     return found?.expenseTypeId;
   }
@@ -3446,15 +3627,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hours = await storage.getPoiOpeningHours(poi.poiId);
       if (hours && hours.length > 0) {
         const dayNamesShort = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
-        const dayNamesFull = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
-        
+        const dayNamesFull = [
+          "Chủ nhật",
+          "Thứ 2",
+          "Thứ 3",
+          "Thứ 4",
+          "Thứ 5",
+          "Thứ 6",
+          "Thứ 7",
+        ];
+
         // Sort by dayOfWeek
-        const sorted = hours.sort((a: any, b: any) => a.dayOfWeek - b.dayOfWeek);
-        
+        const sorted = hours.sort(
+          (a: any, b: any) => a.dayOfWeek - b.dayOfWeek,
+        );
+
         // If all days have same time, try to summarize as range
         const first = sorted[0];
-        const allSame = sorted.every((h: any) => h.openTime === first.openTime && h.closeTime === first.closeTime);
-        
+        const allSame = sorted.every(
+          (h: any) =>
+            h.openTime === first.openTime && h.closeTime === first.closeTime,
+        );
+
         if (allSame && sorted.length > 1) {
           const startDay = dayNamesFull[sorted[0].dayOfWeek];
           const endDay = dayNamesFull[sorted[sorted.length - 1].dayOfWeek];
@@ -3464,49 +3658,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           // Fallback to legacy detailed format
           enriched.openHours = sorted
-            .map((h: any) => `${dayNamesShort[h.dayOfWeek] || h.dayOfWeek}: ${(h.openTime || "?").slice(0, 5)}-${(h.closeTime || "?").slice(0, 5)}`)
+            .map(
+              (h: any) =>
+                `${dayNamesShort[h.dayOfWeek] || h.dayOfWeek}: ${(h.openTime || "?").slice(0, 5)}-${(h.closeTime || "?").slice(0, 5)}`,
+            )
             .join(" | ");
         }
       }
-    } catch (_e) { /* opening hours table may not exist yet */ }
+    } catch (_e) {
+      /* opening hours table may not exist yet */
+    }
     return enriched;
   }
 
   // Helper: save opening hours string to poi_opening_hours table
-  async function saveOpeningHours(poiId: number, openHoursStr: string | undefined) {
+  async function saveOpeningHours(
+    poiId: number,
+    openHoursStr: string | undefined,
+  ) {
     if (!openHoursStr || !openHoursStr.trim()) return;
     // Clear existing hours for this POI
-    try { await storage.deletePoiOpeningHours(poiId); } catch (_e) { /* ignore */ }
+    try {
+      await storage.deletePoiOpeningHours(poiId);
+    } catch (_e) {
+      /* ignore */
+    }
 
     const trimmed = openHoursStr.trim();
-    const dayMap: Record<string, number> = { 
-      "CN": 0, "CHỦ NHẬT": 0, 
-      "T2": 1, "THỨ 2": 1, 
-      "T3": 2, "THỨ 3": 2, 
-      "T4": 3, "THỨ 4": 3, 
-      "T5": 4, "THỨ 5": 4, 
-      "T6": 5, "THỨ 6": 5, 
-      "T7": 6, "THỨ 7": 6 
+    const dayMap: Record<string, number> = {
+      CN: 0,
+      "CHỦ NHẬT": 0,
+      T2: 1,
+      "THỨ 2": 1,
+      T3: 2,
+      "THỨ 3": 2,
+      T4: 3,
+      "THỨ 4": 3,
+      T5: 4,
+      "THỨ 5": 4,
+      T6: 5,
+      "THỨ 6": 5,
+      T7: 6,
+      "THỨ 7": 6,
     };
 
     // 1. Check for New Format: "Thứ 2 - Thứ 6 | 08:00 - 22:00"
-    if (trimmed.includes('|')) {
-      const [daysPart, timesPart] = trimmed.split('|').map(s => s.trim());
+    if (trimmed.includes("|")) {
+      const [daysPart, timesPart] = trimmed.split("|").map((s) => s.trim());
       if (daysPart && timesPart) {
-        const days = daysPart.split('-').map(s => s.trim().toUpperCase());
-        const times = timesPart.split('-').map(s => s.trim());
-        
+        const days = daysPart.split("-").map((s) => s.trim().toUpperCase());
+        const times = timesPart.split("-").map((s) => s.trim());
+
         if (days.length >= 2 && times.length >= 2) {
           const startDayIdx = dayMap[days[0]] ?? 1;
           const endDayIdx = dayMap[days[1]] ?? 0;
           const openTime = times[0];
           const closeTime = times[1];
-          
+
           // Handle range (wrapping around if needed, though usually sequential)
           let current = startDayIdx;
           const target = endDayIdx;
           const daysToSave = [];
-          
+
           let safety = 0;
           while (safety < 10) {
             daysToSave.push(current);
@@ -3514,10 +3727,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             current = (current + 1) % 7;
             safety++;
           }
-          
+
           for (const d of daysToSave) {
             try {
-              await storage.createPoiOpeningHours({ poiId, dayOfWeek: d, openTime, closeTime });
+              await storage.createPoiOpeningHours({
+                poiId,
+                dayOfWeek: d,
+                openTime,
+                closeTime,
+              });
             } catch (_e) {}
           }
           return;
@@ -3542,7 +3760,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               openTime: times[0] || null,
               closeTime: times[1] || null,
             });
-          } catch (_e) { /* ignore duplicates */ }
+          } catch (_e) {
+            /* ignore duplicates */
+          }
         }
       }
     } else {
@@ -3558,7 +3778,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             openTime,
             closeTime,
           });
-        } catch (_e) { /* ignore duplicates */ }
+        } catch (_e) {
+          /* ignore duplicates */
+        }
       }
     }
   }
@@ -3742,7 +3964,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const trip = await storage.getTrip(Number(req.params.tripId));
       if (!trip) throw new AppError(404, "Trip not found");
-      if (trip.status === "completed") throw new AppError(400, "Cannot add expense to a completed trip");
+      if (trip.status === "completed")
+        throw new AppError(400, "Cannot add expense to a completed trip");
 
       const expense = await storage.createExpense({
         ...req.body,
