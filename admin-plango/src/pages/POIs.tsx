@@ -182,7 +182,7 @@ const POIs: React.FC = () => {
       openHours: `${poiOpenDayStart} - ${poiOpenDayEnd} | ${poiTimeStart} - ${poiTimeEnd}`,
       estimatedCost: parseInt(poiCost) || undefined,
       description: (typeof poiDesc === "string" && poiDesc.trim()) ? poiDesc.trim() : undefined,
-      images: poiPhotos.length > 0 ? poiPhotos.slice(0, 3).map(p => getPhotoUrl(p.name)) : ["https://images.unsplash.com/photo-1599708153386-62dc3942360b?w=800"],
+      images: poiPhotos.length > 0 ? poiPhotos.slice(0, 3).map(p => p.name) : ["https://images.unsplash.com/photo-1599708153386-62dc3942360b?w=800"],
       googlePlaceId: poiGoogleId || undefined,
       googlePhotos: poiPhotos.length > 0 ? poiPhotos : undefined,
       isActive: true,

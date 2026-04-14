@@ -194,7 +194,7 @@ const Destinations: React.FC = () => {
       googlePhotos: destPhotos.length > 0 ? destPhotos : undefined,
       images: uploadedImageUrl 
         ? [uploadedImageUrl] 
-        : (destPhotos.length > 0 ? [getPhotoUrl(destPhotos[0].name)] : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"]),
+        : (destPhotos.length > 0 ? [destPhotos[0].name] : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"]),
       tags: []
     };
 
