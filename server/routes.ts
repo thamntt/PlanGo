@@ -190,18 +190,29 @@ function mapTripToFrontend(trip: any) {
           const linkedExp = activitiesWithExpenses.get(itemIdStr);
           const actualCost = item.actualCost ? Number(item.actualCost) : 0;
           totalActivityCost += actualCost;
+
+          // Merge POI data into activity so display matches preview
+          const poi = item.poi;
           return {
             ...item,
             id: item.itemId,
             title: item.customName,
             time: item.startTime,
-            description: item.note,
-            estimatedCost: item.estimatedCost ? Number(item.estimatedCost) : 0,
+            description: item.note || (poi ? poi.description : undefined),
+            estimatedCost: item.estimatedCost ? Number(item.estimatedCost) : (poi?.estimatedCost ? Number(poi.estimatedCost) : 0),
             actualCost,
             paidBy: linkedExp ? linkedExp.payer : undefined,
             paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
             isCompleted: item.status === "completed",
-            expenseTypeId: item.expenseTypeId
+            expenseTypeId: item.expenseTypeId,
+            // POI-enriched fields — only override if itinerary_items doesn't have them
+            address: item.address || (poi ? poi.address : undefined),
+            latitude: item.latitude ? Number(item.latitude) : (poi?.latitude ? Number(poi.latitude) : undefined),
+            longitude: item.longitude ? Number(item.longitude) : (poi?.longitude ? Number(poi.longitude) : undefined),
+            rating: item.rating ? Number(item.rating) : (poi?.rating ? Number(poi.rating) : undefined),
+            reviewCount: item.reviewCount || poi?.reviewCounts,
+            googlePlaceId: item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
+            poiId: item.poiId,
           };
         }) : []
     }));
@@ -1783,6 +1794,7 @@ async function extractAndSavePOIsFromItinerary(
           ? act.estimatedCost.toString()
           : undefined,
         googlePlaceId: act.googlePlaceId || undefined,
+        description: act.description || undefined,
       });
       savedCount++;
     } catch (err) {
@@ -2256,6 +2268,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
             ? act.estimatedCost.toString()
             : undefined,
           googlePlaceId: act.googlePlaceId || undefined,
+          description: act.description || undefined,
         });
         // Link newly created POI ID to activity for itinerary_items creation
         if (createdPoi?.poiId) act.poiId = createdPoi.poiId;
@@ -2949,6 +2962,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               try {
                 await storage.createItineraryItem({
                   dayId: createdDay.dayId,
+                  tripId: trip.tripId,
                   poiId: activity.poiId ? Number(activity.poiId) : undefined,
                   customName: activity.title,
                   startTime: activity.time,

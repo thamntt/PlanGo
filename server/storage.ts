@@ -564,7 +564,8 @@ export class DatabaseStorage implements IStorage {
           orderBy: (days, { asc }) => [asc(days.dayIndex)],
           with: { 
             items: {
-              orderBy: (items, { asc }) => [asc(items.orderIndex)]
+              orderBy: (items, { asc }) => [asc(items.orderIndex)],
+              with: { poi: true }
             } 
           } 
         }, 
@@ -581,7 +582,8 @@ export class DatabaseStorage implements IStorage {
           orderBy: (days, { asc }) => [asc(days.dayIndex)],
           with: { 
             items: {
-              orderBy: (items, { asc }) => [asc(items.orderIndex)]
+              orderBy: (items, { asc }) => [asc(items.orderIndex)],
+              with: { poi: true }
             } 
           } 
         }, 
@@ -599,7 +601,8 @@ export class DatabaseStorage implements IStorage {
           orderBy: (days, { asc }) => [asc(days.dayIndex)],
           with: { 
             items: {
-              orderBy: (items, { asc }) => [asc(items.orderIndex)]
+              orderBy: (items, { asc }) => [asc(items.orderIndex)],
+              with: { poi: true }
             } 
           } 
         }, 
@@ -624,7 +627,8 @@ export class DatabaseStorage implements IStorage {
            orderBy: (days, { asc }) => [asc(days.dayIndex)],
            with: { 
              items: {
-               orderBy: (items, { asc }) => [asc(items.orderIndex)]
+               orderBy: (items, { asc }) => [asc(items.orderIndex)],
+               with: { poi: true }
              } 
            } 
          }, 
@@ -644,7 +648,8 @@ export class DatabaseStorage implements IStorage {
           orderBy: (days, { asc }) => [asc(days.dayIndex)],
           with: { 
             items: {
-              orderBy: (items, { asc }) => [asc(items.orderIndex)]
+              orderBy: (items, { asc }) => [asc(items.orderIndex)],
+              with: { poi: true }
             } 
           } 
         }, 
