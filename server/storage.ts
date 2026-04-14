@@ -1,4 +1,4 @@
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, ilike } from "drizzle-orm";
 import { db } from "./db";
 import {
   // Lookup tables
@@ -71,7 +71,7 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
-  getUsers(): Promise<User[]>;
+  getUsers(search?: string): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, data: Partial<User>): Promise<User | undefined>;
   deleteUser(id: number): Promise<boolean>;
@@ -244,7 +244,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.userName, username));
     return row;
   }
-  async getUsers(): Promise<User[]> {
+  async getUsers(search?: string): Promise<User[]> {
+    if (search) {
+      return db.select().from(users).where(ilike(users.userName, `%${search}%`));
+    }
     return db.select().from(users);
   }
   async createUser(data: InsertUser): Promise<User> {

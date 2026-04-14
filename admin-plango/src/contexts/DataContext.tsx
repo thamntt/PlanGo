@@ -22,6 +22,7 @@ interface DataContextValue {
   // Users
   updateUser: (id: string, data: Partial<UserData>) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
+  fetchUsers: (search?: string) => Promise<void>;
 
   // Destinations
   addDestination: (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive"> & { rating?: number; reviewCount?: number }) => Promise<Destination>;
@@ -229,6 +230,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setUsers((prev) => prev.filter((u) => u.id !== id));
   }, []);
 
+  const fetchUsers = useCallback(async (search?: string) => {
+    try {
+      const qs = search ? `?search=${encodeURIComponent(search)}` : "";
+      const res = await apiRequest("GET", `/api/users${qs}`);
+      setUsers(res.map(mapUser));
+    } catch (err) {
+      console.warn("Failed to fetch users", err);
+    }
+  }, []);
+
   const addDestination = useCallback(async (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive" | "tags"> & { rating?: number; reviewCount?: number; tags?: string[] }) => {
     const payload = { ...dest, rating: dest.rating || 0, reviewCount: dest.reviewCount || 0, isActive: true, tags: dest.tags || [] };
     const res = await apiRequest("POST", "/api/destinations", payload);
@@ -291,6 +302,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       refreshData,
       updateUser,
       deleteUser,
+      fetchUsers,
       addDestination,
       updateDestination,
       deleteDestination,
@@ -302,7 +314,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       adminStats,
       destinationTypes
     }),
-    [users, destinations, itineraries, reviews, pois, isLoading, refreshData, updateUser, deleteUser, addDestination, updateDestination, deleteDestination, addPOI, updatePOI, deletePOI, deleteItinerary, deleteReview, adminStats, destinationTypes]
+    [users, destinations, itineraries, reviews, pois, isLoading, refreshData, updateUser, deleteUser, fetchUsers, addDestination, updateDestination, deleteDestination, addPOI, updatePOI, deletePOI, deleteItinerary, deleteReview, adminStats, destinationTypes]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

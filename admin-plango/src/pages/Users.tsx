@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Lock, Unlock, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lock, Unlock, Trash2, Search } from 'lucide-react';
+import { useEffect } from 'react';
 import { useData } from '../contexts/DataContext';
 import type { UserData } from '../lib/types';
 
@@ -33,8 +34,16 @@ const StatusIndicator: React.FC<{ isLocked: boolean }> = ({ isLocked }) => {
 };
 
 const Users: React.FC = () => {
-  const { users, updateUser, deleteUser } = useData();
+  const { users, updateUser, deleteUser, fetchUsers } = useData();
   const [filterMode, setFilterMode] = useState<"all" | "active" | "locked">("all");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (fetchUsers) fetchUsers(searchTerm);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm, fetchUsers]);
   
   
 
@@ -82,6 +91,18 @@ const Users: React.FC = () => {
             onClick={() => setFilterMode("locked")}
             className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors ${filterMode === "locked" ? "bg-white text-primary shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
           >Bị khoá</button>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input 
+              type="text"
+              placeholder="Tìm kiếm theo tên..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary w-[250px] transition-all"
+            />
+          </div>
         </div>
       </div>
 

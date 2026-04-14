@@ -8,6 +8,7 @@ type ReviewTab = 'item' | 'trip';
 const Reviews: React.FC = () => {
   const { reviews, users, destinations, pois, deleteReview } = useData();
   const [activeTab, setActiveTab] = useState<ReviewTab>('item');
+  const [starFilter, setStarFilter] = useState<number | 'all'>('all');
   const getTargetInfo = (review: Review) => {
     if (review.reviewType === 'item') {
 
@@ -42,7 +43,11 @@ const Reviews: React.FC = () => {
     }
   };
 
-  const filteredReviews = reviews.filter(r => r.reviewType === activeTab);
+  const filteredReviews = reviews.filter(r => {
+    const typeMatch = r.reviewType === activeTab;
+    const ratingMatch = starFilter === 'all' || Math.round(Number(r.rating)) === starFilter;
+    return typeMatch && ratingMatch;
+  });
 
   return (
     <div className="flex-1 p-8 overflow-y-auto bg-slate-50/50">
@@ -51,32 +56,60 @@ const Reviews: React.FC = () => {
         <p className="text-lg text-slate-500 mt-2">Giám sát ý kiến người dùng và kiểm duyệt nội dung.</p>
       </div>
 
-      <div className="flex items-center mb-8">
-        <div className="flex bg-white p-1 rounded-xl border border-slate-200">
-           <button 
-             onClick={() => setActiveTab('item')}
-             className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
-               activeTab === 'item' 
-                 ? 'bg-slate-900 text-white' 
-                 : 'text-slate-500 hover:text-slate-900'
-             }`}
-           >
-             Địa điểm
-           </button>
-           <button 
-             onClick={() => setActiveTab('trip')}
-             className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
-               activeTab === 'trip' 
-                 ? 'bg-slate-900 text-white' 
-                 : 'text-slate-500 hover:text-slate-900'
-             }`}
-           >
-             Điểm đến
-           </button>
+      <div className="flex flex-wrap items-center justify-between gap-6 mb-8">
+        <div className="flex items-center gap-6">
+          <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+             <button 
+               onClick={() => setActiveTab('item')}
+               className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+                 activeTab === 'item' 
+                   ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' 
+                   : 'text-slate-500 hover:text-slate-900'
+               }`}
+             >
+               Địa điểm
+             </button>
+             <button 
+               onClick={() => setActiveTab('trip')}
+               className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+                 activeTab === 'trip' 
+                   ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' 
+                   : 'text-slate-500 hover:text-slate-900'
+               }`}
+             >
+               Điểm đến
+             </button>
+          </div>
+          <span className="text-sm font-bold text-slate-400">
+            {filteredReviews.length} đánh giá
+          </span>
         </div>
-        <span className="ml-4 text-sm font-bold text-slate-400">
-          {filteredReviews.length} đánh giá
-        </span>
+
+        <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+          <button 
+            onClick={() => setStarFilter('all')}
+            className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+              starFilter === 'all' 
+                ? 'bg-amber-500 text-white shadow-lg shadow-amber-200' 
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            Tất cả
+          </button>
+          {[5, 4, 3, 2, 1].map(star => (
+            <button 
+              key={star}
+              onClick={() => setStarFilter(star)}
+              className={`px-4 py-2 text-xs font-black flex items-center gap-1 rounded-lg transition-all ${
+                starFilter === star 
+                  ? 'bg-amber-500 text-white shadow-lg shadow-amber-200' 
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              {star} <Star size={12} fill={starFilter === star ? "white" : "currentColor"} className={starFilter === star ? "text-white" : "text-amber-500"} />
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6">

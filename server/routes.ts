@@ -2721,8 +2721,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ══════════════════════════════════════════════════════════════
   app.get(
     "/api/users",
-    asyncHandler(async (_req, res) => {
-      const users = await storage.getUsers();
+    asyncHandler(async (req, res) => {
+      const search = req.query.search as string;
+      const users = await storage.getUsers(search);
       sendResponse(res, 200, "Users retrieved successfully", users);
     }),
   );
