@@ -209,6 +209,7 @@ function mapTripToFrontend(trip: any) {
             paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
             isCompleted: item.status === "completed",
             expenseTypeId: item.expenseTypeId,
+            activityType: item.activityType,
             // POI-enriched fields — only override if itinerary_items doesn't have them
             address: item.address || (poi ? poi.address : undefined),
             latitude: item.latitude ? Number(item.latitude) : (poi?.latitude ? Number(poi.latitude) : undefined),
@@ -1698,6 +1699,33 @@ function extractPlaceName(title: string): string {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Helper: Map AI activity type to database expense type ID
+// ══════════════════════════════════════════════════════════════
+function mapActivityTypeToExpenseId(type?: string): number | null {
+  if (!type) return null;
+  const t = type.toLowerCase();
+  if (t.includes("food")) return 1; // Ăn uống
+  if (t.includes("transport") || t.includes("travel")) return 2; // Di chuyển
+  if (t.includes("hotel") || t.includes("accommodation")) return 3; // Khách sạn
+  if (t.includes("sightseeing") || t.includes("attraction")) return 4; // Tham quan
+  if (t.includes("shopping")) return 5; // Mua sắm
+  return 6; // Khác
+}
+
+function mapExpenseIdToActivityType(id?: number | null): string | null {
+  if (!id) return null;
+  const map: Record<number, string> = {
+    1: "food",
+    2: "transport",
+    3: "hotel",
+    4: "sightseeing",
+    5: "shopping",
+    6: "other",
+  };
+  return map[id] || "other";
+}
+
+// ══════════════════════════════════════════════════════════════
 // Helper: Extract activities from itinerary days and save as POIs
 // ══════════════════════════════════════════════════════════════
 async function extractAndSavePOIsFromItinerary(
@@ -1935,7 +1963,7 @@ JSON format:
   ]
 }
 
-activityType: "food" | "sightseeing" | "transport" | "shopping" | "other"`;
+activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "other"`;
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
@@ -3006,7 +3034,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   note: null, // Tuyệt đối không lưu vào note
                   estimatedCost: estCost,
                   status: activity.isCompleted ? "completed" : "pending",
-                  expenseTypeId: activity.expenseTypeId ? Number(activity.expenseTypeId) : undefined,
+                  expenseTypeId: activity.expenseTypeId
+                    ? Number(activity.expenseTypeId)
+                    : mapActivityTypeToExpenseId(activity.activityType),
+                  activityType: activity.activityType 
+                    ? activity.activityType 
+                    : mapExpenseIdToActivityType(activity.expenseTypeId ? Number(activity.expenseTypeId) : null),
                 });
               } catch (err) {
                 console.warn("Failed to create itinerary item:", err);
@@ -3083,7 +3116,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (act.title) updatePayload.customName = act.title;
                 if (numDuration !== undefined) updatePayload.duration = numDuration;
                 if (act.actualCost !== undefined) updatePayload.actualCost = act.actualCost ? act.actualCost.toString() : null;
-                if (act.expenseTypeId !== undefined) updatePayload.expenseTypeId = act.expenseTypeId ? Number(act.expenseTypeId) : null;
+                if (act.expenseTypeId !== undefined) {
+                  const newExpId = act.expenseTypeId ? Number(act.expenseTypeId) : null;
+                  updatePayload.expenseTypeId = newExpId || mapActivityTypeToExpenseId(act.activityType);
+                  // Sync activityType from expenseTypeId
+                  if (newExpId) {
+                    updatePayload.activityType = mapExpenseIdToActivityType(newExpId);
+                  }
+                }
+                if (act.activityType !== undefined && act.expenseTypeId === undefined) {
+                  updatePayload.activityType = act.activityType || null;
+                  updatePayload.expenseTypeId = mapActivityTypeToExpenseId(act.activityType);
+                }
                 
                 // Save note from user — this is the only place notes should be persisted
                 if (act.notes !== undefined) {
@@ -3141,7 +3185,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   note: null, // New activities never get note at creation time
                   estimatedCost: estCost,
                   status: act.isCompleted ? "completed" : "pending",
-                  expenseTypeId: act.expenseTypeId ? Number(act.expenseTypeId) : undefined,
+                  expenseTypeId: act.expenseTypeId
+                    ? Number(act.expenseTypeId)
+                    : mapActivityTypeToExpenseId(act.activityType),
+                  activityType: act.activityType 
+                    ? act.activityType : 
+                    mapExpenseIdToActivityType(act.expenseTypeId ? Number(act.expenseTypeId) : null),
                 });
               } catch (err) {
                 console.warn("[PUT /trips] Failed to create new activity:", err);
