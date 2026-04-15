@@ -1770,6 +1770,84 @@ function mapExpenseIdToActivityType(id?: number | null): string | null {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Preference Association Helpers
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Maps AI activity type and content to specific localized preferences.
+ */
+function mapToPreferenceNames(type?: string, title?: string, description?: string): string[] {
+  const prefs: string[] = [];
+  const t = (type || "").toLowerCase();
+  const text = ((title || "") + " " + (description || "")).toLowerCase();
+
+  // Basic type mapping
+  if (t.includes("food")) prefs.push("Ẩm thực");
+  if (t.includes("shopping")) prefs.push("Mua sắm");
+  if (t.includes("hotel") || t.includes("accommodation")) prefs.push("Nghỉ dưỡng");
+  
+  // Content-based mapping
+  if (text.match(/biển|vịnh|đảo|bãi tắm|mỹ khê|hạ long|phú quốc|nha trang/)) prefs.push("Biển");
+  if (text.match(/núi|đỉnh|fansipan|đèo|ba na hills|cao nguyên/)) prefs.push("Núi");
+  if (text.match(/chùa|thờ|văn hóa|di tích|lăng|cung điện|bảo tàng|hội an|kinh thành|đại nội/)) {
+    prefs.push("Văn hóa");
+    prefs.push("Lịch sử");
+  }
+  if (text.match(/mạo hiểm|trekking|leo núi|zipline|kayak|thời thách/)) prefs.push("Phiêu lưu");
+  if (text.match(/thiên nhiên|rừng|thác|hồ|suối|vườn quốc gia/)) prefs.push("Thiên nhiên");
+  if (text.match(/đêm|bar|pub|phố đi bộ|sôi động|rực rỡ/)) prefs.push("Giải trí đêm");
+  if (text.match(/chụp|ảnh|check-in|sống ảo|đẹp|toàn cảnh/)) prefs.push("Nhiếp ảnh");
+
+  // Fallback for sightseeing
+  if (t.includes("sightseeing") && prefs.length === 0) {
+    prefs.push("Văn hóa");
+    prefs.push("Thành phố");
+  }
+
+  return [...new Set(prefs)]; // Unique values
+}
+
+async function associatePreferencesToPoi(poiId: number, type?: string, title?: string, description?: string) {
+  try {
+    const prefNames = mapToPreferenceNames(type, title, description);
+    if (prefNames.length === 0) return;
+
+    console.log(`[POI-Pref] Associating ${prefNames.join(", ")} with POI ${poiId}`);
+    
+    // Clear existing to avoid duplicates if re-processing
+    await storage.clearPoiPreferences(poiId);
+
+    for (const name of prefNames) {
+      const pref = await storage.getPreferenceByName(name);
+      if (pref) {
+        await storage.addPoiPreference({ poiId, preferenceId: pref.preferenceId });
+      }
+    }
+  } catch (err) {
+    console.error(`[POI-Pref] Failed to associate preferences for POI ${poiId}:`, err);
+  }
+}
+
+async function associatePreferencesToTrip(tripId: number, prefNames: string[]) {
+  if (!prefNames || prefNames.length === 0) return;
+  try {
+    console.log(`[Trip-Pref] Associating ${prefNames.join(", ")} with Trip ${tripId}`);
+    
+    // Clear existing
+    await storage.clearTripPreferences(tripId);
+
+    for (const name of prefNames) {
+      const pref = await storage.getPreferenceByName(name);
+      if (pref) {
+        await storage.addTripPreference({ tripId, preferenceId: pref.preferenceId });
+      }
+    }
+  } catch (err) {
+    console.error(`[Trip-Pref] Failed to associate preferences for Trip ${tripId}:`, err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // Helper: Extract activities from itinerary days and save as POIs
 // ══════════════════════════════════════════════════════════════
 async function extractAndSavePOIsFromItinerary(
@@ -2349,7 +2427,11 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
           description: act.description || undefined,
         });
         // Link newly created POI ID to activity for itinerary_items creation
-        if (createdPoi?.poiId) act.poiId = createdPoi.poiId;
+        if (createdPoi?.poiId) {
+          act.poiId = createdPoi.poiId;
+          // Associate preferences to newly created POI
+          await associatePreferencesToPoi(createdPoi.poiId, act.activityType, act.title, act.description);
+        }
         savedCount++;
       } catch (err) {
         console.warn(`[POI] Failed to save POI for "${act.title}":`, err);
@@ -2855,6 +2937,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     .seedPoiTypes()
     .catch((e) => console.error("POI type seeding failed:", e));
   storage
+    .seedPreferences()
+    .catch((e) => console.error("Preference seeding failed:", e));
+  storage
     .seedAdminUser()
     .catch((e) => console.error("Admin user seeding failed:", e));
 
@@ -3027,6 +3112,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const trip = await storage.createTrip(payload);
 
+      // Save user-selected trip preferences
+      if (payload.preferences && Array.isArray(payload.preferences)) {
+        await associatePreferencesToTrip(trip.tripId, payload.preferences);
+      }
+
       // AI Gen: Save days structure
       if (payload.days && Array.isArray(payload.days)) {
         for (let i = 0; i < payload.days.length; i++) {
@@ -3112,6 +3202,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       googlePlaceId: activity.googlePlaceId || undefined,
                     });
                     resolvedPoiId = newPoi.poiId;
+                    // Associate preferences
+                    await associatePreferencesToPoi(newPoi.poiId, activity.activityType, activity.title, activity.description);
                   }
                 }
 
@@ -3907,6 +3999,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const item = await storage.createPoiType(req.body);
       sendResponse(res, 201, "Type created successfully", item);
+    }),
+  );
+  
+  app.get(
+    "/api/preferences",
+    asyncHandler(async (_req, res) => {
+      const items = await storage.getPreferences();
+      sendResponse(res, 200, "Preferences retrieved successfully", items);
     }),
   );
 

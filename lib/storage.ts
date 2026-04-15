@@ -36,6 +36,12 @@ export interface ExpenseType {
   description?: string;
 }
 
+export interface Preference {
+  id: string;
+  preferenceName: string;
+  description?: string;
+}
+
 export interface UserData {
   id: string;
   username: string;

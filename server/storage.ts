@@ -384,12 +384,31 @@ export class DatabaseStorage implements IStorage {
       .where(eq(preferences.preferenceId, id));
     return r;
   }
+  async getPreferenceByName(name: string) {
+    const [r] = await db
+      .select()
+      .from(preferences)
+      .where(eq(preferences.preferenceName, name));
+    return r;
+  }
   async getPreferences() {
     return db.select().from(preferences);
   }
   async createPreference(data: InsertPreference) {
     const [r] = await db.insert(preferences).values(data).returning();
     return r;
+  }
+
+  async seedPreferences() {
+    const { PREFERENCE_OPTIONS } = await import("../lib/seed-data");
+    const existing = await this.getPreferences();
+    if (existing.length > 0) return;
+
+    console.log("[Storage] Seeding preferences...");
+    for (const name of PREFERENCE_OPTIONS) {
+      await this.createPreference({ preferenceName: name });
+    }
+    console.log(`[Storage] Seeded ${PREFERENCE_OPTIONS.length} preferences.`);
   }
 
   // Destinations
@@ -547,6 +566,9 @@ export class DatabaseStorage implements IStorage {
   async addPoiPreference(data: InsertPoiPreference) {
     const [r] = await db.insert(poiPreferences).values(data).returning();
     return r;
+  }
+  async clearPoiPreferences(poiId: number) {
+    await db.delete(poiPreferences).where(eq(poiPreferences.poiId, poiId));
   }
   async removePoiPreference(poiId: number, prefId: number) {
     const r = await db
@@ -740,6 +762,9 @@ export class DatabaseStorage implements IStorage {
   async addTripPreference(data: InsertTripPreference) {
     const [r] = await db.insert(tripPreferences).values(data).returning();
     return r;
+  }
+  async clearTripPreferences(tripId: number) {
+    await db.delete(tripPreferences).where(eq(tripPreferences.tripId, tripId));
   }
   async removeTripPreference(tid: number, pid: number) {
     const r = await db
