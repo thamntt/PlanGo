@@ -159,7 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { success: true };
     } catch (err: any) {
       const msg = err.message || "Register failed";
-      if (msg.includes("409")) return { success: false, error: "Tên đăng nhập đã tồn tại" };
+      if (msg.includes("409")) return { success: false, error: "Tên đăng nhập hoặc email đã tồn tại" };
       return { success: false, error: msg };
     }
   };

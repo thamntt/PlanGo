@@ -234,7 +234,7 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [row] = await db.select().from(users).where(eq(users.email, email));
+    const [row] = await db.select().from(users).where(ilike(users.email, email.toLowerCase()));
     return row;
   }
   async getUserByUsername(username: string): Promise<User | undefined> {
