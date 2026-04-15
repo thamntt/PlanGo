@@ -130,6 +130,7 @@ function mapReview(r: any): Review {
     activityTitle: r.activityTitle ?? r.activity_title,
     itineraryId: (r.itineraryId ?? r.itinerary_id ?? r.tripId)?.toString(),
     reviewType,
+    destinationName: r.destinationName,
     rating: r.rating ? Number(r.rating) : 0,
     comment: r.comment || "",
     createdAt: r.createdAt ?? r.created_at ?? new Date().toISOString(),

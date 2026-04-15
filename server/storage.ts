@@ -789,10 +789,12 @@ export class DatabaseStorage implements IStorage {
       comment: tripReviews.comment,
       userName: users.userName,
       destinationId: trips.destinationId,
+      destinationName: destinations.name,
     })
     .from(tripReviews)
     .innerJoin(users, eq(tripReviews.userId, users.userId))
-    .innerJoin(trips, eq(tripReviews.tripId, trips.tripId));
+    .innerJoin(trips, eq(tripReviews.tripId, trips.tripId))
+    .leftJoin(destinations, eq(trips.destinationId, destinations.destinationId));
 
     if (filters?.tripId) {
       tripRevQuery.where(eq(tripReviews.tripId, filters.tripId));
@@ -813,12 +815,14 @@ export class DatabaseStorage implements IStorage {
       activityId: itineraryItems.itemId,
       activityTitle: itineraryItems.customName,
       poiName: pois.name,
+      destinationName: destinations.name,
     })
     .from(itemReviews)
     .innerJoin(users, eq(itemReviews.userId, users.userId))
     .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
     .innerJoin(itineraryDay, eq(itineraryItems.dayId, itineraryDay.dayId))
     .innerJoin(trips, eq(itineraryDay.tripId, trips.tripId))
+    .leftJoin(destinations, eq(trips.destinationId, destinations.destinationId))
     .leftJoin(pois, eq(itineraryItems.poiId, pois.poiId));
 
 

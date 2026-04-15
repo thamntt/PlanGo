@@ -25,6 +25,9 @@ const Reviews: React.FC = () => {
 
     } else {
       // Trip review → Điểm đến (Destination)
+      if (review.destinationName) {
+        return { label: review.destinationName };
+      }
       if (review.destinationId) {
         const d = destinations.find(x => x.id === review.destinationId);
         if (d) return { label: d.name };
