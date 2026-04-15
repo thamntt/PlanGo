@@ -2334,8 +2334,11 @@ export default function ItineraryDetailScreen() {
                               <TextInput
                                 style={[sumStyles.inlineInput, sumStyles.cellCost, { backgroundColor: colors.inputBg, borderColor: colors.primary, color: colors.text }]}
                                 value={editingSummaryRow.cost}
-                                onChangeText={(v) => setEditingSummaryRow({ ...editingSummaryRow, cost: v })}
                                 keyboardType="numeric"
+                                onChangeText={(v) => {
+                                  const sanitized = v.replace(/[^0-9]/g, "");
+                                  setEditingSummaryRow({ ...editingSummaryRow, cost: sanitized });
+                                }}
                                 selectTextOnFocus
                               />
                             ) : (
@@ -2962,7 +2965,12 @@ export default function ItineraryDetailScreen() {
                     <TextInput
                       style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                       value={costModal?.estimatedCost || ""}
-                      onChangeText={(v) => costModal && setCostModal({ ...costModal, estimatedCost: v })}
+                      onChangeText={(v) => {
+                        if (costModal) {
+                          const sanitized = v.replace(/[^0-9]/g, "");
+                          setCostModal({ ...costModal, estimatedCost: sanitized });
+                        }
+                      }}
                       placeholder="VD: 500000"
                       placeholderTextColor={colors.textTertiary}
                       keyboardType="numeric"
@@ -2977,7 +2985,12 @@ export default function ItineraryDetailScreen() {
                   <TextInput
                     style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                     value={costModal?.cost || ""}
-                    onChangeText={(v) => costModal && setCostModal({ ...costModal, cost: v })}
+                    onChangeText={(v) => {
+                      if (costModal) {
+                        const sanitized = v.replace(/[^0-9]/g, "");
+                        setCostModal({ ...costModal, cost: sanitized });
+                      }
+                    }}
                     placeholder="VD: 500000"
                     placeholderTextColor={colors.textTertiary}
                     keyboardType="numeric"
@@ -3085,11 +3098,11 @@ export default function ItineraryDetailScreen() {
                             {costSplitType === "custom" && isChecked && (
                               <TextInput
                                 style={[styles.splitAmountInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                                value={costSplitAmounts[m.userId] || ""}
-                                onChangeText={(v) => setCostSplitAmounts({ ...costSplitAmounts, [m.userId]: v })}
-                                placeholder="0"
-                                placeholderTextColor={colors.textTertiary}
                                 keyboardType="numeric"
+                                onChangeText={(v) => {
+                                  const sanitized = v.replace(/[^0-9]/g, "");
+                                  setCostSplitAmounts({ ...costSplitAmounts, [m.userId]: sanitized });
+                                }}
                               />
                             )}
                           </View>
@@ -3286,7 +3299,10 @@ export default function ItineraryDetailScreen() {
                 <TextInput
                   style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                   value={placeCost}
-                  onChangeText={setPlaceCost}
+                  onChangeText={(v) => {
+                    const sanitized = v.replace(/[^0-9]/g, "");
+                    setPlaceCost(sanitized);
+                  }}
                   placeholder={txt.expenseAmount + " (VNĐ)"}
                   placeholderTextColor={colors.textTertiary}
                   keyboardType="numeric"
@@ -3360,7 +3376,10 @@ export default function ItineraryDetailScreen() {
               <TextInput
                 style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                 value={expenseAmount}
-                onChangeText={setExpenseAmount}
+                onChangeText={(v) => {
+                  const sanitized = v.replace(/[^0-9]/g, "");
+                  setExpenseAmount(sanitized);
+                }}
                 placeholder={txt.expenseAmount + " (VNĐ)"}
                 placeholderTextColor={colors.textTertiary}
                 keyboardType="numeric"
@@ -3514,14 +3533,20 @@ export default function ItineraryDetailScreen() {
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={editBudget}
-              onChangeText={setEditBudget}
+              onChangeText={(v) => {
+                const sanitized = v.replace(/[^0-9]/g, "");
+                setEditBudget(sanitized);
+              }}
               keyboardType="numeric"
             />
             <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.travelers}</Text>
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={editNumPeople}
-              onChangeText={setEditNumPeople}
+              onChangeText={(v) => {
+                const sanitized = v.replace(/[^0-9]/g, "");
+                setEditNumPeople(sanitized);
+              }}
               keyboardType="numeric"
             />
             <View style={styles.modalActions}>
