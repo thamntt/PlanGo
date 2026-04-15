@@ -3477,6 +3477,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
         }
+
+        // AUTO-SYNC TRIP DATES: If days changed, recalculate endDate based on max dayIndex
+        const finalDays = await storage.getItineraryDaysByTrip(id);
+        if (finalDays.length > 0) {
+          const maxDayIndex = Math.max(...finalDays.map(d => d.dayIndex || 1));
+          const currentTrip = await storage.getTrip(id);
+          if (currentTrip && currentTrip.startDate) {
+            const start = new Date(currentTrip.startDate);
+            if (!isNaN(start.getTime())) {
+              const newEnd = new Date(start);
+              newEnd.setDate(start.getDate() + (maxDayIndex - 1));
+              
+              // Only update if it actually changed to avoid redundant writes
+              const newEndStr = newEnd.toISOString().split('T')[0];
+              const oldEndStr = currentTrip.endDate ? new Date(currentTrip.endDate).toISOString().split('T')[0] : "";
+              
+              if (newEndStr !== oldEndStr) {
+                console.log(`[PUT /trips] Syncing trip dates: N days=${maxDayIndex}, new endDate=${newEndStr}`);
+                await storage.updateTrip(id, { endDate: newEndStr });
+              }
+            }
+          }
+        }
       }
 
       // Handle nested expenses update
