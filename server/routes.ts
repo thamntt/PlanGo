@@ -2876,7 +2876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/auth/login",
     asyncHandler(async (req, res) => {
       const { email, username, password } = req.body;
-      const identifier = email || username;
+      const identifier = (email || username || "").toLowerCase().trim();
       if (!identifier || !password)
         throw new AppError(400, "Email or username and password are required");
 
@@ -2910,14 +2910,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new AppError(400, "userName, email and password are required");
       }
 
-      console.log(`[Auth] Checking if email exists: ${email}`);
-      const existing = await storage.getUserByEmail(email);
+      const normalizedEmail = email.toLowerCase().trim();
+      console.log(`[Auth] Checking if email exists: ${normalizedEmail}`);
+      const existing = await storage.getUserByEmail(normalizedEmail);
       if (existing) throw new AppError(409, "Email already exists");
 
       const user = await storage.createUser({
         userName: finalUserName,
         password,
-        email,
+        email: normalizedEmail,
         role: "user",
         status: "active",
       });
