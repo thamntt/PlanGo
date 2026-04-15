@@ -36,6 +36,7 @@ const POIs: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   
   // Form State
   const [poiName, setPoiName] = useState("");
@@ -123,6 +124,7 @@ const POIs: React.FC = () => {
     setPoiOpenDayStart("Thứ 2"); setPoiOpenDayEnd("Chủ nhật");
     setPoiTimeStart("08:00"); setPoiTimeEnd("22:00");
     setPoiGoogleId(""); setPoiPhotos([]); setGoogleQuery(""); setGoogleResults([]);
+    setErrors({});
     setIsModalOpen(true);
   };
 
@@ -164,11 +166,22 @@ const POIs: React.FC = () => {
     setPoiGoogleId(poi.googlePlaceId || "");
     setPoiPhotos(poi.googlePhotos || []);
     setGoogleQuery(""); setGoogleResults([]);
+    setErrors({});
     setIsModalOpen(true);
   };
 
   const handleSave = async () => {
-    if (!poiName.trim()) return;
+    const newErrors: Record<string, string> = {};
+    if (!poiName.trim()) newErrors.name = "Vui lòng nhập tên địa điểm";
+    if (!poiAddr.trim()) newErrors.address = "Vui lòng nhập địa chỉ";
+    if (!poiDestId) newErrors.destination = "Vui lòng chọn điểm đến";
+    if (!poiLat.trim()) newErrors.latitude = "Vui lòng nhập vĩ độ";
+    if (!poiLng.trim()) newErrors.longitude = "Vui lòng nhập kinh độ";
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
 
     const data: Omit<POI, "id"> = {
       destinationId: poiDestId,
@@ -357,25 +370,42 @@ const POIs: React.FC = () => {
               {/* Form Fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Tên địa điểm</label>
-                  <input type="text" value={poiName} onChange={e => setPoiName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Tên địa điểm <span className="text-rose-500">*</span></label>
+                  <input 
+                    type="text" 
+                    value={poiName} 
+                    onChange={e => { setPoiName(e.target.value); if (errors.name) setErrors({...errors, name: ""}); }} 
+                    className={`w-full bg-slate-50 border ${errors.name ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all`} 
+                  />
+                  {errors.name && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.name}</p>}
                 </div>
                 
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Địa chỉ</label>
-                  <input type="text" value={poiAddr} onChange={e => setPoiAddr(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Địa chỉ <span className="text-rose-500">*</span></label>
+                  <input 
+                    type="text" 
+                    value={poiAddr} 
+                    onChange={e => { setPoiAddr(e.target.value); if (errors.address) setErrors({...errors, address: ""}); }} 
+                    className={`w-full bg-slate-50 border ${errors.address ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all`} 
+                  />
+                  {errors.address && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.address}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Điểm đến trực thuộc</label>
-                  <select value={poiDestId} onChange={e => setPoiDestId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 appearance-none">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Điểm đến trực thuộc <span className="text-rose-500">*</span></label>
+                  <select 
+                    value={poiDestId} 
+                    onChange={e => { setPoiDestId(e.target.value); if (errors.destination) setErrors({...errors, destination: ""}); }} 
+                    className={`w-full bg-slate-50 border ${errors.destination ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 appearance-none transition-all`}
+                  >
                     <option value="" disabled>Chọn điểm đến</option>
                     {destinations.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
+                  {errors.destination && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.destination}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Loại hình</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Loại hình <span className="text-rose-500">*</span></label>
                   <select value={poiType} onChange={e => setPoiType(e.target.value as any)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 appearance-none">
                     <option value="attraction">Tham quan</option>
                     <option value="restaurant">Nhà hàng</option>
@@ -388,19 +418,37 @@ const POIs: React.FC = () => {
                 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vĩ độ (Lat)</label>
-                    <input type="text" value={poiLat} onChange={e => setPoiLat(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vĩ độ (Lat) <span className="text-rose-500">*</span></label>
+                    <input 
+                      type="text" 
+                      value={poiLat} 
+                      onChange={e => { setPoiLat(e.target.value); if (errors.latitude) setErrors({...errors, latitude: ""}); }} 
+                      className={`w-full bg-slate-50 border ${errors.latitude ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all`} 
+                    />
+                    {errors.latitude && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.latitude}</p>}
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Kinh độ (Lng)</label>
-                    <input type="text" value={poiLng} onChange={e => setPoiLng(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Kinh độ (Lng) <span className="text-rose-500">*</span></label>
+                    <input 
+                      type="text" 
+                      value={poiLng} 
+                      onChange={e => { setPoiLng(e.target.value); if (errors.longitude) setErrors({...errors, longitude: ""}); }} 
+                      className={`w-full bg-slate-50 border ${errors.longitude ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all`} 
+                    />
+                    {errors.longitude && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.longitude}</p>}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Chi phí (VND)</label>
-                    <input type="text" value={poiCost} onChange={e => setPoiCost(e.target.value)} placeholder="0" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                    <input 
+                      type="text" 
+                      value={poiCost} 
+                      onChange={e => setPoiCost(e.target.value.replace(/[^0-9]/g, ""))} 
+                      placeholder="0" 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" 
+                    />
                   </div>
                   <div className="md:col-span-2 space-y-4">
                     <div className="flex items-center gap-2 mb-1">

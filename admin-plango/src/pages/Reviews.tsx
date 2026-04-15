@@ -156,7 +156,7 @@ const Reviews: React.FC = () => {
             </div>
 
             <p className="text-slate-600 leading-relaxed font-medium">
-               "{review.comment}"
+               "{review.comment.replace(/\s*\[activity:[^\]]+\]/g, '').replace(/\s*\[resetBefore:[^\]]+\]/g, '').trim()}"
             </p>
           </div>
         )})}
