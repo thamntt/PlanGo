@@ -110,12 +110,33 @@ function getTravelInfo(from: ItineraryActivity, to: ItineraryActivity): TravelIn
 }
 
 function parseTimeToMinutes(time: string): number {
-  const match = time.match(/^(\d{1,2}):(\d{2})$/);
+  const match = time.match(/^(\d{1,2}):(\d{2})(:(\d{2}))?$/);
   if (!match) return -1;
   const h = parseInt(match[1], 10);
   const m = parseInt(match[2], 10);
   if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
   return h * 60 + m;
+}
+
+function formatTimeInput(val: string): string {
+  // Remove any non-digits
+  const cleaned = val.replace(/[^\d]/g, "");
+  
+  // Format as HH:mm:ss
+  if (cleaned.length <= 2) return cleaned;
+  if (cleaned.length <= 4) return `${cleaned.slice(0, 2)}:${cleaned.slice(2)}`;
+  return `${cleaned.slice(0, 2)}:${cleaned.slice(2, 4)}:${cleaned.slice(4, 6)}`;
+}
+
+function sortActivitiesByTime(activities: ItineraryActivity[]): ItineraryActivity[] {
+  return [...activities].sort((a, b) => {
+    const timeA = parseTimeToMinutes(a.time);
+    const timeB = parseTimeToMinutes(b.time);
+    if (timeA === timeB) return 0;
+    if (timeA === -1) return 1;
+    if (timeB === -1) return -1;
+    return timeA - timeB;
+  });
 }
 
 function minutesToTime(mins: number): string {
@@ -1189,10 +1210,8 @@ export default function ItineraryDetailScreen() {
     if (actIdx === -1) return;
 
     activities[actIdx].time = minutesToTime(newMins);
+    newDays[timeModal.dayIdx].activities = sortActivitiesByTime(activities);
 
-    newDays[timeModal.dayIdx].activities = activities.slice().sort((a, b) => {
-      return parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time);
-    });
     const sortedActivities = newDays[timeModal.dayIdx].activities;
     const newActIdx = sortedActivities.findIndex((a) => a.id === timeModal.activityId);
 
@@ -1233,6 +1252,7 @@ export default function ItineraryDetailScreen() {
       activityType: placeType,
     };
     activities.push(newActivity);
+    newDays[addPlaceModal.dayIdx].activities = sortActivitiesByTime(activities);
     await updateItinerary(itinerary.id, { days: newDays });
     setPlaceTitle("");
     setPlaceDuration("1 giờ");
@@ -1338,6 +1358,7 @@ export default function ItineraryDetailScreen() {
       destinationId: poi.destinationId,
     };
     activities.push(newActivity);
+    newDays[dayIdx].activities = sortActivitiesByTime(activities);
     await updateItinerary(itinerary.id, { days: newDays });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setAddPlaceModal(null);
@@ -1780,7 +1801,7 @@ export default function ItineraryDetailScreen() {
                   <View style={[styles.dayCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
                     <View style={styles.dayHeader}>
                       <View style={[styles.dayBadge, { backgroundColor: colors.primary }]}>
-                        <Text style={styles.dayBadgeText}>{day.day}</Text>
+                        <Text style={styles.dayBadgeText}>Ngày {day.day}</Text>
                       </View>
                       <Text style={[styles.dayTitle, { color: colors.text }]}>{day.title}</Text>
                       <Ionicons
@@ -2303,7 +2324,7 @@ export default function ItineraryDetailScreen() {
                         const isEditing = editingSummaryRow?.actId === act.id;
                         return (
                           <View key={act.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40", zIndex: isEditing && summaryPaidByDropdown ? 9999 : 0, overflow: "visible" as any }]}>
-                            <Text style={[sumStyles.tdCell, sumStyles.cellDay, { color: colors.textSecondary }]} numberOfLines={1}>{act._dayIdx + 1}</Text>
+                            <Text style={[sumStyles.tdCell, sumStyles.cellDay, { color: colors.textSecondary }]} numberOfLines={1}>Ngày {act._dayIdx + 1}</Text>
                             <View style={sumStyles.cellName}>
                               <Text style={[sumStyles.tdCell, { color: colors.text }]} numberOfLines={1}>{act.title}</Text>
                               <Text style={[sumStyles.tdCellSub, { color: colors.textTertiary }]}>{act.time}</Text>
@@ -3124,10 +3145,16 @@ export default function ItineraryDetailScreen() {
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={timeModal?.time || ""}
-              onChangeText={(v) => timeModal && setTimeModal({ ...timeModal, time: v })}
-              placeholder={txt.timePlaceholder}
+              onChangeText={(v) => {
+                if (timeModal) {
+                  const formatted = formatTimeInput(v);
+                  setTimeModal({ ...timeModal, time: formatted });
+                }
+              }}
+              placeholder="HH:mm"
               placeholderTextColor={colors.textTertiary}
-              keyboardType="numbers-and-punctuation"
+              keyboardType="numeric"
+              maxLength={8}
             />
             <View style={styles.modalActions}>
               <Pressable onPress={() => setTimeModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
@@ -4526,9 +4553,9 @@ const styles = StyleSheet.create({
   tabBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
   dayCard: { borderRadius: 16, borderWidth: 1, padding: 16 },
   dayHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  dayBadge: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  dayBadgeText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
-  dayTitle: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  dayBadge: { height: 28, paddingHorizontal: 12, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  dayBadgeText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
+  dayTitle: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold", marginLeft: -4 },
   activitiesList: { gap: 8, marginTop: 8, marginBottom: 8 },
   activityCard: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 8 },
   activityTop: { flexDirection: "row", gap: 10 },
@@ -4723,7 +4750,7 @@ const sumStyles = StyleSheet.create({
   thCell: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   tdCell: { fontSize: 12, fontFamily: "Inter_400Regular" },
   tdCellSub: { fontSize: 10, fontFamily: "Inter_400Regular" },
-  cellDay: { width: 30, textAlign: "center" },
+  cellDay: { width: 44, textAlign: "center" },
   cellName: { flex: 1, minWidth: 60 },
   cellCost: { width: 75, textAlign: "right" },
   cellPayer: { width: 60, textAlign: "center" },
