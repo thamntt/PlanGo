@@ -3266,17 +3266,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle nested itinerary item updates: add, update, delete
       if (req.body.days && Array.isArray(req.body.days)) {
+        const dbDays = await storage.getItineraryDaysByTrip(id);
+        const processedDayIds = new Set<number>();
+
         for (const day of req.body.days) {
           if (!day.activities || !Array.isArray(day.activities)) continue;
 
-          // Get the dayId for this day — find by dayIndex
-          const dbDays = await storage.getItineraryDaysByTrip(id);
-          const matchedDay = dbDays.find(
-            (d: any) => d.dayIndex === (day.day || day.dayIndex),
+          // Match by explicit ID first, then fallback to index
+          const incomingDayId = day.dayId || day.id;
+          let matchedDay = dbDays.find(
+            (d: any) => d.dayId === Number(incomingDayId),
           );
-          if (!matchedDay) continue;
 
-          const dayId = matchedDay.dayId;
+          if (!matchedDay) {
+            // Fallback for newly created days that might only have index
+            matchedDay = dbDays.find(
+              (d: any) => d.dayIndex === (day.day || day.dayIndex),
+            );
+          }
+
+          let dayId: number;
+
+          if (matchedDay) {
+            dayId = matchedDay.dayId;
+            processedDayIds.add(dayId);
+            // Update dayIndex in case it changed (e.g. re-indexing after deletion)
+            const newIndex = day.day || day.dayIndex;
+            if (matchedDay.dayIndex !== newIndex) {
+              await storage.updateItineraryDay(dayId, { dayIndex: newIndex });
+            }
+          } else {
+            // Create new day
+            const newDay = await storage.createItineraryDay({
+              tripId: id,
+              dayIndex: day.day || day.dayIndex,
+            });
+            dayId = newDay.dayId;
+            processedDayIds.add(dayId);
+          }
 
           // Get existing items for this day to detect deletions
           const existingItems = await storage.getItineraryItemsByDay(dayId);
@@ -3436,6 +3463,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   err,
                 );
               }
+            }
+          }
+        }
+
+        // Delete days that were removed from the trip
+        for (const dbDay of dbDays) {
+          if (!processedDayIds.has(dbDay.dayId)) {
+            try {
+              await storage.deleteItineraryDay(dbDay.dayId);
+            } catch (err) {
+              console.warn("[PUT /trips] Failed to delete removed day:", err);
             }
           }
         }
