@@ -121,7 +121,7 @@ function parseTimeToMinutes(time: string): number {
 function formatTimeInput(val: string): string {
   // Remove any non-digits
   const cleaned = val.replace(/[^\d]/g, "");
-  
+
   // Format as HH:mm:ss
   if (cleaned.length <= 2) return cleaned;
   if (cleaned.length <= 4) return `${cleaned.slice(0, 2)}:${cleaned.slice(2)}`;
@@ -148,7 +148,7 @@ function minutesToTime(mins: number): string {
 function parseDurationToMinutes(duration: any): number {
   if (typeof duration === "number") return duration;
   if (!duration || typeof duration !== "string") return 60;
-  
+
   const hourMatch = duration.match(/([\d.]+)\s*giờ/);
   const minMatch = duration.match(/(\d+)\s*phút/);
   let total = 0;
@@ -162,7 +162,7 @@ function formatDuration(duration: any): string {
   if (mins <= 0) return "";
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  
+
   const labels = t().itinerary;
   let res = "";
   if (h > 0) res += `${h} giờ`;
@@ -1001,13 +1001,13 @@ export default function ItineraryDetailScreen() {
     }
 
     if (reviewModal.editReviewId) {
-      await updateReview(reviewModal.editReviewId, { 
-        userId: user!.id, 
-        rating: reviewRating, 
-        comment: taggedComment, 
-        poiId, 
-        poiName, 
-        type: 'item' 
+      await updateReview(reviewModal.editReviewId, {
+        userId: user!.id,
+        rating: reviewRating,
+        comment: taggedComment,
+        poiId,
+        poiName,
+        type: 'item'
       });
     } else {
       await addReview({
@@ -2026,20 +2026,20 @@ export default function ItineraryDetailScreen() {
                               if (itinerary.status === "active") return true;
                               return false;
                             })() && (
-                                <Pressable 
-                                  onPress={() => { 
-                                    setCostPaidByDropdown(false); 
-                                    setCostModal({ 
-                                      activityId: activity.id, 
-                                      dayIdx, 
-                                      cost: (activity.actualCost || 0).toString(), 
-                                      estimatedCost: (activity.estimatedCost || 0).toString(), 
-                                      paidBy: activity.paidBy || user?.fullName || "", 
+                                <Pressable
+                                  onPress={() => {
+                                    setCostPaidByDropdown(false);
+                                    setCostModal({
+                                      activityId: activity.id,
+                                      dayIdx,
+                                      cost: (activity.actualCost || 0).toString(),
+                                      estimatedCost: (activity.estimatedCost || 0).toString(),
+                                      paidBy: activity.paidBy || user?.fullName || "",
                                       activityTitle: activity.title,
                                       expenseTypeId: activity.expenseTypeId,
                                       type: activity.activityType || "other"
-                                    }); 
-                                  }} 
+                                    });
+                                  }}
                                   style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
                                 >
                                   <Ionicons name="cash-outline" size={14} color={colors.accent} />
@@ -2222,11 +2222,11 @@ export default function ItineraryDetailScreen() {
                 setSummaryPaidByDropdown(false);
                 const newDays = [...itinerary.days];
                 const act = newDays[editingSummaryRow.dayIdx].activities.find((a) => a.id === editingSummaryRow.actId);
-                
+
                 if (act) {
                   const amount = parseInt(editingSummaryRow.cost.replace(/[^0-9]/g, ""), 10) || 0;
                   const paidByName = editingSummaryRow.paidBy.trim();
-                  
+
                   // Find matching user ID from companions or current user
                   let paidByUserId = undefined;
                   if (paidByName) {
@@ -2240,7 +2240,7 @@ export default function ItineraryDetailScreen() {
 
                   act.actualCost = amount;
                   act.paidBy = paidByName || undefined;
-                  
+
                   // Sync corresponding expense
                   const newExpenses = [...expenses];
                   const expIdx = newExpenses.findIndex(e => e.activityId === act.id.toString());
@@ -2254,10 +2254,10 @@ export default function ItineraryDetailScreen() {
                   }
 
                   const newSpent = recalcSpent(newDays, newExpenses);
-                  await updateItinerary(itinerary.id, { 
-                    days: newDays, 
+                  await updateItinerary(itinerary.id, {
+                    days: newDays,
                     expenses: newExpenses,
-                    spentAmount: newSpent 
+                    spentAmount: newSpent
                   });
                 }
                 setEditingSummaryRow(null);
@@ -3006,9 +3006,9 @@ export default function ItineraryDetailScreen() {
                     key={et.id}
                     onPress={() => costModal && setCostModal({ ...costModal, expenseTypeId: et.id, type: et.name.toLowerCase() })}
                     style={[
-                      styles.typeChip, 
-                      { 
-                        backgroundColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBg, 
+                      styles.typeChip,
+                      {
+                        backgroundColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBg,
                         borderColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBorder,
                         marginBottom: 6
                       }
@@ -3136,8 +3136,8 @@ export default function ItineraryDetailScreen() {
                   const isInvalid = costSplitType === "custom" && total !== sum;
 
                   return (
-                    <Pressable 
-                      onPress={saveCost} 
+                    <Pressable
+                      onPress={saveCost}
                       disabled={isInvalid}
                       style={[styles.modalBtn, { backgroundColor: colors.primary, opacity: isInvalid ? 0.5 : 1 }]}
                     >
@@ -3359,9 +3359,9 @@ export default function ItineraryDetailScreen() {
                       <Ionicons
                         name={getActivityTypeIcon(
                           et.id.toString() === "1" ? "food" :
-                          et.id.toString() === "2" ? "transport" :
-                          et.id.toString() === "4" ? "sightseeing" :
-                          et.id.toString() === "5" ? "shopping" : "other"
+                            et.id.toString() === "2" ? "transport" :
+                              et.id.toString() === "4" ? "sightseeing" :
+                                et.id.toString() === "5" ? "shopping" : "other"
                         ) as any}
                         size={14}
                         color={isSelected ? "#fff" : colors.textSecondary}

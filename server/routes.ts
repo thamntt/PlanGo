@@ -99,6 +99,11 @@ function mapTripToFrontend(trip: any) {
     mapped.destination = mapped.destination.name;
   }
 
+  // Map sharing fields
+  mapped.shareCode = mapped.invitationToken;
+  mapped.sharePermission = mapped.sharePermission || "viewer";
+  mapped.isShared = !!mapped.invitationToken;
+
   if (mapped.expenses && Array.isArray(mapped.expenses)) {
     mapped.expenses = mapped.expenses.map((e: any) => ({
       ...e,
@@ -115,10 +120,10 @@ function mapTripToFrontend(trip: any) {
       activityId: e.itemId ? e.itemId.toString() : undefined,
       splits: e.splits
         ? e.splits.map((s: any) => ({
-            userId: s.userId?.toString() || "",
-            userName: s.user ? s.user.fullName || s.user.userName : "",
-            amount: Number(s.amount || 0),
-          }))
+          userId: s.userId?.toString() || "",
+          userName: s.user ? s.user.fullName || s.user.userName : "",
+          amount: Number(s.amount || 0),
+        }))
         : [],
     }));
   }
@@ -161,19 +166,19 @@ function mapTripToFrontend(trip: any) {
         activityId: e.itemId ? e.itemId.toString() : undefined,
         splits: e.splits
           ? e.splits.map((s: any) => {
-              let uName = s.user ? s.user.fullName || s.user.userName : "";
-              if (!uName && mapped.companions) {
-                const comp = mapped.companions.find(
-                  (c: any) => c.userId === s.userId?.toString(),
-                );
-                if (comp) uName = comp.userName;
-              }
-              return {
-                userId: s.userId?.toString() || "",
-                userName: uName,
-                amount: Number(s.amount || 0),
-              };
-            })
+            let uName = s.user ? s.user.fullName || s.user.userName : "";
+            if (!uName && mapped.companions) {
+              const comp = mapped.companions.find(
+                (c: any) => c.userId === s.userId?.toString(),
+              );
+              if (comp) uName = comp.userName;
+            }
+            return {
+              userId: s.userId?.toString() || "",
+              userName: uName,
+              amount: Number(s.amount || 0),
+            };
+          })
           : [],
       };
     });
@@ -201,59 +206,59 @@ function mapTripToFrontend(trip: any) {
       day: day.dayIndex,
       activities: day.items
         ? [...day.items]
-            .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
-            .map((item: any) => {
-              const itemIdStr = item.itemId.toString();
-              const linkedExp = activitiesWithExpenses.get(itemIdStr);
-              const actualCost = item.actualCost ? Number(item.actualCost) : 0;
-              totalActivityCost += actualCost;
+          .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
+          .map((item: any) => {
+            const itemIdStr = item.itemId.toString();
+            const linkedExp = activitiesWithExpenses.get(itemIdStr);
+            const actualCost = item.actualCost ? Number(item.actualCost) : 0;
+            totalActivityCost += actualCost;
 
-              // Merge POI data into activity so display matches preview
-              const poi = item.poi;
-              return {
-                ...item,
-                id: item.itemId,
-                title: item.customName,
-                time: item.startTime,
-                // description comes from POI (static place info), note is user-added per trip
-                description: poi ? poi.description : undefined,
-                note: item.note || undefined,
-                // For backwards compat: notes array if note exists
-                notes: item.note ? [item.note] : undefined,
-                estimatedCost: item.estimatedCost
-                  ? Number(item.estimatedCost)
-                  : poi?.estimatedCost
-                    ? Number(poi.estimatedCost)
-                    : 0,
-                actualCost,
-                paidBy: linkedExp ? linkedExp.payer : undefined,
-                paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
-                isCompleted: item.status === "completed",
-                expenseTypeId: item.expenseTypeId,
-                activityType: item.activityType,
-                // POI-enriched fields — only override if itinerary_items doesn't have them
-                address: item.address || (poi ? poi.address : undefined),
-                latitude: item.latitude
-                  ? Number(item.latitude)
-                  : poi?.latitude
-                    ? Number(poi.latitude)
-                    : undefined,
-                longitude: item.longitude
-                  ? Number(item.longitude)
-                  : poi?.longitude
-                    ? Number(poi.longitude)
-                    : undefined,
-                rating: item.rating
-                  ? Number(item.rating)
-                  : poi?.rating
-                    ? Number(poi.rating)
-                    : undefined,
-                reviewCount: item.reviewCount || poi?.reviewCounts,
-                googlePlaceId:
-                  item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
-                poiId: item.poiId,
-              };
-            })
+            // Merge POI data into activity so display matches preview
+            const poi = item.poi;
+            return {
+              ...item,
+              id: item.itemId,
+              title: item.customName,
+              time: item.startTime,
+              // description comes from POI (static place info), note is user-added per trip
+              description: poi ? poi.description : undefined,
+              note: item.note || undefined,
+              // For backwards compat: notes array if note exists
+              notes: item.note ? [item.note] : undefined,
+              estimatedCost: item.estimatedCost
+                ? Number(item.estimatedCost)
+                : poi?.estimatedCost
+                  ? Number(poi.estimatedCost)
+                  : 0,
+              actualCost,
+              paidBy: linkedExp ? linkedExp.payer : undefined,
+              paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
+              isCompleted: item.status === "completed",
+              expenseTypeId: item.expenseTypeId,
+              activityType: item.activityType,
+              // POI-enriched fields — only override if itinerary_items doesn't have them
+              address: item.address || (poi ? poi.address : undefined),
+              latitude: item.latitude
+                ? Number(item.latitude)
+                : poi?.latitude
+                  ? Number(poi.latitude)
+                  : undefined,
+              longitude: item.longitude
+                ? Number(item.longitude)
+                : poi?.longitude
+                  ? Number(poi.longitude)
+                  : undefined,
+              rating: item.rating
+                ? Number(item.rating)
+                : poi?.rating
+                  ? Number(poi.rating)
+                  : undefined,
+              reviewCount: item.reviewCount || poi?.reviewCounts,
+              googlePlaceId:
+                item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
+              poiId: item.poiId,
+            };
+          })
         : [],
     }));
   }
@@ -266,8 +271,8 @@ function mapTripToFrontend(trip: any) {
   // Calculate spentAmount: Only sum activities + expenses that are NOT linked to activities (to avoid double counting)
   const manualExpensesAmount = mapped.expenses
     ? mapped.expenses
-        .filter((e: any) => !e.activityId)
-        .reduce((sum: number, e: any) => sum + e.amount, 0)
+      .filter((e: any) => !e.activityId)
+      .reduce((sum: number, e: any) => sum + e.amount, 0)
     : 0;
   mapped.spentAmount = totalActivityCost + manualExpensesAmount;
 
@@ -382,7 +387,7 @@ async function searchPlacesGoong(query: string, language: string) {
                 longitude = loc.lng || 0;
               }
             }
-          } catch {}
+          } catch { }
         }
 
         return {
@@ -1585,7 +1590,7 @@ async function internalGeocode(
           };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Cách 2: Goong
@@ -1605,7 +1610,7 @@ async function internalGeocode(
           };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Cách 3: Nominatim (miễn phí)
@@ -1624,7 +1629,7 @@ async function internalGeocode(
         };
       }
     }
-  } catch {}
+  } catch { }
 
   return null;
 }
@@ -1649,8 +1654,12 @@ async function shareTrip(req: Request, res: Response) {
 
   const trip = await storage.updateTrip(Number(tripId), {
     invitationToken: token,
+    sharePermission: req.body.sharePermission || req.body.itinerary?.sharePermission || req.body.role || req.query.role || "viewer",
   });
-  sendResponse(res, 200, "Trip shared", { shareCode: token });
+  sendResponse(res, 200, "Trip shared", {
+    shareCode: token,
+    sharePermission: trip?.sharePermission || "viewer"
+  });
 }
 
 // GET /api/share/:code — look up a shared trip
@@ -1668,14 +1677,14 @@ async function joinSharedTrip(req: Request, res: Response) {
   const shareCode = req.body.shareCode || req.query.shareCode;
   const userId =
     req.body.userId || req.query.userId || req.body.companion?.userId;
-  const role =
-    req.body.role || req.query.role || req.body.companion?.role || "viewer";
-
   if (!shareCode || !userId)
     throw new AppError(400, "shareCode and userId are required");
 
   const trip = await storage.getTripByInvitationToken(shareCode);
   if (!trip) throw new AppError(404, "Share code not found");
+
+  const role =
+    req.body.role || req.query.role || req.body.companion?.role || trip.sharePermission || "viewer";
 
   const members = await storage.getTripMembers(trip.tripId);
   if (members.some((m) => m.userId === Number(userId))) {
@@ -1785,7 +1794,7 @@ function mapToPreferenceNames(type?: string, title?: string, description?: strin
   if (t.includes("food")) prefs.push("Ẩm thực");
   if (t.includes("shopping")) prefs.push("Mua sắm");
   if (t.includes("hotel") || t.includes("accommodation")) prefs.push("Nghỉ dưỡng");
-  
+
   // Content-based mapping
   if (text.match(/biển|vịnh|đảo|bãi tắm|mỹ khê|hạ long|phú quốc|nha trang/)) prefs.push("Biển");
   if (text.match(/núi|đỉnh|fansipan|đèo|ba na hills|cao nguyên/)) prefs.push("Núi");
@@ -1813,7 +1822,7 @@ async function associatePreferencesToPoi(poiId: number, type?: string, title?: s
     if (prefNames.length === 0) return;
 
     console.log(`[POI-Pref] Associating ${prefNames.join(", ")} with POI ${poiId}`);
-    
+
     // Clear existing to avoid duplicates if re-processing
     await storage.clearPoiPreferences(poiId);
 
@@ -1832,7 +1841,7 @@ async function associatePreferencesToTrip(tripId: number, prefNames: string[]) {
   if (!prefNames || prefNames.length === 0) return;
   try {
     console.log(`[Trip-Pref] Associating ${prefNames.join(", ")} with Trip ${tripId}`);
-    
+
     // Clear existing
     await storage.clearTripPreferences(tripId);
 
@@ -1909,7 +1918,7 @@ async function extractAndSavePOIsFromItinerary(
           act.rating &&
           (!existingPoi.rating ||
             parseFloat(act.rating.toString()) >
-              parseFloat(existingPoi.rating || "0"))
+            parseFloat(existingPoi.rating || "0"))
         )
           updates.rating = act.rating.toString();
         if (
@@ -2577,12 +2586,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     // Map response to our format
     const placeInfo = data.place_info
       ? {
-          title: data.place_info.title || "",
-          address: data.place_info.address || "",
-          rating: data.place_info.rating || 0,
-          totalReviews: data.place_info.reviews || 0,
-          type: data.place_info.type || "",
-        }
+        title: data.place_info.title || "",
+        address: data.place_info.address || "",
+        rating: data.place_info.rating || 0,
+        totalReviews: data.place_info.reviews || 0,
+        type: data.place_info.type || "",
+      }
       : null;
 
     const reviews = (data.reviews || []).map((r: any) => ({
@@ -2599,12 +2608,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
       images: r.images || [],
       response: r.response
         ? {
-            snippet:
-              r.response.snippet ||
-              r.response.extracted_snippet?.original ||
-              "",
-            date: r.response.date || "",
-          }
+          snippet:
+            r.response.snippet ||
+            r.response.extracted_snippet?.original ||
+            "",
+          date: r.response.date || "",
+        }
         : null,
     }));
 
@@ -2695,8 +2704,8 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
       // Use operating_hours if available for real schedule data
       openHours: r.operating_hours
         ? Object.entries(r.operating_hours)
-            .map(([day, hours]) => `${day}: ${hours}`)
-            .join(" | ")
+          .map(([day, hours]) => `${day}: ${hours}`)
+          .join(" | ")
         : typeof r.hours === "string"
           ? r.hours
           : "",
@@ -3145,8 +3154,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   typeof activity.estimatedCost === "number"
                     ? activity.estimatedCost.toString()
                     : parseCurrencyToNumeric(
-                        activity.estimatedCost,
-                      )?.toString();
+                      activity.estimatedCost,
+                    )?.toString();
               }
 
               let numDuration = 60;
@@ -3225,10 +3234,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   activityType: activity.activityType
                     ? activity.activityType
                     : mapExpenseIdToActivityType(
-                        activity.expenseTypeId
-                          ? Number(activity.expenseTypeId)
-                          : null,
-                      ),
+                      activity.expenseTypeId
+                        ? Number(activity.expenseTypeId)
+                        : null,
+                    ),
                 });
               } catch (err) {
                 console.warn("Failed to create itinerary item:", err);
@@ -3441,8 +3450,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   activityType: act.activityType
                     ? act.activityType
                     : mapExpenseIdToActivityType(
-                        act.expenseTypeId ? Number(act.expenseTypeId) : null,
-                      ),
+                      act.expenseTypeId ? Number(act.expenseTypeId) : null,
+                    ),
                 });
               } catch (err) {
                 console.warn(
@@ -3489,11 +3498,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (!isNaN(start.getTime())) {
               const newEnd = new Date(start);
               newEnd.setDate(start.getDate() + (maxDayIndex - 1));
-              
+
               // Only update if it actually changed to avoid redundant writes
               const newEndStr = newEnd.toISOString().split('T')[0];
               const oldEndStr = currentTrip.endDate ? new Date(currentTrip.endDate).toISOString().split('T')[0] : "";
-              
+
               if (newEndStr !== oldEndStr) {
                 console.log(`[PUT /trips] Syncing trip dates: N days=${maxDayIndex}, new endDate=${newEndStr}`);
                 await storage.updateTrip(id, { endDate: newEndStr });
@@ -3891,7 +3900,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 openTime,
                 closeTime,
               });
-            } catch (_e) {}
+            } catch (_e) { }
           }
           return;
         }
@@ -4063,7 +4072,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       sendResponse(res, 201, "Type created successfully", item);
     }),
   );
-  
+
   app.get(
     "/api/preferences",
     asyncHandler(async (_req, res) => {
