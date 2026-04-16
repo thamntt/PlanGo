@@ -3777,18 +3777,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Helper: enrich a raw POI row with type string + opening hours string
-  async function enrichPoi(poi: any) {
+  async function enrichPoi(poi: any, allPoiTypes?: any[], allHours?: any[]) {
     const enriched: any = { ...poi };
     // Map poitypeId → type string
     if (poi.poitypeId) {
-      const pt = await storage.getPoiType(poi.poitypeId);
+      const pt = allPoiTypes
+        ? allPoiTypes.find((t: any) => t.poitypeId === poi.poitypeId)
+        : await storage.getPoiType(poi.poitypeId);
       enriched.type = pt?.typeName || "other";
     } else {
       enriched.type = "other";
     }
     // Fetch opening hours from separate table and flatten to string
     try {
-      const hours = await storage.getPoiOpeningHours(poi.poiId);
+      const hours = allHours
+        ? allHours.filter((h: any) => h.poiId === poi.poiId)
+        : await storage.getPoiOpeningHours(poi.poiId);
       if (hours && hours.length > 0) {
         const dayNamesShort = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
         const dayNamesFull = [
@@ -3985,7 +3989,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = destinationId
         ? await storage.getPoisByDestination(Number(destinationId))
         : await storage.getPois();
-      const enriched = await Promise.all(items.map(enrichPoi));
+
+      // Optimize: Fetch all types and opening hours once to avoid N+1 queries
+      const [allTypes, allHours] = await Promise.all([
+        storage.getPoiTypes(),
+        storage.getBatchPoiOpeningHours(items.map(i => i.poiId))
+      ]);
+
+      const enriched = await Promise.all(items.map(poi => enrichPoi(poi, allTypes, allHours)));
+
       sendResponse(res, 200, "POIs retrieved successfully", enriched);
     }),
   );

@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, ilike } from "drizzle-orm";
+import { eq, and, desc, asc, ilike, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
   // Lookup tables
@@ -122,6 +122,7 @@ export interface IStorage {
 
   // POI Opening Hours
   getPoiOpeningHours(poiId: number): Promise<PoiOpeningHours[]>;
+  getBatchPoiOpeningHours(poiIds: number[]): Promise<PoiOpeningHours[]>;
   createPoiOpeningHours(data: InsertPoiOpeningHours): Promise<PoiOpeningHours>;
   deletePoiOpeningHours(poiId: number): Promise<boolean>;
 
@@ -544,6 +545,13 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(poiOpeningHours)
       .where(eq(poiOpeningHours.poiId, poiId));
+  }
+  async getBatchPoiOpeningHours(poiIds: number[]) {
+    if (poiIds.length === 0) return [];
+    return db
+      .select()
+      .from(poiOpeningHours)
+      .where(inArray(poiOpeningHours.poiId, poiIds));
   }
   async createPoiOpeningHours(data: InsertPoiOpeningHours) {
     const [r] = await db.insert(poiOpeningHours).values(data).returning();
