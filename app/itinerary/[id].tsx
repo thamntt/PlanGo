@@ -258,6 +258,9 @@ export default function ItineraryDetailScreen() {
   const [placeDuration, setPlaceDuration] = useState("1 giờ");
   const [placeCost, setPlaceCost] = useState("");
   const [placeType, setPlaceType] = useState<"sightseeing" | "food" | "transport" | "shopping" | "other">("sightseeing");
+  const [placeAddress, setPlaceAddress] = useState("");
+  const [placeDestinationId, setPlaceDestinationId] = useState("");
+  const [placeExpenseTypeId, setPlaceExpenseTypeId] = useState<string | number | undefined>(undefined);
 
   const [expenseModal, setExpenseModal] = useState<{ editId?: string } | null>(null);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -1250,6 +1253,9 @@ export default function ItineraryDetailScreen() {
       estimatedCost: cost,
       isCompleted: false,
       activityType: placeType,
+      address: placeAddress.trim() || undefined,
+      destinationId: placeDestinationId || undefined,
+      expenseTypeId: placeExpenseTypeId,
     };
     activities.push(newActivity);
     newDays[addPlaceModal.dayIdx].activities = sortActivitiesByTime(activities);
@@ -1258,6 +1264,9 @@ export default function ItineraryDetailScreen() {
     setPlaceDuration("1 giờ");
     setPlaceCost("");
     setPlaceType("sightseeing");
+    setPlaceAddress("");
+    setPlaceDestinationId("");
+    setPlaceExpenseTypeId(undefined);
     setAddPlaceModal(null);
   };
 
@@ -3284,18 +3293,86 @@ export default function ItineraryDetailScreen() {
                   placeholder={txt.addPlacePlaceholder}
                   placeholderTextColor={colors.textTertiary}
                 />
-                <View style={styles.typeRow}>
-                  {(["sightseeing", "food", "transport", "shopping", "other"] as const).map((tp) => (
-                    <Pressable
-                      key={tp}
-                      onPress={() => setPlaceType(tp)}
-                      style={[styles.typeChip, { backgroundColor: placeType === tp ? colors.primary : colors.inputBg, borderColor: placeType === tp ? colors.primary : colors.inputBorder }]}
-                    >
-                      <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={placeType === tp ? "#fff" : colors.textSecondary} />
-                      <Text style={[styles.typeChipText, { color: placeType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+
+                <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>Thuộc điểm đến nào?</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 36, marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {destinations.filter(d => d.isActive).map((d) => (
+                      <Pressable
+                        key={d.id}
+                        onPress={() => setPlaceDestinationId(placeDestinationId === d.id ? "" : d.id)}
+                        style={[
+                          styles.typeChip,
+                          {
+                            backgroundColor: placeDestinationId === d.id ? colors.primary : colors.inputBg,
+                            borderColor: placeDestinationId === d.id ? colors.primary : colors.inputBorder
+                          }
+                        ]}
+                      >
+                        <Text style={[styles.typeChipText, { color: placeDestinationId === d.id ? "#fff" : colors.textSecondary }]}>{d.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+
+                <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>Loại hình</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 36, marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {[
+                      { id: "attraction", label: "Tham quan", icon: "camera", pType: "sightseeing" as const, eId: "4" },
+                      { id: "restaurant", label: "Nhà hàng", icon: "restaurant", pType: "food" as const, eId: "1" },
+                      { id: "cafe", label: "Cà phê", icon: "cafe", pType: "food" as const, eId: "1" },
+                      { id: "hotel", label: "Khách sạn", icon: "bed", pType: "other" as const, eId: "3" },
+                      { id: "shopping", label: "Mua sắm", icon: "basket", pType: "shopping" as const, eId: "5" },
+                      { id: "other", label: "Khác", icon: "help-circle", pType: "other" as const, eId: "3" },
+                    ].map((poiT) => (
+                      <Pressable
+                        key={poiT.id}
+                        onPress={() => {
+                          setPlaceType(poiT.pType);
+                          setPlaceExpenseTypeId(poiT.eId);
+                          // We use a custom property in the internal activity to track the specific POI type if needed
+                          // but for now, placeType (for icons) and placeExpenseTypeId (for budget) are enough.
+                        }}
+                        style={[
+                          styles.typeChip,
+                          {
+                            backgroundColor: placeExpenseTypeId?.toString() === poiT.eId.toString() && 
+                                           (poiT.id === "attraction" ? placeType === "sightseeing" : 
+                                            poiT.id === "restaurant" || poiT.id === "cafe" ? placeType === "food" : 
+                                            placeType === "other") ? colors.primary : colors.inputBg,
+                            borderColor: placeExpenseTypeId?.toString() === poiT.eId.toString() && 
+                                           (poiT.id === "attraction" ? placeType === "sightseeing" : 
+                                            poiT.id === "restaurant" || poiT.id === "cafe" ? placeType === "food" : 
+                                            placeType === "other") ? colors.primary : colors.inputBorder
+                          }
+                        ]}
+                      >
+                        <Ionicons 
+                          name={poiT.icon as any} 
+                          size={14} 
+                          color={placeExpenseTypeId?.toString() === poiT.eId.toString() && 
+                                 (poiT.id === "attraction" ? placeType === "sightseeing" : 
+                                  poiT.id === "restaurant" || poiT.id === "cafe" ? placeType === "food" : 
+                                  placeType === "other") ? "#fff" : colors.textSecondary} 
+                        />
+                        <Text style={[styles.typeChipText, { color: placeExpenseTypeId?.toString() === poiT.eId.toString() && 
+                                 (poiT.id === "attraction" ? placeType === "sightseeing" : 
+                                  poiT.id === "restaurant" || poiT.id === "cafe" ? placeType === "food" : 
+                                  placeType === "other") ? "#fff" : colors.textSecondary }]}>{poiT.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder, marginBottom: 8 }]}
+                  value={placeAddress}
+                  onChangeText={setPlaceAddress}
+                  placeholder="Địa chỉ (không bắt buộc)"
+                  placeholderTextColor={colors.textTertiary}
+                />
+
                 <TextInput
                   style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                   value={placeCost}
@@ -3308,7 +3385,13 @@ export default function ItineraryDetailScreen() {
                   keyboardType="numeric"
                 />
                 <View style={styles.modalActions}>
-                  <Pressable onPress={() => setAddPlaceModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                  <Pressable onPress={() => {
+                    setAddPlaceModal(null);
+                    setPlaceTitle("");
+                    setPlaceAddress("");
+                    setPlaceDestinationId("");
+                    setPlaceExpenseTypeId(undefined);
+                  }} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
                     <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
                   </Pressable>
                   <Pressable onPress={addPlaceToDay} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>

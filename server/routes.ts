@@ -3420,6 +3420,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     });
                   }
                 } else if (act.description || act.title) {
+                  const activityToPoiType: Record<string, string> = {
+                    sightseeing: "attraction",
+                    food: "restaurant",
+                    shopping: "shopping",
+                    transport: "other",
+                    other: "other",
+                  };
+                  const typeName = activityToPoiType[act.activityType] || "other";
+                  const poitypeId = await resolvePoiTypeId(typeName);
+
                   const newPoi = await storage.createPoi({
                     name: placeName,
                     description: act.description || undefined,
@@ -3427,6 +3437,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     longitude: act.longitude ? act.longitude.toString() : "0",
                     address: act.address || "",
                     googlePlaceId: act.googlePlaceId || undefined,
+                    destinationId: act.destinationId ? Number(act.destinationId) : undefined,
+                    poitypeId: poitypeId,
                   });
                   resolvedPoiId = newPoi.poiId;
                 }
