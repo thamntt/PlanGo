@@ -192,6 +192,7 @@ export interface Itinerary {
   status: "draft" | "active" | "completed";
   resetCount?: number;
   isShared: boolean;
+  ownerName?: string;
   createdAt: string;
 }
 

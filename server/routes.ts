@@ -103,6 +103,14 @@ function mapTripToFrontend(trip: any) {
   mapped.shareCode = mapped.invitationToken;
   mapped.sharePermission = mapped.sharePermission || "viewer";
   mapped.isShared = !!mapped.invitationToken;
+  
+  // Resolve owner details for frontend expectations
+  if (mapped.ownerId) {
+    mapped.userId = mapped.ownerId.toString();
+  }
+  if (mapped.owner) {
+    mapped.ownerName = mapped.owner.fullName || mapped.owner.userName;
+  }
 
   if (mapped.expenses && Array.isArray(mapped.expenses)) {
     mapped.expenses = mapped.expenses.map((e: any) => ({
@@ -134,6 +142,33 @@ function mapTripToFrontend(trip: any) {
       userName: m.user ? m.user.fullName || m.user.userName : "",
       role: m.role || "member",
     }));
+
+    // Prepend owner if not already in companions list
+    if (mapped.owner) {
+      const ownerIdStr = mapped.owner.userId.toString();
+      const isOwnerInCompanions = mapped.companions.some((c: any) => c.userId === ownerIdStr);
+      if (!isOwnerInCompanions) {
+        mapped.companions.unshift({
+          userId: ownerIdStr,
+          userName: mapped.owner.fullName || mapped.owner.userName,
+          role: "owner",
+          isOwner: true,
+        });
+      } else {
+        // Mark existing owner entry
+        mapped.companions = mapped.companions.map((c: any) => 
+          c.userId === ownerIdStr ? { ...c, isOwner: true, role: "owner" } : c
+        );
+      }
+    }
+  } else if (mapped.owner) {
+    // Only owner exists
+    mapped.companions = [{
+      userId: mapped.owner.userId.toString(),
+      userName: mapped.owner.fullName || mapped.owner.userName,
+      role: "owner",
+      isOwner: true,
+    }];
   }
 
   if (mapped.expenses && Array.isArray(mapped.expenses)) {

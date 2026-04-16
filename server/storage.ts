@@ -607,7 +607,8 @@ export class DatabaseStorage implements IStorage {
         },
         members: { with: { user: true } },
         expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
-        destination: true
+        destination: true,
+        owner: true
       }
     });
   }
@@ -625,7 +626,8 @@ export class DatabaseStorage implements IStorage {
         },
         members: { with: { user: true } },
         expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
-        destination: true
+        destination: true,
+        owner: true
       }
     });
   }
@@ -644,7 +646,8 @@ export class DatabaseStorage implements IStorage {
         },
         members: { with: { user: true } },
         expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
-        destination: true
+        destination: true,
+        owner: true
       },
       orderBy: (trips, { desc }) => [desc(trips.createdAt)]
     });
@@ -670,7 +673,8 @@ export class DatabaseStorage implements IStorage {
         },
         members: { with: { user: true } },
         expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
-        destination: true
+        destination: true,
+        owner: true
       },
       orderBy: (trips, { desc }) => [desc(trips.createdAt)]
     });
@@ -691,7 +695,8 @@ export class DatabaseStorage implements IStorage {
         },
         members: { with: { user: true } },
         expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
-        destination: true
+        destination: true,
+        owner: true
       }
     });
   }

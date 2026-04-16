@@ -149,6 +149,7 @@ function mapItinerary(i: any): Itinerary {
     status: i.status || "draft",
     resetCount: i.resetCount ?? i.reset_count ?? 0,
     isShared: i.isShared ?? i.is_shared ?? false,
+    ownerName: i.ownerName,
     createdAt: i.createdAt ?? i.created_at ?? new Date().toISOString(),
   };
 }

@@ -382,7 +382,8 @@ export default function ItineraryDetailScreen() {
   const tripMembers = useMemo(() => {
     const members: { userId: string; userName: string; isOwner: boolean }[] = [];
     if (itinerary) {
-      members.push({ userId: itinerary.userId, userName: ownerName || itinerary.userId, isOwner: true });
+      const name = itinerary.ownerName || ownerName || itinerary.userId;
+      members.push({ userId: itinerary.userId, userName: name, isOwner: true });
     }
     for (const c of companions) {
       if (!members.find((m) => m.userId === c.userId)) {
@@ -390,7 +391,7 @@ export default function ItineraryDetailScreen() {
       }
     }
     return members;
-  }, [ownerName, itinerary?.userId, companions]);
+  }, [ownerName, itinerary?.userId, itinerary?.ownerName, companions]);
 
   // SerpAPI reviews fetch function
   const fetchSerpReviews = async (placeId?: string, query?: string, nextToken?: string) => {
