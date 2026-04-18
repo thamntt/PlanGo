@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Star, Trash2, CheckCircle } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { Review, UserData } from '../lib/types';
 
@@ -9,6 +9,8 @@ const Reviews: React.FC = () => {
   const { reviews, users, destinations, pois, deleteReview } = useData();
   const [activeTab, setActiveTab] = useState<ReviewTab>('item');
   const [starFilter, setStarFilter] = useState<number | 'all'>('all');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+
   const getTargetInfo = (review: Review) => {
     if (review.reviewType === 'item') {
 
@@ -40,17 +42,19 @@ const Reviews: React.FC = () => {
     return users.find(u => u.id === userId);
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (window.confirm(`Xoá đánh giá của ${name}?`)) {
-      await deleteReview(id);
-    }
-  };
 
-  const filteredReviews = reviews.filter(r => {
-    const typeMatch = r.reviewType === activeTab;
-    const ratingMatch = starFilter === 'all' || Math.round(Number(r.rating)) === starFilter;
-    return typeMatch && ratingMatch;
-  });
+
+  const filteredReviews = reviews
+    .filter(r => {
+      const typeMatch = r.reviewType === activeTab;
+      const ratingMatch = starFilter === 'all' || Math.round(Number(r.rating)) === starFilter;
+      return typeMatch && ratingMatch;
+    })
+    .sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+    });
 
   return (
     <div className="flex-1 p-8 overflow-y-auto bg-slate-50/50">
@@ -88,32 +92,58 @@ const Reviews: React.FC = () => {
           </span>
         </div>
 
-        <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-          <button 
-            onClick={() => setStarFilter('all')}
-            className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
-              starFilter === 'all' 
-                ? 'bg-amber-500 text-white shadow-lg shadow-amber-200' 
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            Tất cả
-          </button>
-          {[5, 4, 3, 2, 1].map(star => (
+        <div className="flex flex-col items-end gap-3">
+          <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
             <button 
-              key={star}
-              onClick={() => setStarFilter(star)}
-              className={`px-4 py-2 text-xs font-black flex items-center gap-1 rounded-lg transition-all ${
-                starFilter === star 
+              onClick={() => setSortOrder('desc')}
+              className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+                sortOrder === 'desc' 
+                  ? 'bg-primary text-white shadow-lg shadow-primary/20' 
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              Mới nhất
+            </button>
+            <button 
+              onClick={() => setSortOrder('asc')}
+              className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+                sortOrder === 'asc' 
+                  ? 'bg-primary text-white shadow-lg shadow-primary/20' 
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              Cũ nhất
+            </button>
+          </div>
+
+          <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+            <button 
+              onClick={() => setStarFilter('all')}
+              className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${
+                starFilter === 'all' 
                   ? 'bg-amber-500 text-white shadow-lg shadow-amber-200' 
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              {star} <Star size={12} fill={starFilter === star ? "white" : "currentColor"} className={starFilter === star ? "text-white" : "text-amber-500"} />
+              Tất cả sao
             </button>
-          ))}
+            {[5, 4, 3, 2, 1].map(star => (
+              <button 
+                key={star}
+                onClick={() => setStarFilter(star)}
+                className={`px-4 py-2 text-xs font-black flex items-center gap-1 rounded-lg transition-all ${
+                  starFilter === star 
+                    ? 'bg-amber-500 text-white shadow-lg shadow-amber-200' 
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                {star} <Star size={12} fill={starFilter === star ? "white" : "currentColor"} className={starFilter === star ? "text-white" : "text-amber-500"} />
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
 
       <div className="grid grid-cols-1 gap-6">
         {filteredReviews.map((review) => {

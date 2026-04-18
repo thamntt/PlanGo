@@ -6,6 +6,7 @@ import {
   MapPin, 
   Map, 
   Star, 
+  Plane,
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -38,6 +39,7 @@ const Sidebar: React.FC = () => {
     { icon: <Users size={20} />, label: 'Người dùng', to: '/users' },
     { icon: <MapPin size={20} />, label: 'Điểm đến', to: '/destinations' },
     { icon: <Map size={20} />, label: 'Địa điểm (POI)', to: '/poi' },
+    { icon: <Plane size={20} />, label: 'Chuyến đi', to: '/trips' },
     { icon: <Star size={20} />, label: 'Đánh giá', to: '/reviews' },
   ];
 

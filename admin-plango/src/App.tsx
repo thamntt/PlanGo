@@ -7,6 +7,7 @@ import Users from './pages/Users';
 import Destinations from './pages/Destinations';
 import POIs from './pages/POIs';
 import Reviews from './pages/Reviews';
+import Trips from './pages/Trips';
 import Login from './pages/Login';
 import { DataProvider } from './contexts/DataContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -42,6 +43,7 @@ const ProtectedLayout: React.FC = () => {
             <Route path="/destinations" element={<Destinations />} />
             <Route path="/poi" element={<POIs />} />
             <Route path="/reviews" element={<Reviews />} />
+            <Route path="/trips" element={<Trips />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

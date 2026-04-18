@@ -804,6 +804,7 @@ export class DatabaseStorage implements IStorage {
       userName: users.userName,
       destinationId: trips.destinationId,
       destinationName: destinations.name,
+      createdAt: tripReviews.createdAt,
     })
       .from(tripReviews)
       .innerJoin(users, eq(tripReviews.userId, users.userId))
@@ -830,6 +831,7 @@ export class DatabaseStorage implements IStorage {
       activityTitle: itineraryItems.customName,
       poiName: pois.name,
       destinationName: destinations.name,
+      createdAt: itemReviews.createdAt,
     })
       .from(itemReviews)
       .innerJoin(users, eq(itemReviews.userId, users.userId))
