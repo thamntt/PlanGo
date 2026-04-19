@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 import { storage } from "./storage";
 import { asyncHandler, sendResponse, AppError } from "./utils";
-
+import OpenAI from "openai";
 // ══════════════════════════════════════════════════════════════
 // API Base URLs
 // ══════════════════════════════════════════════════════════════
@@ -115,10 +115,10 @@ function mapTripToFrontend(trip: any) {
       activityId: e.itemId ? e.itemId.toString() : undefined,
       splits: e.splits
         ? e.splits.map((s: any) => ({
-            userId: s.userId?.toString() || "",
-            userName: s.user ? s.user.fullName || s.user.userName : "",
-            amount: Number(s.amount || 0),
-          }))
+          userId: s.userId?.toString() || "",
+          userName: s.user ? s.user.fullName || s.user.userName : "",
+          amount: Number(s.amount || 0),
+        }))
         : [],
     }));
   }
@@ -161,19 +161,19 @@ function mapTripToFrontend(trip: any) {
         activityId: e.itemId ? e.itemId.toString() : undefined,
         splits: e.splits
           ? e.splits.map((s: any) => {
-              let uName = s.user ? s.user.fullName || s.user.userName : "";
-              if (!uName && mapped.companions) {
-                const comp = mapped.companions.find(
-                  (c: any) => c.userId === s.userId?.toString(),
-                );
-                if (comp) uName = comp.userName;
-              }
-              return {
-                userId: s.userId?.toString() || "",
-                userName: uName,
-                amount: Number(s.amount || 0),
-              };
-            })
+            let uName = s.user ? s.user.fullName || s.user.userName : "";
+            if (!uName && mapped.companions) {
+              const comp = mapped.companions.find(
+                (c: any) => c.userId === s.userId?.toString(),
+              );
+              if (comp) uName = comp.userName;
+            }
+            return {
+              userId: s.userId?.toString() || "",
+              userName: uName,
+              amount: Number(s.amount || 0),
+            };
+          })
           : [],
       };
     });
@@ -199,61 +199,62 @@ function mapTripToFrontend(trip: any) {
     mapped.days = sortedDays.map((day: any) => ({
       ...day,
       day: day.dayIndex,
+      title: day.title || `Ngày ${day.dayIndex}`,
       activities: day.items
         ? [...day.items]
-            .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
-            .map((item: any) => {
-              const itemIdStr = item.itemId.toString();
-              const linkedExp = activitiesWithExpenses.get(itemIdStr);
-              const actualCost = item.actualCost ? Number(item.actualCost) : 0;
-              totalActivityCost += actualCost;
+          .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
+          .map((item: any) => {
+            const itemIdStr = item.itemId.toString();
+            const linkedExp = activitiesWithExpenses.get(itemIdStr);
+            const actualCost = item.actualCost ? Number(item.actualCost) : 0;
+            totalActivityCost += actualCost;
 
-              // Merge POI data into activity so display matches preview
-              const poi = item.poi;
-              return {
-                ...item,
-                id: item.itemId,
-                title: item.customName,
-                time: item.startTime,
-                // description comes from POI (static place info), note is user-added per trip
-                description: poi ? poi.description : undefined,
-                note: item.note || undefined,
-                // For backwards compat: notes array if note exists
-                notes: item.note ? [item.note] : undefined,
-                estimatedCost: item.estimatedCost
-                  ? Number(item.estimatedCost)
-                  : poi?.estimatedCost
-                    ? Number(poi.estimatedCost)
-                    : 0,
-                actualCost,
-                paidBy: linkedExp ? linkedExp.payer : undefined,
-                paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
-                isCompleted: item.status === "completed",
-                expenseTypeId: item.expenseTypeId,
-                activityType: item.activityType,
-                // POI-enriched fields — only override if itinerary_items doesn't have them
-                address: item.address || (poi ? poi.address : undefined),
-                latitude: item.latitude
-                  ? Number(item.latitude)
-                  : poi?.latitude
-                    ? Number(poi.latitude)
-                    : undefined,
-                longitude: item.longitude
-                  ? Number(item.longitude)
-                  : poi?.longitude
-                    ? Number(poi.longitude)
-                    : undefined,
-                rating: item.rating
-                  ? Number(item.rating)
-                  : poi?.rating
-                    ? Number(poi.rating)
-                    : undefined,
-                reviewCount: item.reviewCount || poi?.reviewCounts,
-                googlePlaceId:
-                  item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
-                poiId: item.poiId,
-              };
-            })
+            // Merge POI data into activity so display matches preview
+            const poi = item.poi;
+            return {
+              ...item,
+              id: item.itemId,
+              title: item.customName,
+              time: item.startTime,
+              // description comes from POI (static place info), note is user-added per trip
+              description: poi ? poi.description : undefined,
+              note: item.note || undefined,
+              // For backwards compat: notes array if note exists
+              notes: item.note ? [item.note] : undefined,
+              estimatedCost: item.estimatedCost
+                ? Number(item.estimatedCost)
+                : poi?.estimatedCost
+                  ? Number(poi.estimatedCost)
+                  : 0,
+              actualCost,
+              paidBy: linkedExp ? linkedExp.payer : undefined,
+              paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
+              isCompleted: item.status === "completed",
+              expenseTypeId: item.expenseTypeId,
+              activityType: item.activityType,
+              // POI-enriched fields — only override if itinerary_items doesn't have them
+              address: item.address || (poi ? poi.address : undefined),
+              latitude: item.latitude
+                ? Number(item.latitude)
+                : poi?.latitude
+                  ? Number(poi.latitude)
+                  : undefined,
+              longitude: item.longitude
+                ? Number(item.longitude)
+                : poi?.longitude
+                  ? Number(poi.longitude)
+                  : undefined,
+              rating: item.rating
+                ? Number(item.rating)
+                : poi?.rating
+                  ? Number(poi.rating)
+                  : undefined,
+              reviewCount: item.reviewCount || poi?.reviewCounts,
+              googlePlaceId:
+                item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
+              poiId: item.poiId,
+            };
+          })
         : [],
     }));
   }
@@ -266,8 +267,8 @@ function mapTripToFrontend(trip: any) {
   // Calculate spentAmount: Only sum activities + expenses that are NOT linked to activities (to avoid double counting)
   const manualExpensesAmount = mapped.expenses
     ? mapped.expenses
-        .filter((e: any) => !e.activityId)
-        .reduce((sum: number, e: any) => sum + e.amount, 0)
+      .filter((e: any) => !e.activityId)
+      .reduce((sum: number, e: any) => sum + e.amount, 0)
     : 0;
   mapped.spentAmount = totalActivityCost + manualExpensesAmount;
 
@@ -382,7 +383,7 @@ async function searchPlacesGoong(query: string, language: string) {
                 longitude = loc.lng || 0;
               }
             }
-          } catch {}
+          } catch { }
         }
 
         return {
@@ -863,16 +864,15 @@ async function getSerpPhotos(req: Request, res: Response) {
     const url = `${SERPAPI_BASE}?${params.toString()}`;
     console.log(`[SerpAPI] 📸 Fetching photos for data_id=${dataId}`);
     const response = await fetch(url);
-
+    const data = await response.json();
     if (!response.ok) {
-      const errorText = await response.text();
-      console.warn(`[SerpAPI] Photos failed (${response.status}):`, errorText);
+      console.warn(`[SerpAPI] Photos failed (${response.status}):`, data);
       return res
         .status(response.status)
         .json({ error: "SerpAPI photos request failed" });
     }
 
-    const data = await response.json();
+    
     const photos = (data.photos || []).map((p: any) => ({
       thumbnail: p.thumbnail || "",
       image: p.image || p.thumbnail || "",
@@ -1585,7 +1585,7 @@ async function internalGeocode(
           };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Cách 2: Goong
@@ -1605,7 +1605,7 @@ async function internalGeocode(
           };
         }
       }
-    } catch {}
+    } catch { }
   }
 
   // Cách 3: Nominatim (miễn phí)
@@ -1624,7 +1624,7 @@ async function internalGeocode(
         };
       }
     }
-  } catch {}
+  } catch { }
 
   return null;
 }
@@ -1803,8 +1803,23 @@ async function extractAndSavePOIsFromItinerary(
 
   for (const act of allActivities) {
     try {
-      // Skip activities without useful data
       if (!act.title) continue;
+
+      // 🌟 3. BỘ LỌC CHỐNG RÁC (Chặn mấy mục AI tự gen thêm)
+      const titleLower = act.title.toLowerCase();
+      if (titleLower.includes("chi phí") || titleLower.includes("di chuyển") || titleLower.includes("tổng kết")) {
+        console.log(`[POI-Save] ⏭️ Chặn mục rác: ${act.title}`);
+        continue;
+      }
+
+      // 🌟 4. CHỐT CHẶN CUỐI CÙNG: Chỉ lưu nếu có dữ liệu Maps thật
+      const isInvalidLat = !act.latitude || act.latitude === 0 || act.latitude === "0";
+      const isInvalidAddr = !act.address || act.address === "" || act.address === "Địa chỉ đang cập nhật";
+
+      if (isInvalidLat || isInvalidAddr) {
+        console.log(`[POI-Save] ❌ Bỏ qua "${act.title}" không lưu Database vì thiếu thông tin Maps.`);
+        continue; 
+      }
 
       // Extract place name from title
       const placeName = extractPlaceName(act.title);
@@ -1831,7 +1846,7 @@ async function extractAndSavePOIsFromItinerary(
           act.rating &&
           (!existingPoi.rating ||
             parseFloat(act.rating.toString()) >
-              parseFloat(existingPoi.rating || "0"))
+            parseFloat(existingPoi.rating || "0"))
         )
           updates.rating = act.rating.toString();
         if (
@@ -1887,6 +1902,9 @@ async function extractAndSavePOIsFromItinerary(
 // ══════════════════════════════════════════════════════════════
 
 async function generateItineraryAI(req: Request, res: Response) {
+  let parsedData: any = null;
+  let geminiResponse: any = null;
+  let activeAIProvider = "gemini";
   const {
     destination,
     startDate,
@@ -1910,6 +1928,7 @@ async function generateItineraryAI(req: Request, res: Response) {
   }
 
   try {
+    
     const prefsText =
       preferences && preferences.length > 0 ? preferences.join(", ") : "";
 
@@ -1979,13 +1998,46 @@ THÔNG TIN:
 ${prefsText ? `- Sở thích: ${prefsText}` : ""}
 
 QUY TẮC BẮT BUỘC:
-1. 100% địa điểm PHẢI nằm trong ${province}. KHÔNG ĐƯỢC có địa điểm ở tỉnh/thành phố khác.
-2. QUAN TRỌNG NHẤT: "title" PHẢI là TÊN CHÍNH XÁC của địa điểm/nhà hàng/quán ăn/khách sạn NHƯ TRÊN GOOGLE MAPS. Ví dụ: "Ăn sáng tại Nhà Hàng Hải Cảng Sầm Sơn", "Tham quan Công trời Sầm Sơn". KHÔNG ĐƯỢC dùng tên chung chung như "Ăn sáng tại quán phở", "Tham quan bãi biển".
-3. Mỗi ngày có 5-6 hoạt động: Ăn sáng → Tham quan sáng → Ăn trưa → Tham quan chiều → Ăn tối → (Hoạt động tối tùy chọn)
-4. NGÂN SÁCH: Tổng estimatedCost PHẢI trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + (totalBudget * 1.0).toLocaleString("vi-VN") + "đ" : "hợp lý"}. estimatedCost đã tính cho ${numPeople || 2} người.
-5. Thời gian: Ước lượng thực tế theo giờ mở cửa thông thường (VD: Ăn sáng 07:30, Tham quan từ 08:30 hoặc 09:00 trở đi, Ăn tối 18:30). Sắp xếp logic, thời gian di chuyển hợp lý. Ghi rõ dạng HH:MM.
-6. KHÔNG CẦN cung cấp address, latitude, longitude, rating chính xác — hệ thống sẽ tự tra cứu từ Google Maps.
+
+1. 100% địa điểm PHẢI nằm trong ${province}. TUYỆT ĐỐI KHÔNG ĐƯỢC gợi ý địa điểm ở tỉnh/thành phố khác (Ví dụ: đang ở Hải Phòng thì không được lấy địa điểm ở Hà Nội).
+2. QUAN TRỌNG NHẤT: "title" PHẢI bao gồm TÊN ĐỊA ĐIỂM + TÊN THÀNH PHỐ. 
+   Hãy ưu tiên các địa danh nổi tiếng, có thật, phổ biến và dễ tìm thấy trên Google Maps. 
+   TUYỆT ĐỐI không tự bịa tên địa điểm không có thật. 
+   Ví dụ đúng: "Ăn sáng tại Bánh đa cua Bà Cụ Hải Phòng", "Cà phê tại Cộng Cà Phê Hải Phòng". 
+   Ví dụ sai: "Ăn sáng tại quán phở", "Cộng Cà Phê".
+3. Mỗi hoạt động phải có mô tả ngắn gọn về đặc điểm nổi bật của địa điểm đó tại ${province}.
+4. SỐ LƯỢNG & SỞ THÍCH: Mỗi ngày gợi ý hẳn 8-10 hoạt động (để dự phòng lọc Maps).
+   Dựa trên các lựa chọn của người dùng: ${prefsText || "đa dạng"}, hãy phân bổ như sau:
+   - Nếu có 'Biển'/'Thiên nhiên': Ưu tiên các bãi bãi biển, đảo, công viên.
+   - Nếu có 'Văn hóa'/'Lịch sử': Ưu tiên đền chùa, bảo tàng, di tích.
+   - Nếu có 'Ẩm thực': Chọn các quán ăn đặc sản nổi tiếng có đánh giá cao.
+   - Nếu có 'Giải trí đêm'/'Mua sắm': Phải có hoạt động tại chợ đêm, bar, hoặc phố đi bộ sau 19:00.
+   - Nếu có 'Nhiếp ảnh'/'Núi': Chọn các điểm có view check-in "sống ảo" đỉnh cao.
+   - Nếu có 'Phiêu lưu': Chọn các hoạt động trekking, lặn biển hoặc trò chơi cảm giác mạnh.
+   - BẮT BUỘC phân bổ theo đúng khung sườn sau để tránh việc các bữa ăn quá gần nhau:
+     + 07:30: Ăn sáng đặc sản địa phương.
+     + 08:15 - 11:30: Bắt buộc 2 điểm tham quan/vui chơi (không được 1 địa điểm)
+     + 11:30 - 12:00: Ăn trưa.
+     + 14:00 - 17:30: Bắt buộc 2 đến 3 điểm tham quan/check-in/cà phê (không được 1 địa điểm)
+     + 19:00 - 20:00: Ăn tối
+     + 20:30 trở đi: Hoạt động buổi tối (Chợ đêm/Phố đi bộ/Bar/Chill).
+   - Mỗi buổi sáng/chiều BẮT BUỘC phải gợi ý dư ra (ví dụ 4 điểm tham quan) để hệ thống lọc. 
+   - Dựa trên sở thích ${prefsText || "đa dạng"}, hãy lồng ghép các điểm tham quan phù hợp vào giữa các bữa ăn. TUYỆT ĐỐI không được xếp 2 bữa ăn liên tiếp mà không có tham quan ở giữa.
+   - Yêu cầu tất cả các địa điểm gợi ý đều là địa điểm được mọi nhiều recomment đi trên mạng xã hội hay các diễn đàn
+
+5. NGÂN SÁCH: Tổng estimatedCost PHẢI trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + (totalBudget * 1.0).toLocaleString("vi-VN") + "đ" : "hợp lý"}. estimatedCost đã tính cho ${numPeople || 2} người.
+6. QUY TẮC THỜI GIAN THỰC TẾ:
+   - Thời gian HH:MM phải logic. Mỗi điểm tham quan ít nhất 1-2 tiếng, mỗi bữa ăn 1 tiếng.
+   - Sắp xếp các điểm theo một cung đường thuận tiện (không đi ngược đường). Khoảng cách giữa điểm ăn sáng và điểm tham quan sáng không quá 5km.
+   - Ghi rõ dạng HH:MM.
+7. KHÔNG CẦN cung cấp address, latitude, longitude, rating chính xác — hệ thống sẽ tự tra cứu từ Google Maps.
 ${prefsText ? `7. ƯU TIÊN: ${prefsText}` : ""}
+8. TIÊU ĐỀ NGÀY: 
+   - Trường "title" của mỗi ngày PHẢI bắt buộc có và mang tính gợi ý (Ví dụ: "Ngày 1: Hành trình di sản và ẩm thực"). TUYỆT ĐỐI không được để trống tiêu đề ngày.
+9. 📏 GIỚI HẠN KHOẢNG CÁCH ĐỊA LÝ:
+    - Khoảng cách giữa 2 địa điểm kế tiếp nhau trong lịch trình KHÔNG ĐƯỢC vượt quá 10km - 15km.
+    - Tổng quãng đường di chuyển của tất cả các điểm trong MỘT NGÀY không được vượt quá 40km.
+    - Phải ưu tiên chọn các điểm tham quan nằm trên cùng một trục đường di chuyển để tối ưu thời gian.
 
 JSON format:
 {
@@ -2011,98 +2063,150 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-    const geminiResponse = await fetch(geminiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [
-            {
-              text: `Bạn là chuyên gia du lịch Việt Nam. CHỈ gợi ý địa điểm tại ${destination} thuộc ${province}. TUYỆT ĐỐI KHÔNG gợi ý địa điểm ở tỉnh/thành phố khác. QUAN TRỌNG: Mỗi hoạt động PHẢI dùng TÊN CHÍNH XÁC của nhà hàng/quán ăn/điểm tham quan NHƯ TRÊN GOOGLE MAPS để hệ thống có thể tra cứu thông tin. Không dùng tên chung chung.`,
-            },
-          ],
-        },
-        contents: [
-          {
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 8192,
-          responseMimeType: "application/json",
-        },
-      }),
+    async function callGeminiWithRetry(url: string, body: any, retries = 3) {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: body // 👈 body lúc này phải là prompt
+                    }
+                  ]
+                }
+              ]
+            })
+          });
+
+          if (res.ok) return res;
+
+          const errorText = await res.text();
+          console.log("Gemini lỗi:", res.status, errorText);
+
+          if (res.status === 503 && i < retries - 1) {
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+
+          throw new Error(errorText);
+        } catch (err) {
+          if (i === retries - 1) throw err;
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+      throw new Error("Gemini failed after retries");
+    }
+
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
     });
 
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.error("Gemini API error:", geminiResponse.status, errorText);
-      return res
-        .status(502)
-        .json({ error: "Gemini API error", details: errorText });
+    async function callOpenAI(prompt: string) {
+      const res = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Bạn là chuyên gia du lịch Việt Nam. BẮT BUỘC trả về JSON hợp lệ duy nhất theo format: { days: [...] }. KHÔNG markdown, KHÔNG giải thích.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" }, // 🔥 ép JSON
+      });
+
+      const text = res.choices[0]?.message?.content;
+      if (!text) throw new Error("OpenAI empty response");
+
+      return text;
     }
 
-    const geminiData = await geminiResponse.json();
-    const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+// ===================== MAIN FLOW =====================
+    let parsedData = null;
 
-    if (!textContent) {
-      console.error(
-        "Gemini returned empty response:",
-        JSON.stringify(geminiData),
-      );
-      throw new AppError(502, "Gemini returned empty response");
-    }
-
-    // Parse JSON from response (handle potential markdown code blocks)
-    let parsed;
     try {
-      const jsonStr = textContent
-        .replace(/```json\s*/g, "")
-        .replace(/```\s*/g, "")
-        .trim();
-      parsed = JSON.parse(jsonStr);
-    } catch (parseErr) {
-      console.error("Failed to parse Gemini response:", textContent);
-      return res
-        .status(502)
-        .json({ error: "Failed to parse AI response", raw: textContent });
+      console.log("⚡ USING GEMINI");
+      const geminiResponse = await callGeminiWithRetry(geminiUrl, prompt);
+      if (!geminiResponse || !geminiResponse.ok) throw new Error("Gemini response not OK");
+
+      const geminiData = await geminiResponse.json();
+      const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!textContent) throw new Error("Empty Gemini response");
+
+      const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON found in Gemini response");
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!parsed || !parsed.days) throw new Error("Invalid Gemini structure");
+
+      parsedData = parsed;
+      parsedData.provider = "gemini";
+    } catch (err) {
+      console.error("Gemini failed → fallback OpenAI:", err);
+      activeAIProvider = "openai";
+
+      try {
+        console.log("🔥 USING OPENAI");
+        const openaiText = await callOpenAI(prompt);
+        const jsonMatch = openaiText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("No JSON found in OpenAI response");
+
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (!parsed || !parsed.days) throw new Error("Invalid OpenAI structure");
+
+        parsedData = parsed;
+        parsedData.provider = "openai";
+      } catch (openErr) {
+        console.error("OpenAI failed:", openErr);
+        return res.status(502).json({
+          error: "Both Gemini and OpenAI failed",
+          details: String(openErr),
+        });
+      }
     }
 
-    // Validate structure
-    if (!parsed.days || !Array.isArray(parsed.days)) {
-      return res
-        .status(502)
-        .json({ error: "Invalid AI response structure", raw: parsed });
+    // ===================== VALIDATE & POST PROCESS =====================
+    if (!parsedData || !parsedData.days || !Array.isArray(parsedData.days)) {
+      return res.status(502).json({ error: "Invalid AI response structure" });
     }
 
-    // Post-process: add IDs, defaults, Google Maps URLs, and budget scaling
+    console.log("FINAL DATA (RAW FROM AI):", parsedData);
+
+    // --- PHẦN 1: GOM DỮ LIỆU VÀ GÁN ID (KHÔNG LỌC Ở ĐÂY) ---
     let totalEstimated = 0;
-    const allActivities: any[] = [];
-    for (const day of parsed.days) {
+    const allActivities: any[] = []; 
+
+    for (const day of parsedData.days) {
       if (!day.activities) day.activities = [];
+      day.title = day.title || `Ngày ${day.day}`;
+
       for (const act of day.activities) {
-        act.id =
-          Date.now().toString() + Math.random().toString(36).substr(2, 9);
+        act.id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
         act.isCompleted = false;
         act.estimatedCost = act.estimatedCost || 0;
         act.activityType = act.activityType || "sightseeing";
         act.duration = act.duration || "1 giờ";
-        act.rating = act.rating || undefined;
+
+        // Đẩy vào mảng chung để SerpAPI đi search
         allActivities.push(act);
         totalEstimated += act.estimatedCost;
       }
     }
 
-    // ═══ SerpAPI Enrichment: Search each activity on Google Maps for real data ═══
+    // --- PHẦN 2: CHẠY SERPAPI (ENRICHMENT) ---
     const serpApiKey = getSerpApiKey();
-    console.log(
-      `[Enrich] Enriching ${allActivities.length} activities with SerpAPI...`,
-    );
+    console.log(`[Enrich] 🚀 Đang search Maps cho ${allActivities.length} địa điểm...`);
 
-    // First, get destination coordinates for location bias (@lat,lng,zoom)
-    let destLat = 0,
-      destLng = 0;
+    let destLat = 0, destLng = 0;
     const destGeo = await internalGeocode(destination);
     if (destGeo) {
       destLat = destGeo.lat;
@@ -2110,19 +2214,21 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
     }
     const locationBias = destLat && destLng ? `@${destLat},${destLng},14z` : "";
 
-    // extractPlaceName is now a top-level function (reused by itinerary save POI logic)
-
-    // Run sequentially to avoid SerpAPI rate limits
     let quotaExceeded = false;
     for (const act of allActivities) {
       if (!serpApiKey || quotaExceeded) break;
 
-      // Extract the actual place name for better search
+      const titleLower = act.title.toLowerCase();
+      if (titleLower.includes("chi phí") || titleLower.includes("di chuyển") || titleLower.includes("tổng kết")) {
+        continue; 
+      }
+
       const placeName = extractPlaceName(act.title);
-      const searchQuery =
-        placeName.length > 3
-          ? `${placeName} ${destination}`
-          : `${act.title} ${destination}`;
+      let baseName = placeName.length > 3 ? placeName : act.title;
+      const city = destination || province || "";
+      const searchQuery = baseName.toLowerCase().includes(city.toLowerCase())
+        ? baseName.trim()
+        : `${baseName} ${city}`.trim();
 
       try {
         const params = new URLSearchParams({
@@ -2132,232 +2238,96 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
           type: "search",
           api_key: serpApiKey,
         });
-        if (locationBias) {
-          params.set("ll", locationBias);
-        }
+        if (locationBias) params.set("ll", locationBias);
 
-        const serpUrl = `${SERPAPI_BASE}?${params.toString()}`;
-        console.log(`[Enrich] Searching: "${searchQuery}"`);
-        const serpRes = await fetch(serpUrl);
+        const serpRes = await fetch(`${SERPAPI_BASE}?${params.toString()}`);
+        const data = await serpRes.json();
 
         if (serpRes.ok) {
-          const serpData = await serpRes.json();
-          const results = serpData.local_results || [];
+          const results = data.local_results || [];
           if (results.length > 0) {
-            // Take the best match (first result)
-            const match = results[0];
-            // Update activity with real data from SerpAPI
-            if (
-              match.gps_coordinates?.latitude &&
-              match.gps_coordinates?.longitude
-            ) {
+            const match = results.find((r: any) => 
+              r.address?.toLowerCase().includes(destination.toLowerCase()) || 
+              r.address?.toLowerCase().includes((province || "").toLowerCase())
+            ) || results[0];
+
+            if (match.gps_coordinates?.latitude) {
               act.latitude = match.gps_coordinates.latitude;
               act.longitude = match.gps_coordinates.longitude;
             }
             if (match.address) act.address = match.address;
             if (match.rating) act.rating = match.rating;
             if (match.reviews) act.reviewCount = match.reviews;
-            // match.hours from local_results is a status string ("Open ⋅ Closes 10 PM"), not schedule
-            // Use operating_hours object if available for actual schedule
-            if (match.operating_hours) {
-              const schedule: string[] = [];
-              for (const [day, hours] of Object.entries(
-                match.operating_hours,
-              )) {
-                schedule.push(`${day}: ${hours}`);
-              }
-              act.openHours = schedule.join(" | ");
-              act.openingHours = schedule;
-            } else if (match.hours && typeof match.hours === "string") {
-              // Fallback: use the status string but it's less useful
-              act.openHours = match.hours;
-            }
             if (match.place_id) act.googlePlaceId = match.place_id;
-            if (match.type) act.placeType = match.type;
             if (match.thumbnail) act.thumbnail = match.thumbnail;
-            // Enrich description with Google Maps info
+            
             if (match.title) {
-              act.description =
-                `${match.title} — ★ ${match.rating || "N/A"}/5${match.reviews ? ` (${match.reviews} đánh giá)` : ""}. ${act.description || ""}`.trim();
+              act.description = `${match.title} — ★ ${match.rating || "N/A"}/5. ${act.description || ""}`.trim();
             }
-            // Generate Google Maps URL
+
+            // Link Google Maps chuẩn (Đã sửa dấu $)
             act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
-            console.log(
-              `[Enrich] ✅ "${act.title}" → ${match.title} | ${match.address} (${match.rating}★, ${match.reviews || 0} reviews)`,
-            );
-          } else {
-            console.log(`[Enrich] ⚠️ No results for: "${searchQuery}"`);
-          }
-        } else {
-          console.warn(
-            `[Enrich] ❌ SerpAPI HTTP ${serpRes.status} for: "${searchQuery}"`,
-          );
-          if (serpRes.status === 429) {
-            console.warn(
-              "[Enrich] 🛑 Quota exceeded. Skipping further enrichment.",
-            );
-            quotaExceeded = true;
+            console.log(`[Enrich] ✅ Đã tìm thấy: ${act.title}`);
           }
         }
       } catch (err) {
-        console.warn(`[Enrich] ❌ SerpAPI error for "${act.title}":`, err);
+        console.warn(`[Enrich] ❌ Lỗi search "${act.title}":`, err);
       }
-
-      // Small delay between requests to avoid rate limiting
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 200));
     }
 
-    // Fallback geocoding for activities that SerpAPI missed
-    for (const act of allActivities) {
-      if (
-        act.latitude &&
-        act.longitude &&
-        act.latitude !== 0 &&
-        act.longitude !== 0
-      )
-        continue;
-      // No coordinates yet — try geocoding
-      if (act.address) {
-        const geo = await internalGeocode(act.address);
-        if (geo && geo.lat !== 0 && geo.lng !== 0) {
-          act.latitude = geo.lat;
-          act.longitude = geo.lng;
-          act.address = geo.formattedAddress;
-        } else if (act.title) {
-          const geo2 = await internalGeocode(`${act.title}, ${destination}`);
-          if (geo2 && geo2.lat !== 0 && geo2.lng !== 0) {
-            act.latitude = geo2.lat;
-            act.longitude = geo2.lng;
-            act.address = geo2.formattedAddress;
-          }
-        }
-      }
-      // Generate Google Maps URL
-      if (act.latitude && act.longitude) {
-        act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
-      } else if (act.address) {
-        act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.title + " " + act.address)}`;
-      }
-    }
-    console.log(
-      `[Enrich] Complete — all ${allActivities.length} activities processed`,
-    );
-
-    // Budget scaling: if total is way off budget, scale proportionally
-    if (totalBudget && totalEstimated > 0) {
-      const ratio = totalBudget / totalEstimated;
-      if (ratio < 0.7 || ratio > 1.3) {
-        const targetTotal = totalBudget * 0.92;
-        const scale = targetTotal / totalEstimated;
-        for (const day of parsed.days) {
-          for (const act of day.activities) {
-            act.estimatedCost =
-              Math.round((act.estimatedCost * scale) / 1000) * 1000;
-          }
-        }
-      }
-    }
-
-    // ═══ Resolve destinationId from destination name ═══
-    let resolvedDestId: number | null = null;
-    try {
-      const destRecord = await storage.getDestinationByName(destination);
-      if (destRecord) {
-        resolvedDestId = destRecord.destinationId;
-        console.log(
-          `[POI] Resolved destination "${destination}" → id=${resolvedDestId}`,
-        );
-      } else {
-        console.log(
-          `[POI] No destination found for "${destination}", POIs will have empty destinationId`,
-        );
-      }
-    } catch (err) {
-      console.warn(`[POI] Failed to resolve destination:`, err);
-    }
-
-    // ═══ Save enriched activities as POIs (dedup by googlePlaceId or name) ═══
-    console.log(
-      `[POI] Saving POIs from ${allActivities.length} activities (destinationId=${resolvedDestId || "none"})...`,
-    );
-    let savedCount = 0;
-    for (const act of allActivities) {
-      try {
-        // Skip activities without useful data
-        if (!act.title) continue;
-
-        // Extract place name from title
-        const placeName = extractPlaceName(act.title);
-        if (!placeName || placeName.length < 3) continue;
-
-        // Dedup: check by googlePlaceId first, then by name
-        let existingPoi = null;
-        if (act.googlePlaceId) {
-          existingPoi = await storage.getPoiByGooglePlaceId(act.googlePlaceId);
-        }
-        if (!existingPoi) {
-          existingPoi = await storage.getPoiByName(placeName);
-        }
-
-        if (existingPoi) {
-          // Update existing POI if new data is better
-          const updates: Record<string, any> = {};
-          if (
-            act.rating &&
-            (!existingPoi.rating || act.rating > (existingPoi.rating || 0))
-          )
-            updates.rating = act.rating.toString();
-          if (
-            act.reviewCount &&
-            act.reviewCount > (existingPoi.reviewCounts || 0)
-          )
-            updates.reviewCounts = act.reviewCount;
-          if (act.address && !existingPoi.address)
-            updates.address = act.address;
-          if (
-            act.latitude &&
-            act.longitude &&
-            (!existingPoi.latitude || existingPoi.latitude === "0")
-          ) {
-            updates.latitude = act.latitude.toString();
-            updates.longitude = act.longitude.toString();
-          }
-          // Also update destinationId if it was missing
-          if (resolvedDestId && !existingPoi.destinationId) {
-            updates.destinationId = resolvedDestId;
-          }
-          if (Object.keys(updates).length > 0) {
-            await storage.updatePoi(existingPoi.poiId, updates);
-          }
-          // Link POI ID to activity for itinerary_items creation
-          act.poiId = existingPoi.poiId;
-          continue;
-        }
-
-        const createdPoi = await storage.createPoi({
-          destinationId: resolvedDestId !== null ? resolvedDestId : undefined,
-          name: placeName,
-          address: act.address || "",
-          latitude: act.latitude ? act.latitude.toString() : "0",
-          longitude: act.longitude ? act.longitude.toString() : "0",
-          rating: act.rating ? act.rating.toString() : "0",
-          reviewCounts: act.reviewCount || 0,
-          estimatedCost: act.estimatedCost
-            ? act.estimatedCost.toString()
-            : undefined,
-          googlePlaceId: act.googlePlaceId || undefined,
-          description: act.description || undefined,
+// --- PHẦN 3: LỌC VÀ DỒN HÀNG (QUAN TRỌNG NHẤT) ---
+    if (parsedData && parsedData.days) {
+      parsedData.days = parsedData.days.map((day: any) => {
+        // Lọc lấy những thằng CÓ MAPS
+        const filteredActs = day.activities.filter((act: any) => {
+          const hasMaps = act.latitude && act.latitude !== 0 && act.latitude !== "0";
+          const isNotTrash = !act.title.toLowerCase().includes("chi phí") && !act.title.toLowerCase().includes("di chuyển");
+          return hasMaps && isNotTrash;
         });
-        // Link newly created POI ID to activity for itinerary_items creation
-        if (createdPoi?.poiId) act.poiId = createdPoi.poiId;
-        savedCount++;
-      } catch (err) {
-        console.warn(`[POI] Failed to save POI for "${act.title}":`, err);
-      }
-    }
-    console.log(`[POI] Saved ${savedCount} new POIs to database`);
 
-    return res.json(parsed);
+        // 🌟 LOGIC BẢO HIỂM: 
+        // Nếu lọc xong mà còn hàng thì lấy hàng xịn (dồn hàng).
+        // Nếu lọc xong mà TRỐNG RỖNG (xịt hết Maps), thì lấy lại 3 cái đầu tiên của AI
+        // để ít nhất UI vẫn hiện được "Ngày 1" và vài địa điểm cho khách xem.
+        const finalActivities = filteredActs.length > 0 
+          ? filteredActs 
+          : day.activities.slice(0, 3); 
+
+        return {
+          ...day,
+          title: day.title || `Ngày ${day.day}`,
+          activities: finalActivities
+        };
+      });
+    }
+
+    // --- PHẦN 4: LƯU VÀO DATABASE ---
+    let resolvedDestId: number | null = null;
+    const destRecord = await storage.getDestinationByName(destination);
+    if (destRecord) resolvedDestId = destRecord.destinationId;
+
+    for (const act of allActivities) {
+      if (!act.latitude || act.latitude === 0) continue;
+      try {
+        const pName = extractPlaceName(act.title);
+        let existingPoi = act.googlePlaceId ? await storage.getPoiByGooglePlaceId(act.googlePlaceId) : await storage.getPoiByName(pName);
+        if (!existingPoi) {
+          await storage.createPoi({
+            destinationId: resolvedDestId || undefined,
+            name: pName,
+            address: act.address || "",
+            latitude: act.latitude.toString(),
+            longitude: act.longitude.toString(),
+            rating: act.rating?.toString() || "0",
+            googlePlaceId: act.googlePlaceId
+          });
+        }
+      } catch (e) { console.warn("[POI-Save] Lỗi lưu database:", e); }
+    }
+
+    return res.json({ ...parsedData, provider: activeAIProvider });
+
   } catch (error) {
     console.error("Generate itinerary error:", error);
     throw new AppError(500, "Failed to generate itinerary");
@@ -2495,12 +2465,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     // Map response to our format
     const placeInfo = data.place_info
       ? {
-          title: data.place_info.title || "",
-          address: data.place_info.address || "",
-          rating: data.place_info.rating || 0,
-          totalReviews: data.place_info.reviews || 0,
-          type: data.place_info.type || "",
-        }
+        title: data.place_info.title || "",
+        address: data.place_info.address || "",
+        rating: data.place_info.rating || 0,
+        totalReviews: data.place_info.reviews || 0,
+        type: data.place_info.type || "",
+      }
       : null;
 
     const reviews = (data.reviews || []).map((r: any) => ({
@@ -2517,12 +2487,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
       images: r.images || [],
       response: r.response
         ? {
-            snippet:
-              r.response.snippet ||
-              r.response.extracted_snippet?.original ||
-              "",
-            date: r.response.date || "",
-          }
+          snippet:
+            r.response.snippet ||
+            r.response.extracted_snippet?.original ||
+            "",
+          date: r.response.date || "",
+        }
         : null,
     }));
 
@@ -2613,8 +2583,8 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
       // Use operating_hours if available for real schedule data
       openHours: r.operating_hours
         ? Object.entries(r.operating_hours)
-            .map(([day, hours]) => `${day}: ${hours}`)
-            .join(" | ")
+          .map(([day, hours]) => `${day}: ${hours}`)
+          .join(" | ")
         : typeof r.hours === "string"
           ? r.hours
           : "",
@@ -3054,8 +3024,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   typeof activity.estimatedCost === "number"
                     ? activity.estimatedCost.toString()
                     : parseCurrencyToNumeric(
-                        activity.estimatedCost,
-                      )?.toString();
+                      activity.estimatedCost,
+                    )?.toString();
               }
 
               let numDuration = 60;
@@ -3132,10 +3102,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   activityType: activity.activityType
                     ? activity.activityType
                     : mapExpenseIdToActivityType(
-                        activity.expenseTypeId
-                          ? Number(activity.expenseTypeId)
-                          : null,
-                      ),
+                      activity.expenseTypeId
+                        ? Number(activity.expenseTypeId)
+                        : null,
+                    ),
                 });
               } catch (err) {
                 console.warn("Failed to create itinerary item:", err);
@@ -3321,8 +3291,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   activityType: act.activityType
                     ? act.activityType
                     : mapExpenseIdToActivityType(
-                        act.expenseTypeId ? Number(act.expenseTypeId) : null,
-                      ),
+                      act.expenseTypeId ? Number(act.expenseTypeId) : null,
+                    ),
                 });
               } catch (err) {
                 console.warn(
@@ -3737,7 +3707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 openTime,
                 closeTime,
               });
-            } catch (_e) {}
+            } catch (_e) { }
           }
           return;
         }
