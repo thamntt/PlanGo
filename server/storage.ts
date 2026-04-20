@@ -93,11 +93,15 @@ export interface IStorage {
   getExpenseType(id: number): Promise<ExpenseType | undefined>;
   getExpenseTypes(): Promise<ExpenseType[]>;
   createExpenseType(data: InsertExpenseType): Promise<ExpenseType>;
+  updateExpenseType(id: number, data: Partial<ExpenseType>): Promise<ExpenseType | undefined>;
+  deleteExpenseType(id: number): Promise<boolean>;
 
   // Preferences
   getPreference(id: number): Promise<Preference | undefined>;
   getPreferences(): Promise<Preference[]>;
   createPreference(data: InsertPreference): Promise<Preference>;
+  updatePreference(id: number, data: Partial<Preference>): Promise<Preference | undefined>;
+  deletePreference(id: number): Promise<boolean>;
 
   // Destinations
   getDestination(id: number): Promise<Destination | undefined>;
@@ -377,6 +381,14 @@ export class DatabaseStorage implements IStorage {
     const [r] = await db.insert(expenseType).values(data).returning();
     return r;
   }
+  async updateExpenseType(id: number, data: Partial<ExpenseType>) {
+    const [r] = await db.update(expenseType).set(data).where(eq(expenseType.expenseTypeId, id)).returning();
+    return r;
+  }
+  async deleteExpenseType(id: number) {
+    const r = await db.delete(expenseType).where(eq(expenseType.expenseTypeId, id)).returning();
+    return r.length > 0;
+  }
 
   async getPreference(id: number) {
     const [r] = await db
@@ -398,6 +410,14 @@ export class DatabaseStorage implements IStorage {
   async createPreference(data: InsertPreference) {
     const [r] = await db.insert(preferences).values(data).returning();
     return r;
+  }
+  async updatePreference(id: number, data: Partial<Preference>) {
+    const [r] = await db.update(preferences).set(data).where(eq(preferences.preferenceId, id)).returning();
+    return r;
+  }
+  async deletePreference(id: number) {
+    const r = await db.delete(preferences).where(eq(preferences.preferenceId, id)).returning();
+    return r.length > 0;
   }
 
   async seedPreferences() {

@@ -4133,10 +4133,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.get(
+    "/api/expense-types",
+    asyncHandler(async (_req, res) => {
+      const items = await storage.getExpenseTypes();
+      sendResponse(res, 200, "Types retrieved successfully", items);
+    }),
+  );
+
+  app.get(
+    "/api/expense-types/:id",
+    asyncHandler(async (req, res) => {
+      const item = await storage.getExpenseType(Number(req.params.id));
+      if (!item) throw new AppError(404, "Type not found");
+      sendResponse(res, 200, "Type retrieved successfully", item);
+    }),
+  );
+
+  app.post(
+    "/api/expense-types",
+    asyncHandler(async (req, res) => {
+      const item = await storage.createExpenseType(req.body);
+      sendResponse(res, 201, "Type created successfully", item);
+    }),
+  );
+
+  app.put(
+    "/api/expense-types/:id",
+    asyncHandler(async (req, res) => {
+      const item = await storage.updateExpenseType(Number(req.params.id), req.body);
+      if (!item) throw new AppError(404, "Type not found");
+      sendResponse(res, 200, "Type updated successfully", item);
+    }),
+  );
+
+  app.delete(
+    "/api/expense-types/:id",
+    asyncHandler(async (req, res) => {
+      const ok = await storage.deleteExpenseType(Number(req.params.id));
+      if (!ok) throw new AppError(404, "Type not found");
+      sendResponse(res, 200, "Type deleted successfully", null);
+    }),
+  );
+
+  app.get(
     "/api/preferences",
     asyncHandler(async (_req, res) => {
       const items = await storage.getPreferences();
       sendResponse(res, 200, "Preferences retrieved successfully", items);
+    }),
+  );
+
+  app.post(
+    "/api/preferences",
+    asyncHandler(async (req, res) => {
+      const item = await storage.createPreference(req.body);
+      sendResponse(res, 201, "Preference created successfully", item);
+    }),
+  );
+
+  app.put(
+    "/api/preferences/:id",
+    asyncHandler(async (req, res) => {
+      const item = await storage.updatePreference(Number(req.params.id), req.body);
+      if (!item) throw new AppError(404, "Preference not found");
+      sendResponse(res, 200, "Preference updated successfully", item);
+    }),
+  );
+
+  app.delete(
+    "/api/preferences/:id",
+    asyncHandler(async (req, res) => {
+      const success = await storage.deletePreference(Number(req.params.id));
+      if (!success) throw new AppError(404, "Preference not found");
+      sendResponse(res, 200, "Preference deleted successfully", null);
     }),
   );
 

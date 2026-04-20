@@ -182,6 +182,17 @@ export interface Notification {
   isRead: boolean;
 }
 
+export interface Interest {
+  preferenceId: number;
+  preferenceName: string;
+}
+
+export interface ExpenseCategory {
+  expenseTypeId: number;
+  name: string;
+  description?: string;
+}
+
 export function formatVND(amount: number): string {
   return amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".") + " ₫";
 }
