@@ -13,6 +13,7 @@ interface DataContextValue {
   users: UserData[];
   destinations: Destination[];
   destinationTypes: { id: number; name: string }[];
+  poiTypes: { id: number; name: string }[];
   itineraries: Itinerary[];
   reviews: Review[];
   pois: POI[];
@@ -170,6 +171,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [pois, setPois] = useState<POI[]>([]);
+  const [poiTypes, setPoiTypes] = useState<{ id: number; name: string }[]>([]);
   const [adminStats, setAdminStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -181,9 +183,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
         apiRequest("GET", "/api/destination-types"),
         apiRequest("GET", "/api/trips"),
         apiRequest("GET", "/api/pois"),
+        apiRequest("GET", "/api/poi-types"),
       ]);
       
-      const [usersRes, destsRes, typesRes, itinsRes, poisRes] = results;
+      const [usersRes, destsRes, typesRes, itinsRes, poisRes, poiTypesRes] = results;
 
       if (usersRes.status === "fulfilled") setUsers(usersRes.value.map(mapUser));
       if (destsRes.status === "fulfilled") setDestinations(destsRes.value.map(mapDestination));
@@ -195,6 +198,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
       }
       if (itinsRes.status === "fulfilled") setItineraries(itinsRes.value.map(mapItinerary));
       if (poisRes.status === "fulfilled") setPois(poisRes.value.map(mapPoi));
+      if (poiTypesRes.status === "fulfilled") {
+        setPoiTypes(poiTypesRes.value.map((t: any) => ({
+          id: t.poitypeId,
+          name: t.typeName
+        })));
+      }
 
       try {
         const stats = await apiRequest("GET", "/api/admin/stats");
@@ -313,9 +322,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       deleteItinerary,
       deleteReview,
       adminStats,
-      destinationTypes
+      destinationTypes,
+      poiTypes
     }),
-    [users, destinations, itineraries, reviews, pois, isLoading, refreshData, updateUser, deleteUser, fetchUsers, addDestination, updateDestination, deleteDestination, addPOI, updatePOI, deletePOI, deleteItinerary, deleteReview, adminStats, destinationTypes]
+    [users, destinations, itineraries, reviews, pois, isLoading, refreshData, updateUser, deleteUser, fetchUsers, addDestination, updateDestination, deleteDestination, addPOI, updatePOI, deletePOI, deleteItinerary, deleteReview, adminStats, destinationTypes, poiTypes]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

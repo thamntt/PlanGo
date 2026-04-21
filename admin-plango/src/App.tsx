@@ -8,6 +8,10 @@ import Destinations from './pages/Destinations';
 import POIs from './pages/POIs';
 import Reviews from './pages/Reviews';
 import Trips from './pages/Trips';
+import Interests from './pages/Interests';
+import ExpenseCategories from './pages/ExpenseCategories';
+import PoiTypes from './pages/PoiTypes';
+import DestinationTypes from './pages/DestinationTypes';
 import Login from './pages/Login';
 import { DataProvider } from './contexts/DataContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -44,6 +48,10 @@ const ProtectedLayout: React.FC = () => {
             <Route path="/poi" element={<POIs />} />
             <Route path="/reviews" element={<Reviews />} />
             <Route path="/trips" element={<Trips />} />
+            <Route path="/interests" element={<Interests />} />
+            <Route path="/expense-categories" element={<ExpenseCategories />} />
+            <Route path="/destination-types" element={<DestinationTypes />} />
+            <Route path="/poi-types" element={<PoiTypes />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

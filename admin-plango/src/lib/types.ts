@@ -47,7 +47,7 @@ export interface POI {
   id: string;
   destinationId: string;
   name: string;
-  type: "attraction" | "restaurant" | "cafe" | "hotel" | "shopping" | "other";
+  type: string;
   address: string;
   latitude: number;
   longitude: number;
@@ -180,6 +180,29 @@ export interface Notification {
   itineraryId?: string;
   createdAt: string;
   isRead: boolean;
+}
+
+export interface Interest {
+  preferenceId: number;
+  preferenceName: string;
+}
+
+export interface ExpenseCategory {
+  expenseTypeId: number;
+  name: string;
+  description?: string;
+}
+
+export interface DestinationType {
+  destinationtypeId: number;
+  typeName: string;
+  description?: string;
+}
+
+export interface PoiType {
+  poitypeId: number;
+  typeName: string;
+  description?: string;
 }
 
 export function formatVND(amount: number): string {

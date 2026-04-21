@@ -81,23 +81,31 @@ export interface IStorage {
   getDestinationType(id: number): Promise<DestinationType | undefined>;
   getDestinationTypes(): Promise<DestinationType[]>;
   createDestinationType(data: InsertDestinationType): Promise<DestinationType>;
+  updateDestinationType(id: number, data: Partial<DestinationType>): Promise<DestinationType | undefined>;
+  deleteDestinationType(id: number): Promise<boolean>;
   seedDestinationTypes(): Promise<void>;
 
   // POI Types
   getPoiType(id: number): Promise<PoiType | undefined>;
   getPoiTypes(): Promise<PoiType[]>;
   createPoiType(data: InsertPoiType): Promise<PoiType>;
+  updatePoiType(id: number, data: Partial<PoiType>): Promise<PoiType | undefined>;
+  deletePoiType(id: number): Promise<boolean>;
   seedPoiTypes(): Promise<void>;
 
   // Expense Types
   getExpenseType(id: number): Promise<ExpenseType | undefined>;
   getExpenseTypes(): Promise<ExpenseType[]>;
   createExpenseType(data: InsertExpenseType): Promise<ExpenseType>;
+  updateExpenseType(id: number, data: Partial<ExpenseType>): Promise<ExpenseType | undefined>;
+  deleteExpenseType(id: number): Promise<boolean>;
 
   // Preferences
   getPreference(id: number): Promise<Preference | undefined>;
   getPreferences(): Promise<Preference[]>;
   createPreference(data: InsertPreference): Promise<Preference>;
+  updatePreference(id: number, data: Partial<Preference>): Promise<Preference | undefined>;
+  deletePreference(id: number): Promise<boolean>;
 
   // Destinations
   getDestination(id: number): Promise<Destination | undefined>;
@@ -301,6 +309,23 @@ export class DatabaseStorage implements IStorage {
     return r;
   }
 
+  async updateDestinationType(id: number, data: Partial<DestinationType>) {
+    const [r] = await db
+      .update(destinationType)
+      .set(data)
+      .where(eq(destinationType.destinationtypeId, id))
+      .returning();
+    return r;
+  }
+
+  async deleteDestinationType(id: number) {
+    const r = await db
+      .delete(destinationType)
+      .where(eq(destinationType.destinationtypeId, id))
+      .returning();
+    return r.length > 0;
+  }
+
   async getDestinationTypeByName(name: string) {
     const [r] = await db
       .select()
@@ -363,6 +388,23 @@ export class DatabaseStorage implements IStorage {
     return r;
   }
 
+  async updatePoiType(id: number, data: Partial<PoiType>) {
+    const [r] = await db
+      .update(poiType)
+      .set(data)
+      .where(eq(poiType.poitypeId, id))
+      .returning();
+    return r;
+  }
+
+  async deletePoiType(id: number) {
+    const r = await db
+      .delete(poiType)
+      .where(eq(poiType.poitypeId, id))
+      .returning();
+    return r.length > 0;
+  }
+
   async getExpenseType(id: number) {
     const [r] = await db
       .select()
@@ -376,6 +418,14 @@ export class DatabaseStorage implements IStorage {
   async createExpenseType(data: InsertExpenseType) {
     const [r] = await db.insert(expenseType).values(data).returning();
     return r;
+  }
+  async updateExpenseType(id: number, data: Partial<ExpenseType>) {
+    const [r] = await db.update(expenseType).set(data).where(eq(expenseType.expenseTypeId, id)).returning();
+    return r;
+  }
+  async deleteExpenseType(id: number) {
+    const r = await db.delete(expenseType).where(eq(expenseType.expenseTypeId, id)).returning();
+    return r.length > 0;
   }
 
   async getPreference(id: number) {
@@ -398,6 +448,14 @@ export class DatabaseStorage implements IStorage {
   async createPreference(data: InsertPreference) {
     const [r] = await db.insert(preferences).values(data).returning();
     return r;
+  }
+  async updatePreference(id: number, data: Partial<Preference>) {
+    const [r] = await db.update(preferences).set(data).where(eq(preferences.preferenceId, id)).returning();
+    return r;
+  }
+  async deletePreference(id: number) {
+    const r = await db.delete(preferences).where(eq(preferences.preferenceId, id)).returning();
+    return r.length > 0;
   }
 
   async seedPreferences() {
