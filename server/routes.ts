@@ -4116,6 +4116,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }),
   );
 
+  app.put(
+    "/api/destination-types/:id",
+    asyncHandler(async (req, res) => {
+      const item = await storage.updateDestinationType(Number(req.params.id), req.body);
+      if (!item) throw new AppError(404, "Type not found");
+      sendResponse(res, 200, "Type updated successfully", item);
+    }),
+  );
+
+  app.delete(
+    "/api/destination-types/:id",
+    asyncHandler(async (req, res) => {
+      const ok = await storage.deleteDestinationType(Number(req.params.id));
+      if (!ok) throw new AppError(404, "Type not found");
+      sendResponse(res, 200, "Type deleted successfully", null);
+    }),
+  );
+
   app.get(
     "/api/poi-types",
     asyncHandler(async (_req, res) => {
@@ -4129,6 +4147,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const item = await storage.createPoiType(req.body);
       sendResponse(res, 201, "Type created successfully", item);
+    }),
+  );
+
+  app.put(
+    "/api/poi-types/:id",
+    asyncHandler(async (req, res) => {
+      const item = await storage.updatePoiType(Number(req.params.id), req.body);
+      if (!item) throw new AppError(404, "Type not found");
+      sendResponse(res, 200, "Type updated successfully", item);
+    }),
+  );
+
+  app.delete(
+    "/api/poi-types/:id",
+    asyncHandler(async (req, res) => {
+      const ok = await storage.deletePoiType(Number(req.params.id));
+      if (!ok) throw new AppError(404, "Type not found");
+      sendResponse(res, 200, "Type deleted successfully", null);
     }),
   );
 

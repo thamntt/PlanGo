@@ -81,12 +81,16 @@ export interface IStorage {
   getDestinationType(id: number): Promise<DestinationType | undefined>;
   getDestinationTypes(): Promise<DestinationType[]>;
   createDestinationType(data: InsertDestinationType): Promise<DestinationType>;
+  updateDestinationType(id: number, data: Partial<DestinationType>): Promise<DestinationType | undefined>;
+  deleteDestinationType(id: number): Promise<boolean>;
   seedDestinationTypes(): Promise<void>;
 
   // POI Types
   getPoiType(id: number): Promise<PoiType | undefined>;
   getPoiTypes(): Promise<PoiType[]>;
   createPoiType(data: InsertPoiType): Promise<PoiType>;
+  updatePoiType(id: number, data: Partial<PoiType>): Promise<PoiType | undefined>;
+  deletePoiType(id: number): Promise<boolean>;
   seedPoiTypes(): Promise<void>;
 
   // Expense Types
@@ -305,6 +309,23 @@ export class DatabaseStorage implements IStorage {
     return r;
   }
 
+  async updateDestinationType(id: number, data: Partial<DestinationType>) {
+    const [r] = await db
+      .update(destinationType)
+      .set(data)
+      .where(eq(destinationType.destinationtypeId, id))
+      .returning();
+    return r;
+  }
+
+  async deleteDestinationType(id: number) {
+    const r = await db
+      .delete(destinationType)
+      .where(eq(destinationType.destinationtypeId, id))
+      .returning();
+    return r.length > 0;
+  }
+
   async getDestinationTypeByName(name: string) {
     const [r] = await db
       .select()
@@ -365,6 +386,23 @@ export class DatabaseStorage implements IStorage {
   async createPoiType(data: InsertPoiType) {
     const [r] = await db.insert(poiType).values(data).returning();
     return r;
+  }
+
+  async updatePoiType(id: number, data: Partial<PoiType>) {
+    const [r] = await db
+      .update(poiType)
+      .set(data)
+      .where(eq(poiType.poitypeId, id))
+      .returning();
+    return r;
+  }
+
+  async deletePoiType(id: number) {
+    const r = await db
+      .delete(poiType)
+      .where(eq(poiType.poitypeId, id))
+      .returning();
+    return r.length > 0;
   }
 
   async getExpenseType(id: number) {

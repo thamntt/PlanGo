@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Landmark, Utensils, Coffee, Hotel, ShoppingBag, Star, MapPin, Search, Plus, X, Edit, Trash2, Calendar, Clock } from 'lucide-react';
+import { Landmark, Utensils, Coffee, Bed, ShoppingBag, Star, MapPin, Search, Plus, X, Edit, Trash2, Calendar, Clock } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { POI } from '../lib/types';
-import { searchPlaces, getPlaceDetails, getPhotoUrl, mapGoogleTypeToPOIType } from '../lib/places';
+import { searchPlaces, getPlaceDetails, mapGoogleTypeToPOIType } from '../lib/places';
 import type { PlaceSearchResult } from '../lib/places';
 
 const DAYS_OF_WEEK = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"];
@@ -13,12 +13,11 @@ const TypeBadge: React.FC<{ type: string }> = ({ type }) => {
   let icon = <MapPin size={12} />;
   let label = type;
 
-  if (t === 'attraction') { style = 'bg-indigo-100 text-indigo-700'; icon = <Landmark size={12} />; label = 'Tham quan'; }
-  else if (t === 'restaurant') { style = 'bg-rose-100 text-rose-700'; icon = <Utensils size={12} />; label = 'Nhà hàng'; }
-  else if (t === 'cafe') { style = 'bg-orange-100 text-orange-700'; icon = <Coffee size={12} />; label = 'Cà phê'; }
-  else if (t === 'hotel') { style = 'bg-emerald-100 text-emerald-700'; icon = <Hotel size={12} />; label = 'Khách sạn'; }
-  else if (t === 'shopping') { style = 'bg-fuchsia-100 text-fuchsia-700'; icon = <ShoppingBag size={12} />; label = 'Mua sắm'; }
-  else if (t === 'other') { label = 'Khác'; }
+  if (t.includes('attraction') || t.includes('tham quan')) { style = 'bg-indigo-100 text-indigo-700'; icon = <Landmark size={12} />; }
+  else if (t.includes('restaurant') || t.includes('nhà hàng')) { style = 'bg-rose-100 text-rose-700'; icon = <Utensils size={12} />; }
+  else if (t.includes('cafe') || t.includes('cà phê')) { style = 'bg-orange-100 text-orange-700'; icon = <Coffee size={12} />; }
+  else if (t.includes('hotel') || t.includes('khách sạn')) { style = 'bg-emerald-100 text-emerald-700'; icon = <Bed size={12} />; }
+  else if (t.includes('shopping') || t.includes('mua sắm')) { style = 'bg-fuchsia-100 text-fuchsia-700'; icon = <ShoppingBag size={12} />; }
 
   return (
     <span className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold ${style}`}>
@@ -29,7 +28,7 @@ const TypeBadge: React.FC<{ type: string }> = ({ type }) => {
 };
 
 const POIs: React.FC = () => {
-  const { pois, destinations, addPOI, updatePOI, deletePOI } = useData();
+  const { pois, destinations, poiTypes, addPOI, updatePOI, deletePOI } = useData();
   const [filterDest, setFilterDest] = useState("all");
   const [poiSearch, setPoiSearch] = useState("");
 
@@ -49,7 +48,6 @@ const POIs: React.FC = () => {
   const [poiReviewCount, setPoiReviewCount] = useState("");
   const [poiCost, setPoiCost] = useState("");
   const [poiDesc, setPoiDesc] = useState("");
-  const [poiOpenHours, setPoiOpenHours] = useState("");
   const [poiOpenDayStart, setPoiOpenDayStart] = useState("Thứ 2");
   const [poiOpenDayEnd, setPoiOpenDayEnd] = useState("Chủ nhật");
   const [poiTimeStart, setPoiTimeStart] = useState("08:00");
@@ -107,7 +105,6 @@ const POIs: React.FC = () => {
       if (details.reviewCount > 0) setPoiReviewCount(details.reviewCount.toString());
       const desc = extractDescription(details.editorialSummary);
       if (desc) setPoiDesc(desc);
-      if (details.openingHours?.length) setPoiOpenHours(details.openingHours.join(" | "));
       if (details.photos?.length) setPoiPhotos(details.photos);
     }
     
@@ -117,10 +114,12 @@ const POIs: React.FC = () => {
 
   const openAddModal = () => {
     setEditingId(null);
-    setPoiName(""); setPoiAddr(""); setPoiType("attraction"); 
+    setPoiName(""); 
+    setPoiAddr(""); 
+    setPoiType(poiTypes.length > 0 ? poiTypes[0].name : "attraction"); 
     setPoiDestId(destinations.length > 0 ? destinations[0].id : "");
     setPoiLat(""); setPoiLng(""); setPoiRating(""); setPoiReviewCount("");
-    setPoiCost(""); setPoiDesc(""); setPoiOpenHours("");
+    setPoiCost(""); setPoiDesc(""); 
     setPoiOpenDayStart("Thứ 2"); setPoiOpenDayEnd("Chủ nhật");
     setPoiTimeStart("08:00"); setPoiTimeEnd("22:00");
     setPoiGoogleId(""); setPoiPhotos([]); setGoogleQuery(""); setGoogleResults([]);
@@ -140,7 +139,6 @@ const POIs: React.FC = () => {
     setPoiReviewCount(poi.reviewCount?.toString() || "");
     setPoiCost(poi.estimatedCost?.toString() || "");
     setPoiDesc(poi.description || "");
-    setPoiOpenHours(poi.openHours || "");
     
     // Parse structured hours if available
     if (poi.openHours && poi.openHours.includes('|')) {
@@ -406,13 +404,24 @@ const POIs: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Loại hình <span className="text-rose-500">*</span></label>
-                  <select value={poiType} onChange={e => setPoiType(e.target.value as any)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 appearance-none">
-                    <option value="attraction">Tham quan</option>
-                    <option value="restaurant">Nhà hàng</option>
-                    <option value="cafe">Cà phê</option>
-                    <option value="hotel">Khách sạn</option>
-                    <option value="shopping">Mua sắm</option>
-                    <option value="other">Khác</option>
+                  <select 
+                    value={poiType} 
+                    onChange={e => setPoiType(e.target.value)} 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 appearance-none"
+                  >
+                    {poiTypes.map(t => (
+                      <option key={t.id} value={t.name}>{t.name}</option>
+                    ))}
+                    {poiTypes.length === 0 && (
+                      <>
+                        <option value="attraction">Tham quan</option>
+                        <option value="restaurant">Nhà hàng</option>
+                        <option value="cafe">Cà phê</option>
+                        <option value="hotel">Khách sạn</option>
+                        <option value="shopping">Mua sắm</option>
+                        <option value="other">Khác</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 

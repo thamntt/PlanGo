@@ -47,7 +47,7 @@ export interface POI {
   id: string;
   destinationId: string;
   name: string;
-  type: "attraction" | "restaurant" | "cafe" | "hotel" | "shopping" | "other";
+  type: string;
   address: string;
   latitude: number;
   longitude: number;
@@ -190,6 +190,18 @@ export interface Interest {
 export interface ExpenseCategory {
   expenseTypeId: number;
   name: string;
+  description?: string;
+}
+
+export interface DestinationType {
+  destinationtypeId: number;
+  typeName: string;
+  description?: string;
+}
+
+export interface PoiType {
+  poitypeId: number;
+  typeName: string;
   description?: string;
 }
 
