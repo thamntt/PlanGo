@@ -48,19 +48,29 @@ function getStatusLabel(status: string): string {
 }
 
 function getActivityTypeLabel(type: string, ets?: ExpenseType[]): string {
-  if (ets) {
-    const found = ets.find(et => et.id.toString() === type.toString() || et.name === type);
+  // If the type is already a descriptive name (like "Bảo tàng"), use it directly
+  const labels = t().itinerary;
+  const standardTypes = ["sightseeing", "food", "transport", "shopping", "other"];
+  
+  if (standardTypes.includes(type)) {
+    const map: Record<string, string> = {
+      sightseeing: labels.sightseeing,
+      food: labels.food,
+      transport: labels.transport,
+      shopping: labels.shopping,
+      other: labels.other,
+    };
+    return map[type] || type;
+  }
+
+  // If matched an expense type ID but we want to stay fixed, we'll check if it's purely Numeric
+  const isNumeric = /^\d+$/.test(type);
+  if (isNumeric && ets) {
+    const found = ets.find(et => et.id.toString() === type.toString());
     if (found) return found.name;
   }
-  const labels = t().itinerary;
-  const map: Record<string, string> = {
-    sightseeing: labels.sightseeing,
-    food: labels.food,
-    transport: labels.transport,
-    shopping: labels.shopping,
-    other: labels.other,
-  };
-  return map[type] || type;
+  
+  return type;
 }
 
 function getActivityTypeIcon(type: string): string {
@@ -1246,6 +1256,7 @@ export default function ItineraryDetailScreen() {
       }
     }
     const cost = parseInt(placeCost.replace(/[^0-9]/g, ""), 10) || 0;
+    const selectedPoiType = poiTypes.find(pt => pt.id === placePoiTypeId);
     const newActivity: ItineraryActivity = {
       id: generateId(),
       time: nextTime,
@@ -1255,6 +1266,7 @@ export default function ItineraryDetailScreen() {
       estimatedCost: cost,
       isCompleted: false,
       activityType: placeType,
+      placeType: selectedPoiType?.typeName || undefined,
       address: placeAddress.trim() || undefined,
       destinationId: placeDestinationId || undefined,
       expenseTypeId: placeExpenseTypeId,
@@ -1362,7 +1374,7 @@ export default function ItineraryDetailScreen() {
       duration: poi.estimatedDuration || "1 giờ",
       estimatedCost: poi.estimatedCost || 0,
       isCompleted: false,
-      activityType: typeMap[poi.type] || "sightseeing",
+      activityType: getActivityTypeLabel(typeMap[poi.type] || "sightseeing"),
       address: poi.address,
       latitude: poi.latitude,
       longitude: poi.longitude,
@@ -1875,7 +1887,9 @@ export default function ItineraryDetailScreen() {
                                 </Pressable>
                                 <View style={[styles.typeBadge, { backgroundColor: colors.tagBg }]}>
                                   <Ionicons name={getActivityTypeIcon(activity.activityType) as any} size={12} color={colors.tagText} />
-                                  <Text style={[styles.typeText, { color: colors.tagText }]}>{getActivityTypeLabel(activity.activityType)}</Text>
+                                  <Text style={[styles.typeText, { color: colors.tagText }]}>
+                                    {getActivityTypeLabel(activity.activityType)}
+                                  </Text>
                                 </View>
                               </View>
                               <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setExpandedReviewIds(new Set()); setShowAllUserReviews(false); setActivityDetailModal(activity); }}>

@@ -103,7 +103,7 @@ function mapTripToFrontend(trip: any) {
   mapped.shareCode = mapped.invitationToken;
   mapped.sharePermission = mapped.sharePermission || "viewer";
   mapped.isShared = !!mapped.invitationToken;
-  
+
   // Resolve owner details for frontend expectations
   if (mapped.ownerId) {
     mapped.userId = mapped.ownerId.toString();
@@ -156,7 +156,7 @@ function mapTripToFrontend(trip: any) {
         });
       } else {
         // Mark existing owner entry
-        mapped.companions = mapped.companions.map((c: any) => 
+        mapped.companions = mapped.companions.map((c: any) =>
           c.userId === ownerIdStr ? { ...c, isOwner: true, role: "owner" } : c
         );
       }
@@ -270,7 +270,8 @@ function mapTripToFrontend(trip: any) {
               paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
               isCompleted: item.status === "completed",
               expenseTypeId: item.expenseTypeId,
-              activityType: item.activityType,
+              // Use specific place_type if available (legacy support) or the activityType column content
+              activityType: (item as any).placeType || item.activityType,
               // POI-enriched fields — only override if itinerary_items doesn't have them
               address: item.address || (poi ? poi.address : undefined),
               latitude: item.latitude
@@ -2131,28 +2132,20 @@ JSON format:
 
 activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "other"`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key=${apiKey}`;
 
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: {
-          parts: [
-            {
-              text: `Bạn là chuyên gia du lịch Việt Nam. CHỈ gợi ý địa điểm tại ${destination} thuộc ${province}. TUYỆT ĐỐI KHÔNG gợi ý địa điểm ở tỉnh/thành phố khác. QUAN TRỌNG: Mỗi hoạt động PHẢI dùng TÊN CHÍNH XÁC của nhà hàng/quán ăn/điểm tham quan NHƯ TRÊN GOOGLE MAPS để hệ thống có thể tra cứu thông tin. Không dùng tên chung chung.`,
-            },
-          ],
-        },
         contents: [
           {
-            parts: [{ text: prompt }],
+            parts: [{ text: `Bạn là chuyên gia du lịch Việt Nam. CHỈ gợi ý địa điểm tại ${destination} thuộc ${province}. QUAN TRỌNG: Dùng TÊN CHÍNH XÁC NHÀ HÀNG trên Google Maps.\n\n${prompt}\n\nYêu cầu: Trả về JSON.` }],
           },
         ],
         generationConfig: {
           temperature: 0.3,
           maxOutputTokens: 8192,
-          responseMimeType: "application/json",
         },
       }),
     });
@@ -2470,6 +2463,13 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
           googlePlaceId: act.googlePlaceId || undefined,
           description: act.description || undefined,
         });
+
+        // Use the specific type found by Google/AI for the activity tag
+        const specificType = act.placeType || act.activityType;
+
+        // Update activity record with its specific type for display
+        act.activityType = specificType;
+
         // Link newly created POI ID to activity for itinerary_items creation
         if (createdPoi?.poiId) {
           act.poiId = createdPoi.poiId;
@@ -3266,13 +3266,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   expenseTypeId: activity.expenseTypeId
                     ? Number(activity.expenseTypeId)
                     : mapActivityTypeToExpenseId(activity.activityType),
-                  activityType: activity.activityType
-                    ? activity.activityType
-                    : mapExpenseIdToActivityType(
-                      activity.expenseTypeId
-                        ? Number(activity.expenseTypeId)
-                        : null,
-                    ),
+                  activityType: activity.activityType || mapExpenseIdToActivityType(
+                    activity.expenseTypeId ? Number(activity.expenseTypeId) : null
+                  ),
                 });
               } catch (err) {
                 console.warn("Failed to create itinerary item:", err);
@@ -3391,16 +3387,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   ? act.actualCost.toString()
                   : null;
               if (act.expenseTypeId !== undefined) {
-                const newExpId = act.expenseTypeId
-                  ? Number(act.expenseTypeId)
-                  : null;
-                updatePayload.expenseTypeId =
-                  newExpId || mapActivityTypeToExpenseId(act.activityType);
-                // Sync activityType from expenseTypeId
-                if (newExpId) {
-                  updatePayload.activityType =
-                    mapExpenseIdToActivityType(newExpId);
-                }
+                const newExpId = act.expenseTypeId ? Number(act.expenseTypeId) : null;
+                updatePayload.expenseTypeId = newExpId || mapActivityTypeToExpenseId(act.activityType);
+              }
+              // ALWAYS prioritize the existing/incoming activityType string
+              if (act.activityType !== undefined) {
+                updatePayload.activityType = act.activityType || mapExpenseIdToActivityType(
+                  act.expenseTypeId ? Number(act.expenseTypeId) : null
+                );
               }
               if (
                 act.activityType !== undefined &&
