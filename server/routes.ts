@@ -99,6 +99,19 @@ function mapTripToFrontend(trip: any) {
     mapped.destination = mapped.destination.name;
   }
 
+  // Map sharing fields
+  mapped.shareCode = mapped.invitationToken;
+  mapped.sharePermission = mapped.sharePermission || "viewer";
+  mapped.isShared = !!mapped.invitationToken;
+  
+  // Resolve owner details for frontend expectations
+  if (mapped.ownerId) {
+    mapped.userId = mapped.ownerId.toString();
+  }
+  if (mapped.owner) {
+    mapped.ownerName = mapped.owner.fullName || mapped.owner.userName;
+  }
+
   if (mapped.expenses && Array.isArray(mapped.expenses)) {
     mapped.expenses = mapped.expenses.map((e: any) => ({
       ...e,
@@ -129,6 +142,33 @@ function mapTripToFrontend(trip: any) {
       userName: m.user ? m.user.fullName || m.user.userName : "",
       role: m.role || "member",
     }));
+
+    // Prepend owner if not already in companions list
+    if (mapped.owner) {
+      const ownerIdStr = mapped.owner.userId.toString();
+      const isOwnerInCompanions = mapped.companions.some((c: any) => c.userId === ownerIdStr);
+      if (!isOwnerInCompanions) {
+        mapped.companions.unshift({
+          userId: ownerIdStr,
+          userName: mapped.owner.fullName || mapped.owner.userName,
+          role: "owner",
+          isOwner: true,
+        });
+      } else {
+        // Mark existing owner entry
+        mapped.companions = mapped.companions.map((c: any) => 
+          c.userId === ownerIdStr ? { ...c, isOwner: true, role: "owner" } : c
+        );
+      }
+    }
+  } else if (mapped.owner) {
+    // Only owner exists
+    mapped.companions = [{
+      userId: mapped.owner.userId.toString(),
+      userName: mapped.owner.fullName || mapped.owner.userName,
+      role: "owner",
+      isOwner: true,
+    }];
   }
 
   if (mapped.expenses && Array.isArray(mapped.expenses)) {
@@ -1649,8 +1689,12 @@ async function shareTrip(req: Request, res: Response) {
 
   const trip = await storage.updateTrip(Number(tripId), {
     invitationToken: token,
+    sharePermission: req.body.sharePermission || req.body.itinerary?.sharePermission || req.body.role || req.query.role || "viewer",
   });
-  sendResponse(res, 200, "Trip shared", { shareCode: token });
+  sendResponse(res, 200, "Trip shared", {
+    shareCode: token,
+    sharePermission: trip?.sharePermission || "viewer"
+  });
 }
 
 // GET /api/share/:code — look up a shared trip
@@ -1668,14 +1712,14 @@ async function joinSharedTrip(req: Request, res: Response) {
   const shareCode = req.body.shareCode || req.query.shareCode;
   const userId =
     req.body.userId || req.query.userId || req.body.companion?.userId;
-  const role =
-    req.body.role || req.query.role || req.body.companion?.role || "viewer";
-
   if (!shareCode || !userId)
     throw new AppError(400, "shareCode and userId are required");
 
   const trip = await storage.getTripByInvitationToken(shareCode);
   if (!trip) throw new AppError(404, "Share code not found");
+
+  const role =
+    req.body.role || req.query.role || req.body.companion?.role || trip.sharePermission || "viewer";
 
   const members = await storage.getTripMembers(trip.tripId);
   if (members.some((m) => m.userId === Number(userId))) {
@@ -1770,6 +1814,84 @@ function mapExpenseIdToActivityType(id?: number | null): string | null {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Preference Association Helpers
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Maps AI activity type and content to specific localized preferences.
+ */
+function mapToPreferenceNames(type?: string, title?: string, description?: string): string[] {
+  const prefs: string[] = [];
+  const t = (type || "").toLowerCase();
+  const text = ((title || "") + " " + (description || "")).toLowerCase();
+
+  // Basic type mapping
+  if (t.includes("food")) prefs.push("Ẩm thực");
+  if (t.includes("shopping")) prefs.push("Mua sắm");
+  if (t.includes("hotel") || t.includes("accommodation")) prefs.push("Nghỉ dưỡng");
+
+  // Content-based mapping
+  if (text.match(/biển|vịnh|đảo|bãi tắm|mỹ khê|hạ long|phú quốc|nha trang/)) prefs.push("Biển");
+  if (text.match(/núi|đỉnh|fansipan|đèo|ba na hills|cao nguyên/)) prefs.push("Núi");
+  if (text.match(/chùa|thờ|văn hóa|di tích|lăng|cung điện|bảo tàng|hội an|kinh thành|đại nội/)) {
+    prefs.push("Văn hóa");
+    prefs.push("Lịch sử");
+  }
+  if (text.match(/mạo hiểm|trekking|leo núi|zipline|kayak|thời thách/)) prefs.push("Phiêu lưu");
+  if (text.match(/thiên nhiên|rừng|thác|hồ|suối|vườn quốc gia/)) prefs.push("Thiên nhiên");
+  if (text.match(/đêm|bar|pub|phố đi bộ|sôi động|rực rỡ/)) prefs.push("Giải trí đêm");
+  if (text.match(/chụp|ảnh|check-in|sống ảo|đẹp|toàn cảnh/)) prefs.push("Nhiếp ảnh");
+
+  // Fallback for sightseeing
+  if (t.includes("sightseeing") && prefs.length === 0) {
+    prefs.push("Văn hóa");
+    prefs.push("Thành phố");
+  }
+
+  return [...new Set(prefs)]; // Unique values
+}
+
+async function associatePreferencesToPoi(poiId: number, type?: string, title?: string, description?: string) {
+  try {
+    const prefNames = mapToPreferenceNames(type, title, description);
+    if (prefNames.length === 0) return;
+
+    console.log(`[POI-Pref] Associating ${prefNames.join(", ")} with POI ${poiId}`);
+
+    // Clear existing to avoid duplicates if re-processing
+    await storage.clearPoiPreferences(poiId);
+
+    for (const name of prefNames) {
+      const pref = await storage.getPreferenceByName(name);
+      if (pref) {
+        await storage.addPoiPreference({ poiId, preferenceId: pref.preferenceId });
+      }
+    }
+  } catch (err) {
+    console.error(`[POI-Pref] Failed to associate preferences for POI ${poiId}:`, err);
+  }
+}
+
+async function associatePreferencesToTrip(tripId: number, prefNames: string[]) {
+  if (!prefNames || prefNames.length === 0) return;
+  try {
+    console.log(`[Trip-Pref] Associating ${prefNames.join(", ")} with Trip ${tripId}`);
+
+    // Clear existing
+    await storage.clearTripPreferences(tripId);
+
+    for (const name of prefNames) {
+      const pref = await storage.getPreferenceByName(name);
+      if (pref) {
+        await storage.addTripPreference({ tripId, preferenceId: pref.preferenceId });
+      }
+    }
+  } catch (err) {
+    console.error(`[Trip-Pref] Failed to associate preferences for Trip ${tripId}:`, err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // Helper: Extract activities from itinerary days and save as POIs
 // ══════════════════════════════════════════════════════════════
 async function extractAndSavePOIsFromItinerary(
@@ -1781,6 +1903,7 @@ async function extractAndSavePOIsFromItinerary(
   let savedCount = 0;
   const allActivities: any[] = [];
 
+  // Gom tất cả hoạt động vào một mảng phẳng để xử lý
   for (const day of days) {
     if (!day.activities || !Array.isArray(day.activities)) continue;
     for (const act of day.activities) {
@@ -1788,49 +1911,34 @@ async function extractAndSavePOIsFromItinerary(
     }
   }
 
-  console.log(
-    `[POI-Save] Extracting POIs from ${allActivities.length} activities (destinationId=${destinationId || "none"})...`,
-  );
-
-  // Map activityType to POI type
-  const poiTypeMap: Record<string, string> = {
-    food: "restaurant",
-    sightseeing: "attraction",
-    shopping: "shopping",
-    transport: "other",
-    other: "other",
-  };
+  console.log(`[POI-Save] Extracting POIs from ${allActivities.length} activities (destinationId=${destinationId || "none"})...`);
 
   for (const act of allActivities) {
     try {
       if (!act.title) continue;
 
-      // 🌟 3. BỘ LỌC CHỐNG RÁC (Chặn mấy mục AI tự gen thêm)
+      // 🌟 1. BỘ LỌC CHỐNG RÁC (Giữ lại ý của Thắm)
       const titleLower = act.title.toLowerCase();
       if (titleLower.includes("chi phí") || titleLower.includes("di chuyển") || titleLower.includes("tổng kết")) {
         console.log(`[POI-Save] ⏭️ Chặn mục rác: ${act.title}`);
         continue;
       }
 
-      // 🌟 4. CHỐT CHẶN CUỐI CÙNG: Chỉ lưu nếu có dữ liệu Maps thật
+      // 🌟 2. KIỂM TRA DỮ LIỆU MAPS
       const isInvalidLat = !act.latitude || act.latitude === 0 || act.latitude === "0";
       const isInvalidAddr = !act.address || act.address === "" || act.address === "Địa chỉ đang cập nhật";
 
       if (isInvalidLat || isInvalidAddr) {
-        console.log(`[POI-Save] ❌ Bỏ qua "${act.title}" không lưu Database vì thiếu thông tin Maps.`);
+        console.log(`[POI-Save] ❌ Bỏ qua "${act.title}" vì thiếu thông tin Maps.`);
         continue; 
       }
 
-      // Extract place name from title
       const placeName = extractPlaceName(act.title);
       if (!placeName || placeName.length < 3) continue;
 
-      // Resolve the destinationId: use activity's own, fallback to passed-in
-      const resolvedDestId = act.destinationId
-        ? Number(act.destinationId)
-        : (destinationId ?? null);
+      const resolvedDestId = act.destinationId ? Number(act.destinationId) : (destinationId ?? null);
 
-      // Dedup: check by googlePlaceId first, then by name
+      // 🌟 3. XỬ LÝ TRÙNG LẶP (DEDUP)
       let existingPoi = null;
       if (act.googlePlaceId) {
         existingPoi = await storage.getPoiByGooglePlaceId(act.googlePlaceId);
@@ -1840,40 +1948,24 @@ async function extractAndSavePOIsFromItinerary(
       }
 
       if (existingPoi) {
-        // Update existing POI if new data is better
         const updates: Record<string, any> = {};
-        if (
-          act.rating &&
-          (!existingPoi.rating ||
-            parseFloat(act.rating.toString()) >
-            parseFloat(existingPoi.rating || "0"))
-        )
+        if (act.rating && (!existingPoi.rating || parseFloat(act.rating.toString()) > parseFloat(existingPoi.rating || "0")))
           updates.rating = act.rating.toString();
-        if (
-          act.reviewCount &&
-          act.reviewCount > (existingPoi.reviewCounts || 0)
-        )
-          updates.reviewCounts = act.reviewCount;
-        if (act.address && !existingPoi.address) updates.address = act.address;
-        if (
-          act.latitude &&
-          act.longitude &&
-          (!existingPoi.latitude || existingPoi.latitude === "0")
-        ) {
-          updates.latitude = act.latitude.toString();
-          updates.longitude = act.longitude.toString();
-        }
-        // Also update destinationId if it was missing
-        if (resolvedDestId !== null && !existingPoi.destinationId) {
-          updates.destinationId = resolvedDestId;
-        }
+        
         if (Object.keys(updates).length > 0) {
           await storage.updatePoi(existingPoi.poiId, updates);
+        }
+        
+        // --- CODE ÔNG ĐỨC (Dành cho POI đã tồn tại) ---
+        act.poiId = existingPoi.poiId;
+        if (typeof associatePreferencesToPoi === "function") {
+          await associatePreferencesToPoi(existingPoi.poiId, act.activityType, act.title, act.description);
         }
         continue;
       }
 
-      await storage.createPoi({
+      // 🌟 4. TẠO POI MỚI
+      const createdPoi = await storage.createPoi({
         destinationId: resolvedDestId !== null ? resolvedDestId : undefined,
         name: placeName,
         address: act.address || "",
@@ -1881,22 +1973,28 @@ async function extractAndSavePOIsFromItinerary(
         longitude: act.longitude ? act.longitude.toString() : "0",
         rating: act.rating ? act.rating.toString() : "0",
         reviewCounts: act.reviewCount || 0,
-        estimatedCost: act.estimatedCost
-          ? act.estimatedCost.toString()
-          : undefined,
+        estimatedCost: act.estimatedCost ? act.estimatedCost.toString() : undefined,
         googlePlaceId: act.googlePlaceId || undefined,
         description: act.description || undefined,
       });
+
+      // --- CODE ÔNG ĐỨC (Dành cho POI vừa tạo mới) ---
+      if (createdPoi?.poiId) {
+        act.poiId = createdPoi.poiId;
+        if (typeof associatePreferencesToPoi === "function") {
+          await associatePreferencesToPoi(createdPoi.poiId, act.activityType, act.title, act.description);
+        }
+      }
+      
       savedCount++;
     } catch (err) {
       console.warn(`[POI-Save] Failed to save POI for "${act.title}":`, err);
     }
-  }
+  } // Hết vòng lặp for
 
   console.log(`[POI-Save] Saved ${savedCount} new POIs to database`);
   return savedCount;
 }
-
 // ══════════════════════════════════════════════════════════════
 // AI ITINERARY GENERATION (with fallback geocoding)
 // ══════════════════════════════════════════════════════════════
@@ -2131,7 +2229,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
     }
 
 // ===================== MAIN FLOW =====================
-    let parsedData = null;
+    parsedData = null;
 
     try {
       console.log("⚡ USING GEMINI");
@@ -2277,8 +2375,10 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
     }
 
 // --- PHẦN 3: LỌC VÀ DỒN HÀNG (QUAN TRỌNG NHẤT) ---
+    let savedCount = 0;
     if (parsedData && parsedData.days) {
-      parsedData.days = parsedData.days.map((day: any) => {
+      const mappedDays = [];
+      for (const day of parsedData.days) {
         // Lọc lấy những thằng CÓ MAPS
         const filteredActs = day.activities.filter((act: any) => {
           const hasMaps = act.latitude && act.latitude !== 0 && act.latitude !== "0";
@@ -2286,20 +2386,39 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
           return hasMaps && isNotTrash;
         });
 
+        // Link newly created POI ID to activity for itinerary_items creation
+        for (const act of filteredActs) {
+          try {
+            const pName = extractPlaceName(act.title);
+            const createdPoi = act.googlePlaceId
+              ? await storage.getPoiByGooglePlaceId(act.googlePlaceId)
+              : await storage.getPoiByName(pName);
+            if (createdPoi?.poiId) {
+              act.poiId = createdPoi.poiId;
+              // Associate preferences to newly created POI
+              await associatePreferencesToPoi(createdPoi.poiId, act.activityType, act.title, act.description);
+              savedCount++;
+            }
+          } catch (err) {
+            console.warn(`[POI] Failed to link POI for "${act.title}":`, err);
+          }
+        }
+
         // 🌟 LOGIC BẢO HIỂM: 
         // Nếu lọc xong mà còn hàng thì lấy hàng xịn (dồn hàng).
         // Nếu lọc xong mà TRỐNG RỖNG (xịt hết Maps), thì lấy lại 3 cái đầu tiên của AI
         // để ít nhất UI vẫn hiện được "Ngày 1" và vài địa điểm cho khách xem.
-        const finalActivities = filteredActs.length > 0 
-          ? filteredActs 
-          : day.activities.slice(0, 3); 
+        const finalActivities = filteredActs.length > 0
+          ? filteredActs
+          : day.activities.slice(0, 3);
 
-        return {
+        mappedDays.push({
           ...day,
           title: day.title || `Ngày ${day.day}`,
           activities: finalActivities
-        };
-      });
+        });
+      }
+      parsedData.days = mappedDays;
     }
 
     // --- PHẦN 4: LƯU VÀO DATABASE ---
@@ -2764,7 +2883,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/auth/login",
     asyncHandler(async (req, res) => {
       const { email, username, password } = req.body;
-      const identifier = email || username;
+      const identifier = (email || username || "").toLowerCase().trim();
       if (!identifier || !password)
         throw new AppError(400, "Email or username and password are required");
 
@@ -2798,14 +2917,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new AppError(400, "userName, email and password are required");
       }
 
-      console.log(`[Auth] Checking if email exists: ${email}`);
-      const existing = await storage.getUserByEmail(email);
+      const normalizedEmail = email.toLowerCase().trim();
+      console.log(`[Auth] Checking if email exists: ${normalizedEmail}`);
+      const existing = await storage.getUserByEmail(normalizedEmail);
       if (existing) throw new AppError(409, "Email already exists");
 
       const user = await storage.createUser({
         userName: finalUserName,
         password,
-        email,
+        email: normalizedEmail,
         role: "user",
         status: "active",
       });
@@ -2824,6 +2944,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   storage
     .seedPoiTypes()
     .catch((e) => console.error("POI type seeding failed:", e));
+  storage
+    .seedPreferences()
+    .catch((e) => console.error("Preference seeding failed:", e));
   storage
     .seedAdminUser()
     .catch((e) => console.error("Admin user seeding failed:", e));
@@ -2997,6 +3120,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const trip = await storage.createTrip(payload);
 
+      // Save user-selected trip preferences
+      if (payload.preferences && Array.isArray(payload.preferences)) {
+        await associatePreferencesToTrip(trip.tripId, payload.preferences);
+      }
+
       // AI Gen: Save days structure
       if (payload.days && Array.isArray(payload.days)) {
         for (let i = 0; i < payload.days.length; i++) {
@@ -3082,6 +3210,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       googlePlaceId: activity.googlePlaceId || undefined,
                     });
                     resolvedPoiId = newPoi.poiId;
+                    // Associate preferences
+                    await associatePreferencesToPoi(newPoi.poiId, activity.activityType, activity.title, activity.description);
                   }
                 }
 
@@ -3144,17 +3274,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle nested itinerary item updates: add, update, delete
       if (req.body.days && Array.isArray(req.body.days)) {
+        const dbDays = await storage.getItineraryDaysByTrip(id);
+        const processedDayIds = new Set<number>();
+
         for (const day of req.body.days) {
           if (!day.activities || !Array.isArray(day.activities)) continue;
 
-          // Get the dayId for this day — find by dayIndex
-          const dbDays = await storage.getItineraryDaysByTrip(id);
-          const matchedDay = dbDays.find(
-            (d: any) => d.dayIndex === (day.day || day.dayIndex),
+          // Match by explicit ID first, then fallback to index
+          const incomingDayId = day.dayId || day.id;
+          let matchedDay = dbDays.find(
+            (d: any) => d.dayId === Number(incomingDayId),
           );
-          if (!matchedDay) continue;
 
-          const dayId = matchedDay.dayId;
+          if (!matchedDay) {
+            // Fallback for newly created days that might only have index
+            matchedDay = dbDays.find(
+              (d: any) => d.dayIndex === (day.day || day.dayIndex),
+            );
+          }
+
+          let dayId: number;
+
+          if (matchedDay) {
+            dayId = matchedDay.dayId;
+            processedDayIds.add(dayId);
+            // Update dayIndex in case it changed (e.g. re-indexing after deletion)
+            const newIndex = day.day || day.dayIndex;
+            if (matchedDay.dayIndex !== newIndex) {
+              await storage.updateItineraryDay(dayId, { dayIndex: newIndex });
+            }
+          } else {
+            // Create new day
+            const newDay = await storage.createItineraryDay({
+              tripId: id,
+              dayIndex: day.day || day.dayIndex,
+            });
+            dayId = newDay.dayId;
+            processedDayIds.add(dayId);
+          }
 
           // Get existing items for this day to detect deletions
           const existingItems = await storage.getItineraryItemsByDay(dayId);
@@ -3261,6 +3418,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     });
                   }
                 } else if (act.description || act.title) {
+                  const activityToPoiType: Record<string, string> = {
+                    sightseeing: "attraction",
+                    food: "restaurant",
+                    shopping: "shopping",
+                    transport: "other",
+                    other: "other",
+                  };
+                  const typeName = activityToPoiType[act.activityType] || "other";
+                  const poitypeId = await resolvePoiTypeId(typeName);
+
                   const newPoi = await storage.createPoi({
                     name: placeName,
                     description: act.description || undefined,
@@ -3268,6 +3435,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     longitude: act.longitude ? act.longitude.toString() : "0",
                     address: act.address || "",
                     googlePlaceId: act.googlePlaceId || undefined,
+                    destinationId: act.destinationId ? Number(act.destinationId) : undefined,
+                    poitypeId: poitypeId,
                   });
                   resolvedPoiId = newPoi.poiId;
                 }
@@ -3313,6 +3482,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   "[PUT /trips] Failed to delete removed activity:",
                   err,
                 );
+              }
+            }
+          }
+        }
+
+        // Delete days that were removed from the trip
+        for (const dbDay of dbDays) {
+          if (!processedDayIds.has(dbDay.dayId)) {
+            try {
+              await storage.deleteItineraryDay(dbDay.dayId);
+            } catch (err) {
+              console.warn("[PUT /trips] Failed to delete removed day:", err);
+            }
+          }
+        }
+
+        // AUTO-SYNC TRIP DATES: If days changed, recalculate endDate based on max dayIndex
+        const finalDays = await storage.getItineraryDaysByTrip(id);
+        if (finalDays.length > 0) {
+          const maxDayIndex = Math.max(...finalDays.map(d => d.dayIndex || 1));
+          const currentTrip = await storage.getTrip(id);
+          if (currentTrip && currentTrip.startDate) {
+            const start = new Date(currentTrip.startDate);
+            if (!isNaN(start.getTime())) {
+              const newEnd = new Date(start);
+              newEnd.setDate(start.getDate() + (maxDayIndex - 1));
+
+              // Only update if it actually changed to avoid redundant writes
+              const newEndStr = newEnd.toISOString().split('T')[0];
+              const oldEndStr = currentTrip.endDate ? new Date(currentTrip.endDate).toISOString().split('T')[0] : "";
+
+              if (newEndStr !== oldEndStr) {
+                console.log(`[PUT /trips] Syncing trip dates: N days=${maxDayIndex}, new endDate=${newEndStr}`);
+                await storage.updateTrip(id, { endDate: newEndStr });
               }
             }
           }
@@ -3584,18 +3787,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Helper: enrich a raw POI row with type string + opening hours string
-  async function enrichPoi(poi: any) {
+  async function enrichPoi(poi: any, allPoiTypes?: any[], allHours?: any[]) {
     const enriched: any = { ...poi };
     // Map poitypeId → type string
     if (poi.poitypeId) {
-      const pt = await storage.getPoiType(poi.poitypeId);
+      const pt = allPoiTypes
+        ? allPoiTypes.find((t: any) => t.poitypeId === poi.poitypeId)
+        : await storage.getPoiType(poi.poitypeId);
       enriched.type = pt?.typeName || "other";
     } else {
       enriched.type = "other";
     }
     // Fetch opening hours from separate table and flatten to string
     try {
-      const hours = await storage.getPoiOpeningHours(poi.poiId);
+      const hours = allHours
+        ? allHours.filter((h: any) => h.poiId === poi.poiId)
+        : await storage.getPoiOpeningHours(poi.poiId);
       if (hours && hours.length > 0) {
         const dayNamesShort = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
         const dayNamesFull = [
@@ -3792,7 +3999,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = destinationId
         ? await storage.getPoisByDestination(Number(destinationId))
         : await storage.getPois();
-      const enriched = await Promise.all(items.map(enrichPoi));
+
+      // Optimize: Fetch all types and opening hours once to avoid N+1 queries
+      const [allTypes, allHours] = await Promise.all([
+        storage.getPoiTypes(),
+        storage.getBatchPoiOpeningHours(items.map(i => i.poiId))
+      ]);
+
+      const enriched = await Promise.all(items.map(poi => enrichPoi(poi, allTypes, allHours)));
+
       sendResponse(res, 200, "POIs retrieved successfully", enriched);
     }),
   );
@@ -3877,6 +4092,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     asyncHandler(async (req, res) => {
       const item = await storage.createPoiType(req.body);
       sendResponse(res, 201, "Type created successfully", item);
+    }),
+  );
+
+  app.get(
+    "/api/preferences",
+    asyncHandler(async (_req, res) => {
+      const items = await storage.getPreferences();
+      sendResponse(res, 200, "Preferences retrieved successfully", items);
     }),
   );
 

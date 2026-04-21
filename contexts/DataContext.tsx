@@ -9,6 +9,7 @@ import {
   type POI,
   type DestinationType,
   type ExpenseType,
+  type Preference,
   generateId,
   formatVND,
 } from "@/lib/storage";
@@ -23,6 +24,7 @@ interface DataContextValue {
   notifications: Notification[];
   pois: POI[];
   expenseTypes: ExpenseType[];
+  preferences: Preference[];
   isLoading: boolean;
   addDestination: (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive"> & { rating?: number; reviewCount?: number }) => Promise<Destination>;
   updateDestination: (id: string, data: Partial<Destination>) => Promise<void>;
@@ -117,6 +119,14 @@ function mapExpenseType(t: any): ExpenseType {
   };
 }
 
+function mapPreference(p: any): Preference {
+  return {
+    id: (p.preferenceId || p.id)?.toString() || "",
+    preferenceName: p.preferenceName || "",
+    description: p.description || "",
+  };
+}
+
 function mapItinerary(i: any): Itinerary {
   return {
     id: (i.tripId || i.id)?.toString() || "",
@@ -139,6 +149,7 @@ function mapItinerary(i: any): Itinerary {
     status: i.status || "draft",
     resetCount: i.resetCount ?? i.reset_count ?? 0,
     isShared: i.isShared ?? i.is_shared ?? false,
+    ownerName: i.ownerName,
     createdAt: i.createdAt ?? i.created_at ?? new Date().toISOString(),
   };
 }
@@ -421,6 +432,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pois, setPois] = useState<POI[]>([]);
   const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>([]);
+  const [preferences, setPreferences] = useState<Preference[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadData = useCallback(async () => {
@@ -470,6 +482,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         fetchEntity("/api/notifications", mapNotification, setNotifications),
         fetchEntity("/api/destination-types", mapDestinationType, setDestinationTypes),
         fetchEntity("/api/expense-types", mapExpenseType, setExpenseTypes),
+        fetchEntity("/api/preferences", mapPreference, setPreferences),
       ]);
 
     } catch (err) {
@@ -793,6 +806,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       notifications,
       pois,
       expenseTypes,
+      preferences,
       isLoading,
       addDestination,
       updateDestination,
@@ -814,7 +828,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       clearNotifications,
       refreshData,
     }),
-    [destinations, destinationTypes, itineraries, reviews, notifications, pois, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, importItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, addPOI, updatePOI, deletePOI, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
+    [destinations, destinationTypes, itineraries, reviews, notifications, pois, expenseTypes, preferences, isLoading, addDestination, updateDestination, deleteDestination, addItinerary, importItinerary, updateItinerary, deleteItinerary, addReview, updateReview, deleteReview, addPOI, updatePOI, deletePOI, generateItinerary, addNotification, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

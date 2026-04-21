@@ -20,7 +20,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
-import { PREFERENCE_OPTIONS } from "@/lib/seed-data";
 import { validateRequired, validateDate, validateDateRange, validateNumPeople } from "@/lib/validation";
 import { parseDDMMYYYY } from "@/lib/validation";
 import { formatVND } from "@/lib/storage";
@@ -79,7 +78,7 @@ export default function CreateTripScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { generateItinerary, itineraries, deleteItinerary, destinations } = useData();
+  const { generateItinerary, itineraries, deleteItinerary, destinations, preferences } = useData();
   const params = useLocalSearchParams<{ editId?: string; dest?: string }>();
 
   const editingItinerary = params.editId ? itineraries.find((i) => i.id === params.editId) : null;
@@ -545,11 +544,12 @@ export default function CreateTripScreen() {
         <View style={styles.section}>
           <Text style={[styles.label, { color: colors.text }]}>{t().createTrip.preferences}</Text>
           <View style={styles.chipGrid}>
-            {PREFERENCE_OPTIONS.map((pref) => {
+            {preferences.map((prefObj) => {
+              const pref = prefObj.preferenceName;
               const isSelected = selectedPrefs.includes(pref);
               return (
                 <Pressable
-                  key={pref}
+                  key={prefObj.id}
                   onPress={() => {
                     Haptics.selectionAsync();
                     togglePref(pref);

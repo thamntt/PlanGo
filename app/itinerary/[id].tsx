@@ -110,12 +110,33 @@ function getTravelInfo(from: ItineraryActivity, to: ItineraryActivity): TravelIn
 }
 
 function parseTimeToMinutes(time: string): number {
-  const match = time.match(/^(\d{1,2}):(\d{2})$/);
+  const match = time.match(/^(\d{1,2}):(\d{2})(:(\d{2}))?$/);
   if (!match) return -1;
   const h = parseInt(match[1], 10);
   const m = parseInt(match[2], 10);
   if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
   return h * 60 + m;
+}
+
+function formatTimeInput(val: string): string {
+  // Remove any non-digits
+  const cleaned = val.replace(/[^\d]/g, "");
+
+  // Format as HH:mm:ss
+  if (cleaned.length <= 2) return cleaned;
+  if (cleaned.length <= 4) return `${cleaned.slice(0, 2)}:${cleaned.slice(2)}`;
+  return `${cleaned.slice(0, 2)}:${cleaned.slice(2, 4)}:${cleaned.slice(4, 6)}`;
+}
+
+function sortActivitiesByTime(activities: ItineraryActivity[]): ItineraryActivity[] {
+  return [...activities].sort((a, b) => {
+    const timeA = parseTimeToMinutes(a.time);
+    const timeB = parseTimeToMinutes(b.time);
+    if (timeA === timeB) return 0;
+    if (timeA === -1) return 1;
+    if (timeB === -1) return -1;
+    return timeA - timeB;
+  });
 }
 
 function minutesToTime(mins: number): string {
@@ -127,7 +148,7 @@ function minutesToTime(mins: number): string {
 function parseDurationToMinutes(duration: any): number {
   if (typeof duration === "number") return duration;
   if (!duration || typeof duration !== "string") return 60;
-  
+
   const hourMatch = duration.match(/([\d.]+)\s*giờ/);
   const minMatch = duration.match(/(\d+)\s*phút/);
   let total = 0;
@@ -141,7 +162,7 @@ function formatDuration(duration: any): string {
   if (mins <= 0) return "";
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  
+
   const labels = t().itinerary;
   let res = "";
   if (h > 0) res += `${h} giờ`;
@@ -237,6 +258,9 @@ export default function ItineraryDetailScreen() {
   const [placeDuration, setPlaceDuration] = useState("1 giờ");
   const [placeCost, setPlaceCost] = useState("");
   const [placeType, setPlaceType] = useState<"sightseeing" | "food" | "transport" | "shopping" | "other">("sightseeing");
+  const [placeAddress, setPlaceAddress] = useState("");
+  const [placeDestinationId, setPlaceDestinationId] = useState("");
+  const [placeExpenseTypeId, setPlaceExpenseTypeId] = useState<string | number | undefined>(undefined);
 
   const [expenseModal, setExpenseModal] = useState<{ editId?: string } | null>(null);
   const [expenseTitle, setExpenseTitle] = useState("");
@@ -358,7 +382,8 @@ export default function ItineraryDetailScreen() {
   const tripMembers = useMemo(() => {
     const members: { userId: string; userName: string; isOwner: boolean }[] = [];
     if (itinerary) {
-      members.push({ userId: itinerary.userId, userName: ownerName || itinerary.userId, isOwner: true });
+      const name = itinerary.ownerName || ownerName || itinerary.userId;
+      members.push({ userId: itinerary.userId, userName: name, isOwner: true });
     }
     for (const c of companions) {
       if (!members.find((m) => m.userId === c.userId)) {
@@ -366,7 +391,7 @@ export default function ItineraryDetailScreen() {
       }
     }
     return members;
-  }, [ownerName, itinerary?.userId, companions]);
+  }, [ownerName, itinerary?.userId, itinerary?.ownerName, companions]);
 
   // SerpAPI reviews fetch function
   const fetchSerpReviews = async (placeId?: string, query?: string, nextToken?: string) => {
@@ -980,13 +1005,13 @@ export default function ItineraryDetailScreen() {
     }
 
     if (reviewModal.editReviewId) {
-      await updateReview(reviewModal.editReviewId, { 
-        userId: user!.id, 
-        rating: reviewRating, 
-        comment: taggedComment, 
-        poiId, 
-        poiName, 
-        type: 'item' 
+      await updateReview(reviewModal.editReviewId, {
+        userId: user!.id,
+        rating: reviewRating,
+        comment: taggedComment,
+        poiId,
+        poiName,
+        type: 'item'
       });
     } else {
       await addReview({
@@ -1189,10 +1214,8 @@ export default function ItineraryDetailScreen() {
     if (actIdx === -1) return;
 
     activities[actIdx].time = minutesToTime(newMins);
+    newDays[timeModal.dayIdx].activities = sortActivitiesByTime(activities);
 
-    newDays[timeModal.dayIdx].activities = activities.slice().sort((a, b) => {
-      return parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time);
-    });
     const sortedActivities = newDays[timeModal.dayIdx].activities;
     const newActIdx = sortedActivities.findIndex((a) => a.id === timeModal.activityId);
 
@@ -1231,13 +1254,20 @@ export default function ItineraryDetailScreen() {
       estimatedCost: cost,
       isCompleted: false,
       activityType: placeType,
+      address: placeAddress.trim() || undefined,
+      destinationId: placeDestinationId || undefined,
+      expenseTypeId: placeExpenseTypeId,
     };
     activities.push(newActivity);
+    newDays[addPlaceModal.dayIdx].activities = sortActivitiesByTime(activities);
     await updateItinerary(itinerary.id, { days: newDays });
     setPlaceTitle("");
     setPlaceDuration("1 giờ");
     setPlaceCost("");
     setPlaceType("sightseeing");
+    setPlaceAddress("");
+    setPlaceDestinationId("");
+    setPlaceExpenseTypeId(undefined);
     setAddPlaceModal(null);
   };
 
@@ -1338,6 +1368,7 @@ export default function ItineraryDetailScreen() {
       destinationId: poi.destinationId,
     };
     activities.push(newActivity);
+    newDays[dayIdx].activities = sortActivitiesByTime(activities);
     await updateItinerary(itinerary.id, { days: newDays });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setAddPlaceModal(null);
@@ -1780,7 +1811,7 @@ export default function ItineraryDetailScreen() {
                   <View style={[styles.dayCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
                     <View style={styles.dayHeader}>
                       <View style={[styles.dayBadge, { backgroundColor: colors.primary }]}>
-                        <Text style={styles.dayBadgeText}>{day.day}</Text>
+                        <Text style={styles.dayBadgeText}>Ngày {day.day}</Text>
                       </View>
                       <Text style={[styles.dayTitle, { color: colors.text }]}>{day.title}</Text>
                       <Ionicons
@@ -2005,20 +2036,20 @@ export default function ItineraryDetailScreen() {
                               if (itinerary.status === "active") return true;
                               return false;
                             })() && (
-                                <Pressable 
-                                  onPress={() => { 
-                                    setCostPaidByDropdown(false); 
-                                    setCostModal({ 
-                                      activityId: activity.id, 
-                                      dayIdx, 
-                                      cost: (activity.actualCost || 0).toString(), 
-                                      estimatedCost: (activity.estimatedCost || 0).toString(), 
-                                      paidBy: activity.paidBy || user?.fullName || "", 
+                                <Pressable
+                                  onPress={() => {
+                                    setCostPaidByDropdown(false);
+                                    setCostModal({
+                                      activityId: activity.id,
+                                      dayIdx,
+                                      cost: (activity.actualCost || 0).toString(),
+                                      estimatedCost: (activity.estimatedCost || 0).toString(),
+                                      paidBy: activity.paidBy || user?.fullName || "",
                                       activityTitle: activity.title,
                                       expenseTypeId: activity.expenseTypeId,
                                       type: activity.activityType || "other"
-                                    }); 
-                                  }} 
+                                    });
+                                  }}
                                   style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
                                 >
                                   <Ionicons name="cash-outline" size={14} color={colors.accent} />
@@ -2201,11 +2232,11 @@ export default function ItineraryDetailScreen() {
                 setSummaryPaidByDropdown(false);
                 const newDays = [...itinerary.days];
                 const act = newDays[editingSummaryRow.dayIdx].activities.find((a) => a.id === editingSummaryRow.actId);
-                
+
                 if (act) {
                   const amount = parseInt(editingSummaryRow.cost.replace(/[^0-9]/g, ""), 10) || 0;
                   const paidByName = editingSummaryRow.paidBy.trim();
-                  
+
                   // Find matching user ID from companions or current user
                   let paidByUserId = undefined;
                   if (paidByName) {
@@ -2219,7 +2250,7 @@ export default function ItineraryDetailScreen() {
 
                   act.actualCost = amount;
                   act.paidBy = paidByName || undefined;
-                  
+
                   // Sync corresponding expense
                   const newExpenses = [...expenses];
                   const expIdx = newExpenses.findIndex(e => e.activityId === act.id.toString());
@@ -2233,10 +2264,10 @@ export default function ItineraryDetailScreen() {
                   }
 
                   const newSpent = recalcSpent(newDays, newExpenses);
-                  await updateItinerary(itinerary.id, { 
-                    days: newDays, 
+                  await updateItinerary(itinerary.id, {
+                    days: newDays,
                     expenses: newExpenses,
-                    spentAmount: newSpent 
+                    spentAmount: newSpent
                   });
                 }
                 setEditingSummaryRow(null);
@@ -2303,7 +2334,7 @@ export default function ItineraryDetailScreen() {
                         const isEditing = editingSummaryRow?.actId === act.id;
                         return (
                           <View key={act.id} style={[sumStyles.tableRow, { backgroundColor: idx % 2 === 0 ? "transparent" : colors.inputBg + "40", zIndex: isEditing && summaryPaidByDropdown ? 9999 : 0, overflow: "visible" as any }]}>
-                            <Text style={[sumStyles.tdCell, sumStyles.cellDay, { color: colors.textSecondary }]} numberOfLines={1}>{act._dayIdx + 1}</Text>
+                            <Text style={[sumStyles.tdCell, sumStyles.cellDay, { color: colors.textSecondary }]} numberOfLines={1}>Ngày {act._dayIdx + 1}</Text>
                             <View style={sumStyles.cellName}>
                               <Text style={[sumStyles.tdCell, { color: colors.text }]} numberOfLines={1}>{act.title}</Text>
                               <Text style={[sumStyles.tdCellSub, { color: colors.textTertiary }]}>{act.time}</Text>
@@ -2313,8 +2344,11 @@ export default function ItineraryDetailScreen() {
                               <TextInput
                                 style={[sumStyles.inlineInput, sumStyles.cellCost, { backgroundColor: colors.inputBg, borderColor: colors.primary, color: colors.text }]}
                                 value={editingSummaryRow.cost}
-                                onChangeText={(v) => setEditingSummaryRow({ ...editingSummaryRow, cost: v })}
                                 keyboardType="numeric"
+                                onChangeText={(v) => {
+                                  const sanitized = v.replace(/[^0-9]/g, "");
+                                  setEditingSummaryRow({ ...editingSummaryRow, cost: sanitized });
+                                }}
                                 selectTextOnFocus
                               />
                             ) : (
@@ -2941,7 +2975,12 @@ export default function ItineraryDetailScreen() {
                     <TextInput
                       style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                       value={costModal?.estimatedCost || ""}
-                      onChangeText={(v) => costModal && setCostModal({ ...costModal, estimatedCost: v })}
+                      onChangeText={(v) => {
+                        if (costModal) {
+                          const sanitized = v.replace(/[^0-9]/g, "");
+                          setCostModal({ ...costModal, estimatedCost: sanitized });
+                        }
+                      }}
                       placeholder="VD: 500000"
                       placeholderTextColor={colors.textTertiary}
                       keyboardType="numeric"
@@ -2956,7 +2995,12 @@ export default function ItineraryDetailScreen() {
                   <TextInput
                     style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                     value={costModal?.cost || ""}
-                    onChangeText={(v) => costModal && setCostModal({ ...costModal, cost: v })}
+                    onChangeText={(v) => {
+                      if (costModal) {
+                        const sanitized = v.replace(/[^0-9]/g, "");
+                        setCostModal({ ...costModal, cost: sanitized });
+                      }
+                    }}
                     placeholder="VD: 500000"
                     placeholderTextColor={colors.textTertiary}
                     keyboardType="numeric"
@@ -2972,9 +3016,9 @@ export default function ItineraryDetailScreen() {
                     key={et.id}
                     onPress={() => costModal && setCostModal({ ...costModal, expenseTypeId: et.id, type: et.name.toLowerCase() })}
                     style={[
-                      styles.typeChip, 
-                      { 
-                        backgroundColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBg, 
+                      styles.typeChip,
+                      {
+                        backgroundColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBg,
                         borderColor: costModal?.expenseTypeId?.toString() === et.id.toString() ? colors.primary : colors.inputBorder,
                         marginBottom: 6
                       }
@@ -3064,11 +3108,11 @@ export default function ItineraryDetailScreen() {
                             {costSplitType === "custom" && isChecked && (
                               <TextInput
                                 style={[styles.splitAmountInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
-                                value={costSplitAmounts[m.userId] || ""}
-                                onChangeText={(v) => setCostSplitAmounts({ ...costSplitAmounts, [m.userId]: v })}
-                                placeholder="0"
-                                placeholderTextColor={colors.textTertiary}
                                 keyboardType="numeric"
+                                onChangeText={(v) => {
+                                  const sanitized = v.replace(/[^0-9]/g, "");
+                                  setCostSplitAmounts({ ...costSplitAmounts, [m.userId]: sanitized });
+                                }}
                               />
                             )}
                           </View>
@@ -3102,8 +3146,8 @@ export default function ItineraryDetailScreen() {
                   const isInvalid = costSplitType === "custom" && total !== sum;
 
                   return (
-                    <Pressable 
-                      onPress={saveCost} 
+                    <Pressable
+                      onPress={saveCost}
                       disabled={isInvalid}
                       style={[styles.modalBtn, { backgroundColor: colors.primary, opacity: isInvalid ? 0.5 : 1 }]}
                     >
@@ -3124,10 +3168,16 @@ export default function ItineraryDetailScreen() {
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={timeModal?.time || ""}
-              onChangeText={(v) => timeModal && setTimeModal({ ...timeModal, time: v })}
-              placeholder={txt.timePlaceholder}
+              onChangeText={(v) => {
+                if (timeModal) {
+                  const formatted = formatTimeInput(v);
+                  setTimeModal({ ...timeModal, time: formatted });
+                }
+              }}
+              placeholder="HH:mm"
               placeholderTextColor={colors.textTertiary}
-              keyboardType="numbers-and-punctuation"
+              keyboardType="numeric"
+              maxLength={8}
             />
             <View style={styles.modalActions}>
               <Pressable onPress={() => setTimeModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
@@ -3244,28 +3294,105 @@ export default function ItineraryDetailScreen() {
                   placeholder={txt.addPlacePlaceholder}
                   placeholderTextColor={colors.textTertiary}
                 />
-                <View style={styles.typeRow}>
-                  {(["sightseeing", "food", "transport", "shopping", "other"] as const).map((tp) => (
-                    <Pressable
-                      key={tp}
-                      onPress={() => setPlaceType(tp)}
-                      style={[styles.typeChip, { backgroundColor: placeType === tp ? colors.primary : colors.inputBg, borderColor: placeType === tp ? colors.primary : colors.inputBorder }]}
-                    >
-                      <Ionicons name={getActivityTypeIcon(tp) as any} size={14} color={placeType === tp ? "#fff" : colors.textSecondary} />
-                      <Text style={[styles.typeChipText, { color: placeType === tp ? "#fff" : colors.textSecondary }]}>{getActivityTypeLabel(tp)}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+
+                <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>Thuộc điểm đến nào?</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 36, marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {destinations.filter(d => d.isActive).map((d) => (
+                      <Pressable
+                        key={d.id}
+                        onPress={() => setPlaceDestinationId(placeDestinationId === d.id ? "" : d.id)}
+                        style={[
+                          styles.typeChip,
+                          {
+                            backgroundColor: placeDestinationId === d.id ? colors.primary : colors.inputBg,
+                            borderColor: placeDestinationId === d.id ? colors.primary : colors.inputBorder
+                          }
+                        ]}
+                      >
+                        <Text style={[styles.typeChipText, { color: placeDestinationId === d.id ? "#fff" : colors.textSecondary }]}>{d.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+
+                <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>Loại hình</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 36, marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {[
+                      { id: "attraction", label: "Tham quan", icon: "camera", pType: "sightseeing" as const, eId: "4" },
+                      { id: "restaurant", label: "Nhà hàng", icon: "restaurant", pType: "food" as const, eId: "1" },
+                      { id: "cafe", label: "Cà phê", icon: "cafe", pType: "food" as const, eId: "1" },
+                      { id: "hotel", label: "Khách sạn", icon: "bed", pType: "other" as const, eId: "3" },
+                      { id: "shopping", label: "Mua sắm", icon: "basket", pType: "shopping" as const, eId: "5" },
+                      { id: "other", label: "Khác", icon: "help-circle", pType: "other" as const, eId: "3" },
+                    ].map((poiT) => (
+                      <Pressable
+                        key={poiT.id}
+                        onPress={() => {
+                          setPlaceType(poiT.pType);
+                          setPlaceExpenseTypeId(poiT.eId);
+                          // We use a custom property in the internal activity to track the specific POI type if needed
+                          // but for now, placeType (for icons) and placeExpenseTypeId (for budget) are enough.
+                        }}
+                        style={[
+                          styles.typeChip,
+                          {
+                            backgroundColor: placeExpenseTypeId?.toString() === poiT.eId.toString() && 
+                                           (poiT.id === "attraction" ? placeType === "sightseeing" : 
+                                            poiT.id === "restaurant" || poiT.id === "cafe" ? placeType === "food" : 
+                                            placeType === "other") ? colors.primary : colors.inputBg,
+                            borderColor: placeExpenseTypeId?.toString() === poiT.eId.toString() && 
+                                           (poiT.id === "attraction" ? placeType === "sightseeing" : 
+                                            poiT.id === "restaurant" || poiT.id === "cafe" ? placeType === "food" : 
+                                            placeType === "other") ? colors.primary : colors.inputBorder
+                          }
+                        ]}
+                      >
+                        <Ionicons 
+                          name={poiT.icon as any} 
+                          size={14} 
+                          color={placeExpenseTypeId?.toString() === poiT.eId.toString() && 
+                                 (poiT.id === "attraction" ? placeType === "sightseeing" : 
+                                  poiT.id === "restaurant" || poiT.id === "cafe" ? placeType === "food" : 
+                                  placeType === "other") ? "#fff" : colors.textSecondary} 
+                        />
+                        <Text style={[styles.typeChipText, { color: placeExpenseTypeId?.toString() === poiT.eId.toString() && 
+                                 (poiT.id === "attraction" ? placeType === "sightseeing" : 
+                                  poiT.id === "restaurant" || poiT.id === "cafe" ? placeType === "food" : 
+                                  placeType === "other") ? "#fff" : colors.textSecondary }]}>{poiT.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+
+                <TextInput
+                  style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder, marginBottom: 8 }]}
+                  value={placeAddress}
+                  onChangeText={setPlaceAddress}
+                  placeholder="Địa chỉ (không bắt buộc)"
+                  placeholderTextColor={colors.textTertiary}
+                />
+
                 <TextInput
                   style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                   value={placeCost}
-                  onChangeText={setPlaceCost}
+                  onChangeText={(v) => {
+                    const sanitized = v.replace(/[^0-9]/g, "");
+                    setPlaceCost(sanitized);
+                  }}
                   placeholder={txt.expenseAmount + " (VNĐ)"}
                   placeholderTextColor={colors.textTertiary}
                   keyboardType="numeric"
                 />
                 <View style={styles.modalActions}>
-                  <Pressable onPress={() => setAddPlaceModal(null)} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
+                  <Pressable onPress={() => {
+                    setAddPlaceModal(null);
+                    setPlaceTitle("");
+                    setPlaceAddress("");
+                    setPlaceDestinationId("");
+                    setPlaceExpenseTypeId(undefined);
+                  }} style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}>
                     <Text style={[styles.modalBtnText, { color: colors.text }]}>{t().common.cancel}</Text>
                   </Pressable>
                   <Pressable onPress={addPlaceToDay} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
@@ -3316,9 +3443,9 @@ export default function ItineraryDetailScreen() {
                       <Ionicons
                         name={getActivityTypeIcon(
                           et.id.toString() === "1" ? "food" :
-                          et.id.toString() === "2" ? "transport" :
-                          et.id.toString() === "4" ? "sightseeing" :
-                          et.id.toString() === "5" ? "shopping" : "other"
+                            et.id.toString() === "2" ? "transport" :
+                              et.id.toString() === "4" ? "sightseeing" :
+                                et.id.toString() === "5" ? "shopping" : "other"
                         ) as any}
                         size={14}
                         color={isSelected ? "#fff" : colors.textSecondary}
@@ -3333,7 +3460,10 @@ export default function ItineraryDetailScreen() {
               <TextInput
                 style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                 value={expenseAmount}
-                onChangeText={setExpenseAmount}
+                onChangeText={(v) => {
+                  const sanitized = v.replace(/[^0-9]/g, "");
+                  setExpenseAmount(sanitized);
+                }}
                 placeholder={txt.expenseAmount + " (VNĐ)"}
                 placeholderTextColor={colors.textTertiary}
                 keyboardType="numeric"
@@ -3487,14 +3617,20 @@ export default function ItineraryDetailScreen() {
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={editBudget}
-              onChangeText={setEditBudget}
+              onChangeText={(v) => {
+                const sanitized = v.replace(/[^0-9]/g, "");
+                setEditBudget(sanitized);
+              }}
               keyboardType="numeric"
             />
             <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>{txt.travelers}</Text>
             <TextInput
               style={[styles.modalInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
               value={editNumPeople}
-              onChangeText={setEditNumPeople}
+              onChangeText={(v) => {
+                const sanitized = v.replace(/[^0-9]/g, "");
+                setEditNumPeople(sanitized);
+              }}
               keyboardType="numeric"
             />
             <View style={styles.modalActions}>
@@ -4526,9 +4662,9 @@ const styles = StyleSheet.create({
   tabBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
   dayCard: { borderRadius: 16, borderWidth: 1, padding: 16 },
   dayHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  dayBadge: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  dayBadgeText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
-  dayTitle: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  dayBadge: { height: 28, paddingHorizontal: 12, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  dayBadgeText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
+  dayTitle: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold", marginLeft: -4 },
   activitiesList: { gap: 8, marginTop: 8, marginBottom: 8 },
   activityCard: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 8 },
   activityTop: { flexDirection: "row", gap: 10 },
@@ -4723,7 +4859,7 @@ const sumStyles = StyleSheet.create({
   thCell: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
   tdCell: { fontSize: 12, fontFamily: "Inter_400Regular" },
   tdCellSub: { fontSize: 10, fontFamily: "Inter_400Regular" },
-  cellDay: { width: 30, textAlign: "center" },
+  cellDay: { width: 44, textAlign: "center" },
   cellName: { flex: 1, minWidth: 60 },
   cellCost: { width: 75, textAlign: "right" },
   cellPayer: { width: 60, textAlign: "center" },

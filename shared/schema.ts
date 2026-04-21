@@ -104,6 +104,7 @@ export const trips = pgTable("trips", {
   status: varchar("status", { length: 50 }),
   createdAt: timestamp("created_at").defaultNow(),
   invitationToken: varchar("invitation_token", { length: 255 }),
+  sharePermission: varchar("share_permission", { length: 50 }),
 });
 
 // ==============================================================================

@@ -36,6 +36,12 @@ export interface ExpenseType {
   description?: string;
 }
 
+export interface Preference {
+  id: string;
+  preferenceName: string;
+  description?: string;
+}
+
 export interface UserData {
   id: string;
   username: string;
@@ -186,6 +192,7 @@ export interface Itinerary {
   status: "draft" | "active" | "completed";
   resetCount?: number;
   isShared: boolean;
+  ownerName?: string;
   createdAt: string;
 }
 

@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, ilike } from "drizzle-orm";
+import { eq, and, desc, asc, ilike, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
   // Lookup tables
@@ -122,6 +122,7 @@ export interface IStorage {
 
   // POI Opening Hours
   getPoiOpeningHours(poiId: number): Promise<PoiOpeningHours[]>;
+  getBatchPoiOpeningHours(poiIds: number[]): Promise<PoiOpeningHours[]>;
   createPoiOpeningHours(data: InsertPoiOpeningHours): Promise<PoiOpeningHours>;
   deletePoiOpeningHours(poiId: number): Promise<boolean>;
 
@@ -222,7 +223,7 @@ export interface IStorage {
   ): Promise<Notification | undefined>;
   deleteNotification(id: number): Promise<boolean>;
   markNotificationsRead(userId: number): Promise<void>;
-  
+
   // Dashboard Stats
   getAdminStats(): Promise<any>;
 }
@@ -234,7 +235,7 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [row] = await db.select().from(users).where(eq(users.email, email));
+    const [row] = await db.select().from(users).where(ilike(users.email, email.toLowerCase()));
     return row;
   }
   async getUserByUsername(username: string): Promise<User | undefined> {
@@ -384,12 +385,31 @@ export class DatabaseStorage implements IStorage {
       .where(eq(preferences.preferenceId, id));
     return r;
   }
+  async getPreferenceByName(name: string) {
+    const [r] = await db
+      .select()
+      .from(preferences)
+      .where(eq(preferences.preferenceName, name));
+    return r;
+  }
   async getPreferences() {
     return db.select().from(preferences);
   }
   async createPreference(data: InsertPreference) {
     const [r] = await db.insert(preferences).values(data).returning();
     return r;
+  }
+
+  async seedPreferences() {
+    const { PREFERENCE_OPTIONS } = await import("../lib/seed-data");
+    const existing = await this.getPreferences();
+    if (existing.length > 0) return;
+
+    console.log("[Storage] Seeding preferences...");
+    for (const name of PREFERENCE_OPTIONS) {
+      await this.createPreference({ preferenceName: name });
+    }
+    console.log(`[Storage] Seeded ${PREFERENCE_OPTIONS.length} preferences.`);
   }
 
   // Destinations
@@ -417,7 +437,7 @@ export class DatabaseStorage implements IStorage {
   }
   async createDestination(data: any) {
     const payload = { ...data };
-    
+
     // Auto-resolve category string to destinationTypeId
     if (payload.category && !payload.destinationTypeId) {
       const typeMap: Record<string, string> = {
@@ -429,7 +449,7 @@ export class DatabaseStorage implements IStorage {
         'Historical': 'Di tích',
         'Other': 'Khác'
       };
-      
+
       const typeName = typeMap[payload.category] || payload.category;
       const type = await this.getDestinationTypeByName(typeName);
       if (type) {
@@ -455,7 +475,7 @@ export class DatabaseStorage implements IStorage {
         'Historical': 'Di tích',
         'Other': 'Khác'
       };
-      
+
       const typeName = typeMap[payload.category] || payload.category;
       const type = await this.getDestinationTypeByName(typeName);
       if (type) {
@@ -526,6 +546,13 @@ export class DatabaseStorage implements IStorage {
       .from(poiOpeningHours)
       .where(eq(poiOpeningHours.poiId, poiId));
   }
+  async getBatchPoiOpeningHours(poiIds: number[]) {
+    if (poiIds.length === 0) return [];
+    return db
+      .select()
+      .from(poiOpeningHours)
+      .where(inArray(poiOpeningHours.poiId, poiIds));
+  }
   async createPoiOpeningHours(data: InsertPoiOpeningHours) {
     const [r] = await db.insert(poiOpeningHours).values(data).returning();
     return r;
@@ -548,6 +575,9 @@ export class DatabaseStorage implements IStorage {
     const [r] = await db.insert(poiPreferences).values(data).returning();
     return r;
   }
+  async clearPoiPreferences(poiId: number) {
+    await db.delete(poiPreferences).where(eq(poiPreferences.poiId, poiId));
+  }
   async removePoiPreference(poiId: number, prefId: number) {
     const r = await db
       .delete(poiPreferences)
@@ -562,62 +592,65 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Trips
-  async getTrip(id: number) { 
+  async getTrip(id: number) {
     return db.query.trips.findFirst({
       where: eq(trips.tripId, id),
-      with: { 
-        days: { 
+      with: {
+        days: {
           orderBy: (days, { asc }) => [asc(days.dayIndex)],
-          with: { 
+          with: {
             items: {
               orderBy: (items, { asc }) => [asc(items.orderIndex)],
               with: { poi: true }
-            } 
-          } 
-        }, 
-        members: { with: { user: true } }, 
-        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } }, 
-        destination: true 
+            }
+          }
+        },
+        members: { with: { user: true } },
+        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
+        destination: true,
+        owner: true
       }
-    }); 
+    });
   }
-  async getTrips() { 
+  async getTrips() {
     return db.query.trips.findMany({
-      with: { 
-        days: { 
+      with: {
+        days: {
           orderBy: (days, { asc }) => [asc(days.dayIndex)],
-          with: { 
+          with: {
             items: {
               orderBy: (items, { asc }) => [asc(items.orderIndex)],
               with: { poi: true }
-            } 
-          } 
-        }, 
-        members: { with: { user: true } }, 
-        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } }, 
-        destination: true 
+            }
+          }
+        },
+        members: { with: { user: true } },
+        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
+        destination: true,
+        owner: true
       }
-    }); 
+    });
   }
-  async getTripsByOwner(ownerId: number) { 
+  async getTripsByOwner(ownerId: number) {
     return db.query.trips.findMany({
       where: eq(trips.ownerId, ownerId),
-      with: { 
-        days: { 
+      with: {
+        days: {
           orderBy: (days, { asc }) => [asc(days.dayIndex)],
-          with: { 
+          with: {
             items: {
               orderBy: (items, { asc }) => [asc(items.orderIndex)],
               with: { poi: true }
-            } 
-          } 
-        }, 
-        members: { with: { user: true } }, 
-        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } }, 
-        destination: true 
+            }
+          }
+        },
+        members: { with: { user: true } },
+        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
+        destination: true,
+        owner: true
       },
       orderBy: (trips, { desc }) => [desc(trips.createdAt)]
-    }); 
+    });
   }
   async getTripsByMember(userId: number) {
     const mem = await db
@@ -625,45 +658,47 @@ export class DatabaseStorage implements IStorage {
       .from(tripMembers)
       .where(eq(tripMembers.userId, userId));
     if (!mem.length) return [];
-    
+
     const tripIds = mem.map(m => m.tripId);
     const allTrips = await db.query.trips.findMany({
-       with: { 
-         days: { 
-           orderBy: (days, { asc }) => [asc(days.dayIndex)],
-           with: { 
-             items: {
-               orderBy: (items, { asc }) => [asc(items.orderIndex)],
-               with: { poi: true }
-             } 
-           } 
-         }, 
-         members: { with: { user: true } }, 
-         expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } }, 
-         destination: true 
-       },
-       orderBy: (trips, { desc }) => [desc(trips.createdAt)]
-    });
-    return allTrips.filter(t => tripIds.includes(t.tripId));
-  }
-  async getTripByInvitationToken(token: string) { 
-    return db.query.trips.findFirst({
-      where: eq(trips.invitationToken, token),
-      with: { 
-        days: { 
+      with: {
+        days: {
           orderBy: (days, { asc }) => [asc(days.dayIndex)],
-          with: { 
+          with: {
             items: {
               orderBy: (items, { asc }) => [asc(items.orderIndex)],
               with: { poi: true }
-            } 
-          } 
-        }, 
-        members: { with: { user: true } }, 
-        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } }, 
-        destination: true 
+            }
+          }
+        },
+        members: { with: { user: true } },
+        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
+        destination: true,
+        owner: true
+      },
+      orderBy: (trips, { desc }) => [desc(trips.createdAt)]
+    });
+    return allTrips.filter(t => tripIds.includes(t.tripId));
+  }
+  async getTripByInvitationToken(token: string) {
+    return db.query.trips.findFirst({
+      where: eq(trips.invitationToken, token),
+      with: {
+        days: {
+          orderBy: (days, { asc }) => [asc(days.dayIndex)],
+          with: {
+            items: {
+              orderBy: (items, { asc }) => [asc(items.orderIndex)],
+              with: { poi: true }
+            }
+          }
+        },
+        members: { with: { user: true } },
+        expenses: { with: { expenseType: true, paidByInfo: true, splits: { with: { user: true } } } },
+        destination: true,
+        owner: true
       }
-    }); 
+    });
   }
   async createTrip(data: InsertTrip) {
     const [r] = await db.insert(trips).values(data).returning();
@@ -680,6 +715,7 @@ export class DatabaseStorage implements IStorage {
       "numPeople",
       "status",
       "invitationToken",
+      "sharePermission",
     ];
 
     const updateData: Record<string, any> = {};
@@ -699,7 +735,7 @@ export class DatabaseStorage implements IStorage {
       console.error("[UpdateTrip Error]", err);
       throw err;
     }
-    
+
     return this.getTrip(id);
   }
   async deleteTrip(id: number) {
@@ -741,6 +777,9 @@ export class DatabaseStorage implements IStorage {
     const [r] = await db.insert(tripPreferences).values(data).returning();
     return r;
   }
+  async clearTripPreferences(tripId: number) {
+    await db.delete(tripPreferences).where(eq(tripPreferences.tripId, tripId));
+  }
   async removeTripPreference(tid: number, pid: number) {
     const r = await db
       .delete(tripPreferences)
@@ -757,17 +796,20 @@ export class DatabaseStorage implements IStorage {
   async getReviews(filters?: { tripId?: number; itemId?: number; destinationId?: number }) {
     // 1. Fetch Trip Reviews with Destination Mapping
     const tripRevQuery = db.select({
-      id: tripReviews.tripId, 
+      id: tripReviews.tripId,
       userId: tripReviews.userId,
       tripId: tripReviews.tripId,
       rating: tripReviews.rating,
       comment: tripReviews.comment,
       userName: users.userName,
       destinationId: trips.destinationId,
+      destinationName: destinations.name,
+      createdAt: tripReviews.createdAt,
     })
-    .from(tripReviews)
-    .innerJoin(users, eq(tripReviews.userId, users.userId))
-    .innerJoin(trips, eq(tripReviews.tripId, trips.tripId));
+      .from(tripReviews)
+      .innerJoin(users, eq(tripReviews.userId, users.userId))
+      .innerJoin(trips, eq(tripReviews.tripId, trips.tripId))
+      .leftJoin(destinations, eq(trips.destinationId, destinations.destinationId));
 
     if (filters?.tripId) {
       tripRevQuery.where(eq(tripReviews.tripId, filters.tripId));
@@ -783,18 +825,21 @@ export class DatabaseStorage implements IStorage {
       rating: itemReviews.rating,
       comment: itemReviews.comment,
       userName: users.userName,
-      destinationId: itineraryDay.tripId, 
+      destinationId: itineraryDay.tripId,
       poiId: itineraryItems.poiId,
       activityId: itineraryItems.itemId,
       activityTitle: itineraryItems.customName,
       poiName: pois.name,
+      destinationName: destinations.name,
+      createdAt: itemReviews.createdAt,
     })
-    .from(itemReviews)
-    .innerJoin(users, eq(itemReviews.userId, users.userId))
-    .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
-    .innerJoin(itineraryDay, eq(itineraryItems.dayId, itineraryDay.dayId))
-    .innerJoin(trips, eq(itineraryDay.tripId, trips.tripId))
-    .leftJoin(pois, eq(itineraryItems.poiId, pois.poiId));
+      .from(itemReviews)
+      .innerJoin(users, eq(itemReviews.userId, users.userId))
+      .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
+      .innerJoin(itineraryDay, eq(itineraryItems.dayId, itineraryDay.dayId))
+      .innerJoin(trips, eq(itineraryDay.tripId, trips.tripId))
+      .leftJoin(destinations, eq(trips.destinationId, destinations.destinationId))
+      .leftJoin(pois, eq(itineraryItems.poiId, pois.poiId));
 
 
     if (filters?.itemId) {
@@ -836,21 +881,21 @@ export class DatabaseStorage implements IStorage {
   async getTripReviews(tripId: number) {
     return db.select().from(tripReviews).where(eq(tripReviews.tripId, tripId));
   }
-  
+
   async createTripReview(data: InsertTripReview) {
     const [r] = await db.insert(tripReviews).values(data).returning();
-    
+
     // Update destination stats
     const trip = await this.getTrip(data.tripId);
     if (trip?.destinationId) {
       await this.updateDestinationStats(trip.destinationId);
     }
-    
+
     // Return full review object
     const full = await this.getReviews({ tripId: data.tripId });
     return full.find(rev => Number(rev.userId) === data.userId) || r;
   }
-  
+
   async updateTripReview(tid: number, uid: number, data: Partial<TripReview>) {
     const [r] = await db
       .update(tripReviews)
@@ -869,15 +914,15 @@ export class DatabaseStorage implements IStorage {
     }
     return undefined;
   }
-  
+
   async deleteTripReview(tid: number, uid: number) {
     const trip = await this.getTrip(tid);
     const res = await db.delete(tripReviews).where(and(eq(tripReviews.tripId, tid), eq(tripReviews.userId, uid))).returning();
-    
+
     if (trip?.destinationId) {
       await this.updateDestinationStats(trip.destinationId);
     }
-    
+
     return res.length > 0;
   }
 
@@ -886,19 +931,19 @@ export class DatabaseStorage implements IStorage {
     const reviews = await db.select({
       rating: tripReviews.rating
     })
-    .from(tripReviews)
-    .innerJoin(trips, eq(tripReviews.tripId, trips.tripId))
-    .where(eq(trips.destinationId, destinationId));
+      .from(tripReviews)
+      .innerJoin(trips, eq(tripReviews.tripId, trips.tripId))
+      .where(eq(trips.destinationId, destinationId));
 
     const count = reviews.length;
-    const avgRating = count > 0 
-      ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / count 
+    const avgRating = count > 0
+      ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / count
       : 0;
 
     await db.update(destinations)
-      .set({ 
-        reviewCounts: count, 
-        rating: avgRating.toFixed(2) 
+      .set({
+        reviewCounts: count,
+        rating: avgRating.toFixed(2)
       })
       .where(eq(destinations.destinationId, destinationId));
   }
@@ -976,7 +1021,7 @@ export class DatabaseStorage implements IStorage {
   }
   async createItemReview(data: InsertItemReview) {
     const [r] = await db.insert(itemReviews).values(data).returning();
-    
+
     // Update POI stats if applicable
     const item = await this.getItineraryItem(data.itemId);
     if (item?.poiId) {
@@ -1010,11 +1055,11 @@ export class DatabaseStorage implements IStorage {
   async deleteItemReview(itemId: number, userId: number) {
     const item = await this.getItineraryItem(itemId);
     const res = await db.delete(itemReviews).where(and(eq(itemReviews.itemId, itemId), eq(itemReviews.userId, userId))).returning();
-    
+
     if (item?.poiId) {
       await this.updatePoiStats(item.poiId);
     }
-    
+
     return res.length > 0;
   }
 
@@ -1022,19 +1067,19 @@ export class DatabaseStorage implements IStorage {
     const reviews = await db.select({
       rating: itemReviews.rating
     })
-    .from(itemReviews)
-    .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
-    .where(eq(itineraryItems.poiId, poiId));
+      .from(itemReviews)
+      .innerJoin(itineraryItems, eq(itemReviews.itemId, itineraryItems.itemId))
+      .where(eq(itineraryItems.poiId, poiId));
 
     const count = reviews.length;
-    const avgRating = count > 0 
-      ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / count 
+    const avgRating = count > 0
+      ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / count
       : 0;
 
     await db.update(pois)
-      .set({ 
-        reviewCounts: count, 
-        rating: avgRating.toFixed(2) 
+      .set({
+        reviewCounts: count,
+        rating: avgRating.toFixed(2)
       })
       .where(eq(pois.poiId, poiId));
   }
@@ -1197,18 +1242,18 @@ export class DatabaseStorage implements IStorage {
     const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
     const now = new Date();
     const tripGrowth = [];
-    
+
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthLabel = months[d.getMonth()];
       const year = d.getFullYear();
       const monthNum = d.getMonth();
-      
+
       const count = allTrips.filter(t => {
         const createdAt = new Date(t.createdAt || '');
         return createdAt.getMonth() === monthNum && createdAt.getFullYear() === year;
       }).length;
-      
+
       tripGrowth.push({ month: monthLabel, value: count });
     }
 

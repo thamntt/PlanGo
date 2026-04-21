@@ -30,6 +30,7 @@ const Destinations: React.FC = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   
   // Form State
   const [destName, setDestName] = useState("");
@@ -158,6 +159,7 @@ const Destinations: React.FC = () => {
     setDestName(""); setDestCat(categories[0]?.value || ""); setDestAddr(""); setDestLat(""); setDestLng(""); setDestDesc("");
     setDestGoogleId(""); setDestPhotos([]); setGoogleQuery(""); setGoogleResults([]);
     setUploadedImageUrl("");
+    setErrors({});
     setIsModalOpen(true);
   };
 
@@ -173,11 +175,22 @@ const Destinations: React.FC = () => {
     setDestPhotos(dest.googlePhotos || []);
     setUploadedImageUrl(dest.images?.[0] || "");
     setGoogleQuery(""); setGoogleResults([]);
+    setErrors({});
     setIsModalOpen(true);
   };
 
   const handleSave = async () => {
-    if (!destName.trim()) return;
+    const newErrors: Record<string, string> = {};
+    if (!destName.trim()) newErrors.name = "Vui lòng nhập tên điểm đến";
+    if (!destAddr.trim()) newErrors.address = "Vui lòng nhập địa chỉ";
+    if (!destLat.trim()) newErrors.latitude = "Vui lòng nhập vĩ độ";
+    if (!destLng.trim()) newErrors.longitude = "Vui lòng nhập kinh độ";
+    if (!uploadedImageUrl && destPhotos.length === 0) newErrors.image = "Vui lòng tải ảnh lên hoặc chọn từ Google";
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
     
     const lat = parseFloat(destLat) || 0;
     const lng = parseFloat(destLng) || 0;
@@ -377,17 +390,29 @@ const Destinations: React.FC = () => {
               {/* Form Fields */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Tên điểm đến</label>
-                  <input type="text" value={destName} onChange={e => setDestName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Tên điểm đến <span className="text-rose-500">*</span></label>
+                  <input 
+                    type="text" 
+                    value={destName} 
+                    onChange={e => { setDestName(e.target.value); if (errors.name) setErrors({...errors, name: ""}); }} 
+                    className={`w-full bg-slate-50 border ${errors.name ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all`} 
+                  />
+                  {errors.name && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.name}</p>}
                 </div>
                 
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Địa chỉ</label>
-                  <input type="text" value={destAddr} onChange={e => setDestAddr(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Địa chỉ <span className="text-rose-500">*</span></label>
+                  <input 
+                    type="text" 
+                    value={destAddr} 
+                    onChange={e => { setDestAddr(e.target.value); if (errors.address) setErrors({...errors, address: ""}); }} 
+                    className={`w-full bg-slate-50 border ${errors.address ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all`} 
+                  />
+                  {errors.address && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.address}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Danh mục</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Danh mục <span className="text-rose-500">*</span></label>
                   <select value={destCat} onChange={e => setDestCat(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary/20 appearance-none">
                     {categories.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                   </select>
@@ -395,12 +420,24 @@ const Destinations: React.FC = () => {
                 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vĩ độ </label>
-                    <input type="text" value={destLat} onChange={e => setDestLat(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vĩ độ <span className="text-rose-500">*</span></label>
+                    <input 
+                      type="text" 
+                      value={destLat} 
+                      onChange={e => { setDestLat(e.target.value); if (errors.latitude) setErrors({...errors, latitude: ""}); }} 
+                      className={`w-full bg-slate-50 border ${errors.latitude ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all`} 
+                    />
+                    {errors.latitude && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.latitude}</p>}
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Kinh độ</label>
-                    <input type="text" value={destLng} onChange={e => setDestLng(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Kinh độ <span className="text-rose-500">*</span></label>
+                    <input 
+                      type="text" 
+                      value={destLng} 
+                      onChange={e => { setDestLng(e.target.value); if (errors.longitude) setErrors({...errors, longitude: ""}); }} 
+                      className={`w-full bg-slate-50 border ${errors.longitude ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all`} 
+                    />
+                    {errors.longitude && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.longitude}</p>}
                   </div>
                 </div>
 
@@ -411,16 +448,17 @@ const Destinations: React.FC = () => {
                 
                 <div className="md:col-span-2">
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                    Tải ảnh lên
+                    Tải ảnh lên <span className="text-rose-500">*</span>
                   </label>
                   <input 
                     type="file" 
                     accept="image/*"
                     ref={fileInputRef}
-                    onChange={handleImageUpload}
+                    onChange={(e) => { handleImageUpload(e); if (errors.image) setErrors({...errors, image: ""}); }}
                     disabled={isUploading}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 transition-all"
+                    className={`w-full bg-white border ${errors.image ? 'border-rose-500 ring-2 ring-rose-500/10' : 'border-slate-200'} rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 transition-all`}
                   />
+                  {errors.image && <p className="text-rose-500 text-[10px] mt-1 font-bold">{errors.image}</p>}
                   {isUploading && <p className="text-xs text-amber-500 mt-2 font-medium animate-pulse">⏳ Đang tải ảnh lên Cloudinary...</p>}
                 </div>
 
