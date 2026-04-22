@@ -1827,7 +1827,12 @@ export default function ItineraryDetailScreen() {
                       <View style={[styles.dayBadge, { backgroundColor: colors.primary }]}>
                         <Text style={styles.dayBadgeText}>Ngày {day.day}</Text>
                       </View>
-                      <Text style={[styles.dayTitle, { color: colors.text }]}>{day.title}</Text>
+                      {(() => {
+                        const displayTitle = (day.title || "").replace(/^Ngày\s*\d+\s*[-–]?\s*/i, "").trim();
+                        return displayTitle ? (
+                          <Text style={[styles.dayTitle, { color: colors.text }]}>{displayTitle}</Text>
+                        ) : null;
+                      })()}
                       <Ionicons
                         name={expandedDay === dayIdx ? "chevron-up" : "chevron-down"}
                         size={20}
