@@ -103,7 +103,7 @@ function mapTripToFrontend(trip: any) {
   mapped.shareCode = mapped.invitationToken;
   mapped.sharePermission = mapped.sharePermission || "viewer";
   mapped.isShared = !!mapped.invitationToken;
-  
+
   // Resolve owner details for frontend expectations
   if (mapped.ownerId) {
     mapped.userId = mapped.ownerId.toString();
@@ -156,7 +156,7 @@ function mapTripToFrontend(trip: any) {
         });
       } else {
         // Mark existing owner entry
-        mapped.companions = mapped.companions.map((c: any) => 
+        mapped.companions = mapped.companions.map((c: any) =>
           c.userId === ownerIdStr ? { ...c, isOwner: true, role: "owner" } : c
         );
       }
@@ -271,7 +271,8 @@ function mapTripToFrontend(trip: any) {
               paidByUserId: linkedExp ? linkedExp.paidByUserId : undefined,
               isCompleted: item.status === "completed",
               expenseTypeId: item.expenseTypeId,
-              activityType: item.activityType,
+              // Use specific place_type if available (legacy support) or the activityType column content
+              activityType: (item as any).placeType || item.activityType,
               // POI-enriched fields — only override if itinerary_items doesn't have them
               address: item.address || (poi ? poi.address : undefined),
               latitude: item.latitude
@@ -2086,80 +2087,81 @@ async function generateItineraryAI(req: Request, res: Response) {
     const destKey = destination.toLowerCase().trim();
     const province = destProvinceMap[destKey] || destination;
 
-    const prompt = `Tạo lịch trình du lịch ${numDays} ngày tại ${destination} (thuộc tỉnh/thành phố: ${province}).
+    const prompt = `Bạn là chuyên gia du lịch Việt Nam. Tạo lịch trình du lịch ${numDays} ngày tại ${destination} (tỉnh/thành phố: ${province}).
 
-THÔNG TIN:
+=== THÔNG TIN CHUYẾN ĐI ===
 - Điểm đến: ${destination} (${province})
-- Ngày: ${startDate} → ${endDate} (${numDays} ngày)
+- Ngày đi: ${startDate} → ${endDate} (${numDays} ngày)
 - Số người: ${numPeople || 2}
 - Tổng ngân sách: ${totalBudget ? totalBudget.toLocaleString("vi-VN") + "đ" : "không giới hạn"} (≈${budgetPerDay > 0 ? budgetPerDay.toLocaleString("vi-VN") + "đ/ngày" : "tùy ý"})
-${prefsText ? `- Sở thích: ${prefsText}` : ""}
+- Sở thích: ${prefsText || "đa dạng"}
 
-QUY TẮC BẮT BUỘC:
+=== CHECKLIST BẮT BUỘC — ĐẾM LẠI TRƯỚC KHI OUTPUT ===
+Mỗi ngày PHẢI có ĐỦ các mục sau, thiếu bất kỳ mục nào = output SAI, phải làm lại:
+[ ] 1 bữa sáng lúc 07:30
+[ ] 2-3 hoạt động buổi sáng (08:15 - 11:30)
+[ ] 1 bữa trưa lúc 11:30-12:00
+[ ] 2-3 hoạt động buổi chiều (14:00 - 17:30)
+[ ] 1 bữa tối lúc 19:00-20:00
+[ ] 1 hoạt động buổi tối (20:30 trở đi)
+TỔNG: 8-10 activities mỗi ngày. Đếm lại — nếu < 8 thì thêm vào.
 
-1. 100% địa điểm PHẢI nằm trong ${province}. TUYỆT ĐỐI KHÔNG ĐƯỢC gợi ý địa điểm ở tỉnh/thành phố khác (Ví dụ: đang ở Hải Phòng thì không được lấy địa điểm ở Hà Nội).
-2. QUAN TRỌNG NHẤT: "title" PHẢI bao gồm TÊN ĐỊA ĐIỂM + TÊN THÀNH PHỐ. 
-   Hãy ưu tiên các địa danh nổi tiếng, có thật, phổ biến và dễ tìm thấy trên Google Maps. 
-   TUYỆT ĐỐI không tự bịa tên địa điểm không có thật. 
-   Ví dụ đúng: "Ăn sáng tại Bánh đa cua Bà Cụ Hải Phòng", "Cà phê tại Cộng Cà Phê Hải Phòng". 
-   Ví dụ sai: "Ăn sáng tại quán phở", "Cộng Cà Phê".
-3. Mỗi hoạt động phải có mô tả ngắn gọn về đặc điểm nổi bật của địa điểm đó tại ${province}.
-4. SỐ LƯỢNG & SỞ THÍCH: Mỗi ngày gợi ý hẳn 8-10 hoạt động (để dự phòng lọc Maps).
-   Dựa trên các lựa chọn của người dùng: ${prefsText || "đa dạng"}, hãy phân bổ như sau:
-   - Nếu có 'Biển'/'Thiên nhiên': Ưu tiên các bãi bãi biển, đảo, công viên.
-   - Nếu có 'Văn hóa'/'Lịch sử': Ưu tiên đền chùa, bảo tàng, di tích.
-   - Nếu có 'Ẩm thực': Chọn các quán ăn đặc sản nổi tiếng có đánh giá cao.
-   - Nếu có 'Giải trí đêm'/'Mua sắm': Phải có hoạt động tại chợ đêm, bar, hoặc phố đi bộ sau 19:00.
-   - Nếu có 'Nhiếp ảnh'/'Núi': Chọn các điểm có view check-in "sống ảo" đỉnh cao.
-   - Nếu có 'Phiêu lưu': Chọn các hoạt động trekking, lặn biển hoặc trò chơi cảm giác mạnh.
-   - BẮT BUỘC phân bổ theo đúng khung sườn sau để tránh việc các bữa ăn quá gần nhau:
-     + 07:30: Ăn sáng đặc sản địa phương.
-     + 08:15 - 11:30: Bắt buộc 2 điểm tham quan/vui chơi (không được 1 địa điểm)
-     + 11:30 - 12:00: Ăn trưa.
-     + 14:00 - 17:30: Bắt buộc 2 đến 3 điểm tham quan/check-in/cà phê (không được 1 địa điểm)
-     + 19:00 - 20:00: Ăn tối
-     + 20:30 trở đi: Hoạt động buổi tối (Chợ đêm/Phố đi bộ/Bar/Chill).
-   - Mỗi buổi sáng/chiều BẮT BUỘC phải gợi ý dư ra (ví dụ 4 điểm tham quan) để hệ thống lọc. 
-   - Dựa trên sở thích ${prefsText || "đa dạng"}, hãy lồng ghép các điểm tham quan phù hợp vào giữa các bữa ăn. TUYỆT ĐỐI không được xếp 2 bữa ăn liên tiếp mà không có tham quan ở giữa.
-   - Yêu cầu tất cả các địa điểm gợi ý đều là địa điểm được mọi nhiều recomment đi trên mạng xã hội hay các diễn đàn
+=== QUY TẮC ĐỊA ĐIỂM ===
+- 100% địa điểm PHẢI nằm trong ${province}. Địa điểm tỉnh khác = SAI.
+- Tên địa điểm PHẢI dùng TÊN CHÍNH XÁC trên Google Maps, kèm tên thành phố.
+  ĐÚNG: "Ăn sáng tại Bánh đa cua Bà Cụ Hải Phòng"
+  SAI:  "Ăn sáng tại quán bánh đa cua ngon"
+- Chỉ dùng địa điểm có thật, nổi tiếng, được review nhiều trên mạng xã hội/diễn đàn. KHÔNG bịa tên.
+- Khoảng cách 2 địa điểm liền kề KHÔNG quá 15km. Tổng di chuyển 1 ngày KHÔNG quá 40km.
+- Ưu tiên sắp xếp theo cung đường thuận chiều, không đi ngược lại.
 
-5. NGÂN SÁCH: Tổng estimatedCost PHẢI trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + (totalBudget * 1.0).toLocaleString("vi-VN") + "đ" : "hợp lý"}. estimatedCost đã tính cho ${numPeople || 2} người.
-6. QUY TẮC THỜI GIAN THỰC TẾ:
-   - Thời gian HH:MM phải logic. Mỗi điểm tham quan ít nhất 1-2 tiếng, mỗi bữa ăn 1 tiếng.
-   - Sắp xếp các điểm theo một cung đường thuận tiện (không đi ngược đường). Khoảng cách giữa điểm ăn sáng và điểm tham quan sáng không quá 5km.
-   - Ghi rõ dạng HH:MM.
-7. KHÔNG CẦN cung cấp address, latitude, longitude, rating chính xác — hệ thống sẽ tự tra cứu từ Google Maps.
-${prefsText ? `7. ƯU TIÊN: ${prefsText}` : ""}
-8. TIÊU ĐỀ NGÀY: 
-   - Trường "title" của mỗi ngày PHẢI bắt buộc có và mang tính gợi ý (Ví dụ: "Ngày 1: Hành trình di sản và ẩm thực"). TUYỆT ĐỐI không được để trống tiêu đề ngày.
-9. 📏 GIỚI HẠN KHOẢNG CÁCH ĐỊA LÝ:
-    - Khoảng cách giữa 2 địa điểm kế tiếp nhau trong lịch trình KHÔNG ĐƯỢC vượt quá 10km - 15km.
-    - Tổng quãng đường di chuyển của tất cả các điểm trong MỘT NGÀY không được vượt quá 40km.
-    - Phải ưu tiên chọn các điểm tham quan nằm trên cùng một trục đường di chuyển để tối ưu thời gian.
+=== QUY TẮC SỞ THÍCH (áp dụng cho: ${prefsText || "đa dạng"}) ===
+${prefsText?.includes("Biển") || prefsText?.includes("Thiên nhiên") ? "- Ưu tiên bãi biển, đảo, công viên biển." : ""}
+${prefsText?.includes("Văn hóa") || prefsText?.includes("Lịch sử") ? "- Ưu tiên đền chùa, bảo tàng, di tích lịch sử." : ""}
+${prefsText?.includes("Ẩm thực") ? "- Ưu tiên quán ăn đặc sản nổi tiếng, đánh giá cao." : ""}
+${prefsText?.includes("Giải trí đêm") || prefsText?.includes("Mua sắm") ? "- Bắt buộc có chợ đêm/bar/phố đi bộ sau 20:30." : ""}
+${prefsText?.includes("Nhiếp ảnh") || prefsText?.includes("Núi") ? "- Ưu tiên điểm check-in view đẹp, sống ảo." : ""}
+${prefsText?.includes("Phiêu lưu") ? "- Ưu tiên trekking, lặn biển, trò chơi cảm giác mạnh." : ""}
+- TUYỆT ĐỐI không xếp 2 bữa ăn liên tiếp không có hoạt động ở giữa.
 
-JSON format:
+=== QUY TẮC NGÂN SÁCH & THỜI GIAN ===
+- estimatedCost tính cho ${numPeople || 2} người. Tổng cả chuyến PHẢI trong khoảng ${totalBudget ? (totalBudget * 0.85).toLocaleString("vi-VN") + "đ - " + totalBudget.toLocaleString("vi-VN") + "đ" : "hợp lý"}.
+- Thời gian HH:MM phải logic. Tham quan: 1-2 tiếng/điểm. Ăn: 1 tiếng/bữa.
+- Tiêu đề ngày PHẢI có và mang tính gợi cảm (VD: "Ngày 1: Hành trình di sản và ẩm thực").
+- KHÔNG cần điền address, latitude, longitude, rating — hệ thống tự tra Google Maps.
+
+=== FORMAT JSON OUTPUT (CHỈ JSON, KHÔNG markdown, KHÔNG giải thích) ===
 {
   "days": [
     {
       "day": 1,
-      "title": "Ngày 1 - Tiêu đề",
+      "title": "Ngày 1 - [Tiêu đề gợi cảm]",
       "activities": [
         {
-          "time": "07:00",
-          "title": "Ăn sáng tại [TÊN CHÍNH XÁC NHÀ HÀNG TRÊN GOOGLE MAPS]",
-          "description": "Mô tả ngắn gọn về địa điểm",
+          "time": "07:30",
+          "title": "Ăn sáng tại [TÊN CHÍNH XÁC TRÊN GOOGLE MAPS, ${province}]",
+          "description": "Mô tả đặc điểm nổi bật của địa điểm",
           "duration": "1 giờ",
           "estimatedCost": 120000,
           "activityType": "food"
+        },
+        {
+          "time": "08:30",
+          "title": "Tham quan [TÊN CHÍNH XÁC TRÊN GOOGLE MAPS, ${province}]",
+          "description": "Mô tả đặc điểm nổi bật",
+          "duration": "2 giờ",
+          "estimatedCost": 50000,
+          "activityType": "sightseeing"
         }
       ]
     }
   ]
 }
+activityType chỉ được dùng: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "other"
 
-activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "other"`;
+NHẮC LẠI LẦN CUỐI: Đếm activities mỗi ngày trước khi output. Phải có đủ 3 bữa ăn + ít nhất 5 hoạt động tham quan/giải trí. Tổng >= 8 activities/ngày.`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key=${apiKey}`;
 
     async function callGeminiWithRetry(url: string, body: any, retries = 3) {
       for (let i = 0; i < retries; i++) {
@@ -2211,7 +2213,7 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
           {
             role: "system",
             content:
-              "Bạn là chuyên gia du lịch Việt Nam. BẮT BUỘC trả về JSON hợp lệ duy nhất theo format: { days: [...] }. KHÔNG markdown, KHÔNG giải thích.",
+              "Bạn là chuyên gia du lịch Việt Nam. BẮT BUỘC trả về JSON hợp lệ duy nhất theo format: { days: [...] }. KHÔNG markdown, KHÔNG giải thích. Tuân thủ TOÀN BỘ checklist và quy tắc trong prompt của user, đặc biệt là số lượng activities mỗi ngày.",
           },
           {
             role: "user",
@@ -2374,18 +2376,90 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
       await new Promise((r) => setTimeout(r, 200));
     }
 
+// --- PHẦN 2.5: FALLBACK GEOCODE cho những địa điểm SerpAPI không tìm được ---
+    for (const act of allActivities) {
+      const hasCoords = act.latitude && act.latitude !== 0 && act.latitude !== "0";
+      const isTrash = act.title.toLowerCase().includes("chi phí") || act.title.toLowerCase().includes("di chuyển");
+      if (hasCoords || isTrash) continue;
+
+      try {
+        const placeName = extractPlaceName(act.title);
+        const query = `${placeName} ${destination}`;
+
+        // Bước 1: Lấy tọa độ qua geocode (Google → Goong → Nominatim)
+        const geo = await internalGeocode(query);
+        if (geo && geo.lat && geo.lat !== 0) {
+          act.latitude = geo.lat;
+          act.longitude = geo.lng;
+          if (!act.address) act.address = geo.formattedAddress;
+          act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${geo.lat},${geo.lng}`;
+          console.log(`[Geocode Fallback] ✅ tọa độ: ${act.title}`);
+        } else if (destLat && destLng) {
+          act.latitude = destLat;
+          act.longitude = destLng;
+          act.noExactCoords = true;
+          console.log(`[Geocode Fallback] ⚠️ Dùng tọa độ trung tâm cho: ${act.title}`);
+        }
+
+        // Bước 2: Lấy rating/review qua SerpAPI nếu có key
+        if (serpApiKey && !quotaExceeded) {
+          try {
+            const params = new URLSearchParams({
+              engine: "google_maps",
+              q: query,
+              hl: "vi",
+              type: "search",
+              api_key: serpApiKey,
+            });
+            if (locationBias) params.set("ll", locationBias);
+            const serpRes = await fetch(`${SERPAPI_BASE}?${params.toString()}`);
+            const data = await serpRes.json();
+            if (serpRes.ok) {
+              const results = data.local_results || [];
+              if (results.length > 0) {
+                const match = results.find((r: any) =>
+                  r.address?.toLowerCase().includes(destination.toLowerCase()) ||
+                  r.address?.toLowerCase().includes((province || "").toLowerCase())
+                ) || results[0];
+                if (match.rating) act.rating = match.rating;
+                if (match.reviews) act.reviewCount = match.reviews;
+                if (match.place_id) act.googlePlaceId = match.place_id;
+                if (match.thumbnail) act.thumbnail = match.thumbnail;
+                if (match.gps_coordinates?.latitude && !act.latitude) {
+                  act.latitude = match.gps_coordinates.latitude;
+                  act.longitude = match.gps_coordinates.longitude;
+                }
+                if (match.title) {
+                  act.description = `${match.title} — ★ ${match.rating || "N/A"}/5. ${act.description || ""}`.trim();
+                }
+                console.log(`[Geocode Fallback] ⭐ rating: ${act.title} → ${match.rating || "N/A"}`);
+              }
+            } else if (data?.error?.includes("quota")) {
+              quotaExceeded = true;
+            }
+          } catch (serpErr) {
+            console.warn(`[Geocode Fallback] ⚠️ SerpAPI rating thất bại: ${act.title}`);
+          }
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      } catch (err) {
+        console.warn(`[Geocode Fallback] ❌ ${act.title}:`, err);
+      }
+    }
+
 // --- PHẦN 3: LỌC VÀ DỒN HÀNG (QUAN TRỌNG NHẤT) ---
     let savedCount = 0;
     if (parsedData && parsedData.days) {
       const mappedDays = [];
       for (const day of parsedData.days) {
-        // Lọc lấy những thằng CÓ MAPS
+        // Chỉ lọc rác thực sự (chi phí tổng kết, di chuyển thuần túy)
+        // KHÔNG lọc theo tọa độ — mọi địa điểm đều được giữ lại để lịch trình đủ
         const filteredActs = day.activities.filter((act: any) => {
-          const hasMaps = act.latitude && act.latitude !== 0 && act.latitude !== "0";
-          const isNotTrash = !act.title.toLowerCase().includes("chi phí") && !act.title.toLowerCase().includes("di chuyển");
-          return hasMaps && isNotTrash;
+          const isTrash = act.title.toLowerCase().includes("chi phí") || 
+                          act.title.toLowerCase().includes("di chuyển") ||
+                          act.title.toLowerCase().includes("tổng kết");
+          return !isTrash;
         });
-
         // Link newly created POI ID to activity for itinerary_items creation
         for (const act of filteredActs) {
           try {
@@ -2393,6 +2467,12 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
             const createdPoi = act.googlePlaceId
               ? await storage.getPoiByGooglePlaceId(act.googlePlaceId)
               : await storage.getPoiByName(pName);
+
+            // Use the specific type found by Google/AI for the activity tag
+            const specificType = act.placeType || act.activityType;
+            // Update activity record with its specific type for display
+            act.activityType = specificType;
+
             if (createdPoi?.poiId) {
               act.poiId = createdPoi.poiId;
               // Associate preferences to newly created POI
@@ -2404,13 +2484,10 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
           }
         }
 
-        // 🌟 LOGIC BẢO HIỂM: 
-        // Nếu lọc xong mà còn hàng thì lấy hàng xịn (dồn hàng).
-        // Nếu lọc xong mà TRỐNG RỖNG (xịt hết Maps), thì lấy lại 3 cái đầu tiên của AI
-        // để ít nhất UI vẫn hiện được "Ngày 1" và vài địa điểm cho khách xem.
+        // Giữ tất cả activities đã lọc rác — lịch trình luôn đủ
         const finalActivities = filteredActs.length > 0
           ? filteredActs
-          : day.activities.slice(0, 3);
+          : day.activities; // fallback giữ nguyên nếu lọc lỗi
 
         mappedDays.push({
           ...day,
@@ -3141,6 +3218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             tripId: trip.tripId,
             date: dayDate,
             dayIndex: dayData.day || i + 1,
+            title: dayData.title || `Ngày ${dayData.day || i + 1}`,
           });
 
           if (dayData.activities && Array.isArray(dayData.activities)) {
@@ -3229,13 +3307,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   expenseTypeId: activity.expenseTypeId
                     ? Number(activity.expenseTypeId)
                     : mapActivityTypeToExpenseId(activity.activityType),
-                  activityType: activity.activityType
-                    ? activity.activityType
-                    : mapExpenseIdToActivityType(
-                      activity.expenseTypeId
-                        ? Number(activity.expenseTypeId)
-                        : null,
-                    ),
+                  activityType: activity.activityType || mapExpenseIdToActivityType(
+                    activity.expenseTypeId ? Number(activity.expenseTypeId) : null
+                  ),
                 });
               } catch (err) {
                 console.warn("Failed to create itinerary item:", err);
@@ -3354,16 +3428,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   ? act.actualCost.toString()
                   : null;
               if (act.expenseTypeId !== undefined) {
-                const newExpId = act.expenseTypeId
-                  ? Number(act.expenseTypeId)
-                  : null;
-                updatePayload.expenseTypeId =
-                  newExpId || mapActivityTypeToExpenseId(act.activityType);
-                // Sync activityType from expenseTypeId
-                if (newExpId) {
-                  updatePayload.activityType =
-                    mapExpenseIdToActivityType(newExpId);
-                }
+                const newExpId = act.expenseTypeId ? Number(act.expenseTypeId) : null;
+                updatePayload.expenseTypeId = newExpId || mapActivityTypeToExpenseId(act.activityType);
+              }
+              // ALWAYS prioritize the existing/incoming activityType string
+              if (act.activityType !== undefined) {
+                updatePayload.activityType = act.activityType || mapExpenseIdToActivityType(
+                  act.expenseTypeId ? Number(act.expenseTypeId) : null
+                );
               }
               if (
                 act.activityType !== undefined &&

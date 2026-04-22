@@ -30,6 +30,12 @@ export interface DestinationType {
   description?: string;
 }
 
+export interface PoiType {
+  id: string;
+  typeName: string;
+  description?: string;
+}
+
 export interface ExpenseType {
   id: string;
   name: string;
@@ -129,7 +135,7 @@ export interface ItineraryActivity {
   address?: string;
   latitude?: number;
   longitude?: number;
-  activityType: "sightseeing" | "food" | "transport" | "shopping" | "other";
+  activityType: string;
   expenseTypeId?: string | number;
   poiId?: string;
   rating?: number;
