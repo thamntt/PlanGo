@@ -156,6 +156,7 @@ export interface Itinerary {
 
 export interface Review {
   id: string;
+  rawId?: string; // ID thực trong DB, dùng để gọi API DELETE
   userId: string;
   userName: string;
   destinationId: string;

@@ -330,10 +330,12 @@ export default function ItineraryDetailScreen() {
     return activitySpent + expenseSpent;
   }, [itinerary?.days, itinerary?.expenses]);
 
-  const isOwner = user?.id === (itinerary?.userId ?? "");
+  const isOwner = String(user?.id) === String(itinerary?.userId ?? "");
   const companions = itinerary?.companions || [];
-  const myCompanion = companions.find((c) => c.userId === user?.id);
+  const myCompanion = companions.find((c) => String(c.userId) === String(user?.id));
   const isCompanion = !!myCompanion;
+  const canShare = isOwner || isCompanion;
+  const canShareAsEditor = isOwner || myCompanion?.role === "editor";
   const canEdit = isOwner || (myCompanion?.role === "editor");
 
   const [ownerName, setOwnerName] = useState("");
@@ -600,7 +602,7 @@ export default function ItineraryDetailScreen() {
 
   const handleLeaveTrip = () => {
     const doLeave = async () => {
-      const updated = companions.filter((c) => c.userId !== user?.id);
+      const updated = companions.filter((c) => String(c.userId) !== String(user?.id));
       await updateItinerary(itinerary.id, { companions: updated });
       // Sync to server
       if (itinerary.shareCode && user) {
@@ -1631,8 +1633,8 @@ export default function ItineraryDetailScreen() {
           {itinerary.title}
         </Text>
         <View style={styles.headerActions}>
-          {isOwner && itinerary.status !== "completed" && (
-            <Pressable onPress={() => { setSharePermission(itinerary.sharePermission || "viewer"); setShareModal(true); }} hitSlop={8}>
+          {canShare && itinerary.status !== "completed" && (
+            <Pressable onPress={() => { setSharePermission(canShareAsEditor ? (itinerary.sharePermission || "viewer") : "viewer"); setShareModal(true); }} hitSlop={8}>
               <Ionicons name="person-add-outline" size={22} color={colors.primary} />
             </Pressable>
           )}
@@ -2190,7 +2192,7 @@ export default function ItineraryDetailScreen() {
           <View style={styles.expensesTab}>
 
             {/* ═══ EXPENSE SUMMARY TABLE (completed only) ═══ */}
-            {(itinerary.status === "completed" || itinerary.status === "active") && (() => {
+            {itinerary.status === "completed" && (() => {
               // Calculate stats
               const allActivities = itinerary.days.flatMap((day, dayIdx) =>
                 day.activities.map((act) => ({ ...act, _dayIdx: dayIdx, _dayTitle: day.title }))
@@ -2557,14 +2559,14 @@ export default function ItineraryDetailScreen() {
               );
             })()}
 
-            {manualExpenses.length === 0 && itinerary.status !== "completed" ? (
+            {expenses.length === 0 ? (
               <View style={styles.emptyExpenses}>
                 <Ionicons name="wallet-outline" size={48} color={colors.textTertiary} />
                 <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>{txt.noExpenses}</Text>
                 <Text style={[styles.emptyHint, { color: colors.textTertiary }]}>{txt.noExpensesHint}</Text>
               </View>
             ) : (
-              (itinerary.status === "completed" ? [] : manualExpenses).map((expense: Expense) => (
+              expenses.map((expense: Expense) => (
                 <View key={expense.id} style={[styles.expenseCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
                   <View style={styles.expenseTop}>
                     <Ionicons name={getActivityTypeIcon(expense.type) as any} size={20} color={colors.textSecondary} />
@@ -2813,8 +2815,8 @@ export default function ItineraryDetailScreen() {
 
         {activeTab === "companions" && (
           <View style={{ gap: 14 }}>
-            {/* Share link section for owner */}
-            {isOwner && (
+            {/* Share link section */}
+            {canShare && (
               <View style={[styles.budgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
                   <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primary + "18", alignItems: "center", justifyContent: "center" }}>
@@ -2834,13 +2836,15 @@ export default function ItineraryDetailScreen() {
                       <Ionicons name="eye-outline" size={14} color={sharePermission === "viewer" ? colors.primary : colors.textSecondary} />
                       <Text style={[invStyles.permBtnText, { color: sharePermission === "viewer" ? colors.primary : colors.textSecondary, fontSize: 12 }]}>{txt.viewOnly}</Text>
                     </Pressable>
-                    <Pressable
-                      onPress={() => setSharePermission("editor")}
-                      style={[invStyles.permBtn, sharePermission === "editor" && { backgroundColor: colors.card, ...invStyles.permBtnActive }]}
-                    >
-                      <Ionicons name="create-outline" size={14} color={sharePermission === "editor" ? colors.primary : colors.textSecondary} />
-                      <Text style={[invStyles.permBtnText, { color: sharePermission === "editor" ? colors.primary : colors.textSecondary, fontSize: 12 }]}>{txt.canEdit}</Text>
-                    </Pressable>
+                    {canShareAsEditor && (
+                      <Pressable
+                        onPress={() => setSharePermission("editor")}
+                        style={[invStyles.permBtn, sharePermission === "editor" && { backgroundColor: colors.card, ...invStyles.permBtnActive }]}
+                      >
+                        <Ionicons name="create-outline" size={14} color={sharePermission === "editor" ? colors.primary : colors.textSecondary} />
+                        <Text style={[invStyles.permBtnText, { color: sharePermission === "editor" ? colors.primary : colors.textSecondary, fontSize: 12 }]}>{txt.canEdit}</Text>
+                      </Pressable>
+                    )}
                   </View>
                 </View>
                 <Pressable
@@ -2927,8 +2931,8 @@ export default function ItineraryDetailScreen() {
               })}
             </View>
 
-            {/* Leave trip button for companions */}
-            {isCompanion && (
+            {/* Leave trip button for companions only, not owner */}
+            {isCompanion && !isOwner && (
               <Pressable
                 onPress={handleLeaveTrip}
                 style={({ pressed }) => [{
@@ -3698,15 +3702,17 @@ export default function ItineraryDetailScreen() {
             <View style={invStyles.section}>
               <Text style={[invStyles.sectionLabel, { color: colors.textSecondary }]}>{txt.permission}</Text>
               <View style={[invStyles.permToggle, { backgroundColor: colors.inputBg }]}>
-                <Pressable
-                  style={[invStyles.permBtn, sharePermission === "editor" && [invStyles.permBtnActive, { backgroundColor: colors.primary }]]}
-                  onPress={() => setSharePermission("editor")}
-                >
-                  <Ionicons name="create-outline" size={16} color={sharePermission === "editor" ? "#fff" : colors.textSecondary} />
-                  <Text style={[invStyles.permBtnText, { color: sharePermission === "editor" ? "#fff" : colors.text }]}>
-                    {txt.canEdit}
-                  </Text>
-                </Pressable>
+                {canShareAsEditor && (
+                  <Pressable
+                    style={[invStyles.permBtn, sharePermission === "editor" && [invStyles.permBtnActive, { backgroundColor: colors.primary }]]}
+                    onPress={() => setSharePermission("editor")}
+                  >
+                    <Ionicons name="create-outline" size={16} color={sharePermission === "editor" ? "#fff" : colors.textSecondary} />
+                    <Text style={[invStyles.permBtnText, { color: sharePermission === "editor" ? "#fff" : colors.text }]}>
+                      {txt.canEdit}
+                    </Text>
+                  </Pressable>
+                )}
                 <Pressable
                   style={[invStyles.permBtn, sharePermission === "viewer" && [invStyles.permBtnActive, { backgroundColor: colors.primary }]]}
                   onPress={() => setSharePermission("viewer")}
@@ -3790,7 +3796,7 @@ export default function ItineraryDetailScreen() {
             <View style={invStyles.handle} />
 
             <View style={invStyles.headerRow}>
-              <Pressable onPress={() => { setCompanionModal(false); if (isOwner) setShareModal(true); }} hitSlop={10}>
+              <Pressable onPress={() => { setCompanionModal(false); if (canShare) setShareModal(true); }} hitSlop={10}>
                 <Ionicons name="arrow-back" size={22} color={colors.text} />
               </Pressable>
               <Text style={[invStyles.headerTitle, { color: colors.text, flex: 1, marginLeft: 12 }]}>{txt.manageCompanions}</Text>

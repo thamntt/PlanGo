@@ -167,16 +167,16 @@ export default function TripsScreen() {
   const myTrips = useMemo(() => {
     if (!user) return [];
     return itineraries
-      .filter((i) => i.userId === user.id || (i.companions || []).some((c) => c.userId === user.id))
+      .filter((i) => String(i.userId) === String(user.id) || (i.companions || []).some((c) => String(c.userId) === String(user.id)))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [itineraries, user]);
 
   const handleDelete = (id: string) => {
     const trip = itineraries.find((i) => i.id === id);
-    const isJoined = trip && user && trip.userId !== user.id;
+    const isJoined = trip && user && String(trip.userId) !== String(user.id);
     if (isJoined) {
       const doLeave = () => {
-        const updated = (trip.companions || []).filter((c) => c.userId !== user.id);
+        const updated = (trip.companions || []).filter((c) => String(c.userId) !== String(user.id));
         updateItinerary(id, { companions: updated });
       };
       if (Platform.OS === "web") {
@@ -279,7 +279,7 @@ export default function TripsScreen() {
                   setComment("");
                   setReviewModal(item);
                 }}
-                isJoined={!!user && item.userId !== user.id}
+                isJoined={!!user && String(item.userId) !== String(user.id)}
                 isReviewed={isReviewed}
               />
             );

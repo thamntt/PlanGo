@@ -117,11 +117,12 @@ function mapItinerary(i: any): Itinerary {
 
 function mapReview(r: any): Review {
   const reviewType: 'trip' | 'item' = r.type === 'item' ? 'item' : 'trip';
-  // Build a unique ID by combining type + userId + tripId/itemId to avoid key collisions
   const rawId = r.reviewId || r.id || '';
+  // uniqueId dùng cho React key, rawId dùng để gọi API DELETE
   const uniqueId = `${reviewType}-${r.userId}-${rawId}`;
   return {
     id: uniqueId,
+    rawId: rawId.toString(),
     userId: (r.userId ?? r.user_id ?? "")?.toString(),
     userName: r.userName ?? r.user_name ?? "",
     destinationId: (r.destinationId ?? r.destination_id ?? "")?.toString(),
@@ -293,8 +294,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteReview = useCallback(async (id: string) => {
-    await apiRequest("DELETE", `/api/reviews/${id}`);
-    setReviews((prev) => prev.filter((r) => r.id !== id));
+    // id có thể là uniqueId (trip-9-123) hoặc rawId (123)
+    // Tìm review để lấy rawId thực cho API
+    setReviews((prev) => {
+      const review = prev.find((r) => r.id === id);
+      const apiId = (review as any)?.rawId || id.split('-').pop() || id;
+      apiRequest("DELETE", `/api/reviews/${apiId}`).catch(console.error);
+      return prev.filter((r) => r.id !== id);
+    });
   }, []);
 
   const refreshData = useCallback(async () => {

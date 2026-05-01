@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Star } from 'lucide-react';
+import { Star, Trash2 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import type { Review, UserData } from '../lib/types';
 
@@ -44,8 +44,14 @@ const Reviews: React.FC = () => {
 
 
 
+  const handleDelete = (id: string) => {
+    if (window.confirm('Bạn có chắc muốn xoá đánh giá này không?')) {
+      deleteReview(id);
+    }
+  };
+
   const filteredReviews = reviews
-    .filter(r => {
+    .filter((r: Review) => {
       const typeMatch = r.reviewType === activeTab;
       const ratingMatch = starFilter === 'all' || Math.round(Number(r.rating)) === starFilter;
       return typeMatch && ratingMatch;
@@ -165,7 +171,13 @@ const Reviews: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                 {/* Các nút lệnh đã được ẩn theo yêu cầu */}
+                <button
+                  onClick={() => handleDelete(review.id)}
+                  className="p-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                  title="Xoá đánh giá"
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             </div>
 
