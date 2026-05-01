@@ -3218,6 +3218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             tripId: trip.tripId,
             date: dayDate,
             dayIndex: dayData.day || i + 1,
+            // @ts-ignore
             title: dayData.title || `Ngày ${dayData.day || i + 1}`,
           });
 
