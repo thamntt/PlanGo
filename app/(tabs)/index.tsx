@@ -15,12 +15,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { useDestinations, useDestinationTypes } from "@/hooks/queries/use-destinations";
+import { useNotifications } from "@/hooks/queries/use-notifications";
 import { t } from "@/lib/i18n";
 import type { Destination } from "@/lib/storage";
-import { formatVND } from "@/lib/storage";
 
 function DestinationCard({ item, colors }: { item: Destination; colors: ReturnType<typeof useThemeColors> }) {
   return (
@@ -63,31 +63,33 @@ export default function ExploreScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, destinationTypes, refreshData, isLoading, notifications } = useData();
 
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  const destinationsQuery = useDestinations(selectedCategory ? Number(selectedCategory) : undefined);
+  const { data: destinationTypes = [] } = useDestinationTypes();
+  const { data: notifications = [] } = useNotifications(user?.id);
+
+  const destinations = destinationsQuery.data ?? [];
+
   const filteredDestinations = useMemo(() => {
     return destinations.filter((d) => {
       if (!d.isActive) return false;
-      const matchesSearch =
-        !search ||
-        d.name.toLowerCase().includes(search.toLowerCase()) ||
-        d.address.toLowerCase().includes(search.toLowerCase()) ||
-        d.tags.some((t) => t.toLowerCase().includes(search.toLowerCase()));
-      
-      // Since we now filter by API, matchesCategory is handled by the server response
-      // but we keep it here as a safety check or if the local state wasn't updated yet.
-      // However, the user request asks for API filtering, so we trust the 'destinations' from context.
-      return matchesSearch;
+      const q = search.toLowerCase();
+      if (!q) return true;
+      return (
+        d.name.toLowerCase().includes(q) ||
+        d.address.toLowerCase().includes(q) ||
+        d.tags.some((tag) => tag.toLowerCase().includes(q))
+      );
     });
   }, [destinations, search]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refreshData();
+    await destinationsQuery.refetch();
     setRefreshing(false);
   };
 
@@ -112,13 +114,14 @@ export default function ExploreScreen() {
               style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, position: "relative" as const }]}
             >
               <Ionicons name="notifications-outline" size={24} color={colors.text} />
-              {notifications.filter((n) => n.userId === user?.id && !n.isRead).length > 0 && (
-                <View style={styles.notifBadge}>
-                  <Text style={styles.notifBadgeText}>
-                    {notifications.filter((n) => n.userId === user?.id && !n.isRead).length}
-                  </Text>
-                </View>
-              )}
+              {(() => {
+                const unread = notifications.filter((n) => !n.isRead).length;
+                return unread > 0 ? (
+                  <View style={styles.notifBadge}>
+                    <Text style={styles.notifBadgeText}>{unread}</Text>
+                  </View>
+                ) : null;
+              })()}
             </Pressable>
             <Pressable
               onPress={() => {
@@ -164,9 +167,7 @@ export default function ExploreScreen() {
               <Pressable
                 onPress={() => {
                   Haptics.selectionAsync();
-                  const newCatId = item?.id || null;
-                  setSelectedCategory(newCatId);
-                  refreshData(newCatId ? { destinationTypeId: newCatId } : undefined);
+                  setSelectedCategory(item?.id ?? null);
                 }}
                 style={[
                   styles.categoryChip,

@@ -32,6 +32,30 @@ export function useMarkAllNotificationsRead() {
   });
 }
 
+export function useMarkNotificationRead() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string | number>({
+    mutationFn: async (id) => {
+      await apiRequest("PUT", `/api/notifications/${id}`, { isRead: true });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications() }),
+  });
+}
+
+/**
+ * Delete all notifications for a user, one DELETE per notification.
+ * (BE doesn't have a bulk-delete endpoint yet — add one if this becomes a hot path.)
+ */
+export function useClearNotifications() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { userId: number | string; ids: (string | number)[] }>({
+    mutationFn: async ({ ids }) => {
+      await Promise.all(ids.map((id) => apiRequest("DELETE", `/api/notifications/${id}`)));
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications() }),
+  });
+}
+
 export function useDeleteNotification() {
   const qc = useQueryClient();
   return useMutation<void, Error, string | number>({

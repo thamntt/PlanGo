@@ -13,9 +13,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import {
+  useNotifications,
+  useMarkNotificationRead,
+  useMarkAllNotificationsRead,
+  useClearNotifications,
+} from "@/hooks/queries/use-notifications";
 import { t } from "@/lib/i18n";
 import type { Notification } from "@/lib/storage";
 
@@ -59,22 +64,25 @@ export default function NotificationsScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { notifications, markNotificationRead, markAllNotificationsRead, clearNotifications, refreshData } = useData();
+  const notificationsQuery = useNotifications(user?.id);
+  const markRead = useMarkNotificationRead();
+  const markAllRead = useMarkAllNotificationsRead();
+  const clearAll = useClearNotifications();
   const [refreshing, setRefreshing] = useState(false);
   const txt = t();
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshData();
+    await notificationsQuery.refetch();
     setRefreshing(false);
-  }, [refreshData]);
+  }, [notificationsQuery]);
 
   const myNotifications = useMemo(() => {
-    if (!user) return [];
-    return notifications
-      .filter((n) => n.userId === user.id)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [notifications, user]);
+    const items = notificationsQuery.data ?? [];
+    return [...items].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [notificationsQuery.data]);
 
   const unreadCount = myNotifications.filter((n) => !n.isRead).length;
 
@@ -96,7 +104,7 @@ export default function NotificationsScreen() {
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  markAllNotificationsRead(user!.id);
+                  if (user) markAllRead.mutate({ userId: user.id });
                 }}
                 hitSlop={8}
               >
@@ -105,7 +113,7 @@ export default function NotificationsScreen() {
               <Pressable
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  clearNotifications(user!.id);
+                  if (user) clearAll.mutate({ userId: user.id, ids: myNotifications.map((n) => n.id) });
                 }}
                 hitSlop={8}
               >
@@ -124,7 +132,7 @@ export default function NotificationsScreen() {
             item={item}
             colors={colors}
             onPress={() => {
-              if (!item.isRead) markNotificationRead(item.id);
+              if (!item.isRead) markRead.mutate(item.id);
               if (item.itineraryId) {
                 router.push({ pathname: "/itinerary/[id]", params: { id: item.itineraryId } });
               }
