@@ -28,7 +28,7 @@ export function setPendingRedirect(path: string | null) {
 }
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, isAdmin } = useAuth();
+  const { user, isLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -72,7 +72,6 @@ function RootLayoutNav() {
         <Stack.Screen name="itinerary/edit" options={{ title: "Edit Itinerary", headerShown: true }} />
         <Stack.Screen name="create-trip" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
-        <Stack.Screen name="admin" options={{ headerShown: false }} />
         <Stack.Screen name="join/[code]" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
