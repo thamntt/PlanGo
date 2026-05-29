@@ -135,6 +135,27 @@ async function getCurrentUser(req: Request, res: Response) {
   sendResponse(res, 200, "Current user retrieved", sanitized);
 }
 
+async function changePassword(req: Request, res: Response) {
+  const auth = req.auth!;
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    throw new AppError("BAD_REQUEST", "currentPassword and newPassword are required");
+  }
+  if (typeof newPassword !== "string" || newPassword.length < 6) {
+    throw new AppError("VALIDATION_ERROR", "newPassword must be at least 6 characters");
+  }
+
+  const user = await storage.getUser(auth.id);
+  if (!user) throw errors.notFound("User");
+
+  const ok = await verifyPassword(currentPassword, user.password);
+  if (!ok) throw new AppError("INVALID_CREDENTIALS", "Current password is incorrect");
+
+  const newHash = await hashPassword(newPassword);
+  await storage.updateUser(auth.id, { password: newHash });
+  sendResponse(res, 200, "Password changed successfully", null);
+}
+
 export function registerUserRoutes(app: Express) {
   app.get("/api/users", requireAdmin, asyncHandler(listUsers));
   app.get("/api/users/me", requireAuth, asyncHandler(getCurrentUser));
@@ -145,4 +166,5 @@ export function registerUserRoutes(app: Express) {
 
   app.post("/api/auth/login", authLimiter, asyncHandler(login));
   app.post("/api/auth/register", authLimiter, asyncHandler(register));
+  app.post("/api/auth/change-password", requireAuth, asyncHandler(changePassword));
 }

@@ -1,13 +1,17 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { getToken, notifyUnauthorized } from "./auth-token";
 
-// Simple event system for global loading state
+// ══════════════════════════════════════════════════════════════
+// Global loading indicator
+// ══════════════════════════════════════════════════════════════
+
 type LoadingListener = (isLoading: boolean) => void;
 const listeners = new Set<LoadingListener>();
 let activeRequests = 0;
 
 function notifyListeners() {
   const isLoading = activeRequests > 0;
-  listeners.forEach(l => l(isLoading));
+  listeners.forEach((l) => l(isLoading));
 }
 
 export const subscribeToLoading = (l: LoadingListener) => {
@@ -18,47 +22,48 @@ export const subscribeToLoading = (l: LoadingListener) => {
   };
 };
 
+// ══════════════════════════════════════════════════════════════
+// Base URL + headers
+// ══════════════════════════════════════════════════════════════
+
 /**
  * Gets the base URL for the Express API server (e.g., "http://192.168.1.20:5001")
- * @returns {string} The API base URL
  */
 export function getApiUrl(): string {
   let host = process.env.EXPO_PUBLIC_DOMAIN;
+  if (!host) throw new Error("EXPO_PUBLIC_DOMAIN is not set");
 
-  if (!host) {
-    throw new Error("EXPO_PUBLIC_DOMAIN is not set");
-  }
-
-  // Strip protocol if accidentally included in .env value
   host = host.replace(/^https?:\/\//, "");
-
-  // Use http:// for local/LAN development, https:// for production/tunnel
   const isLocal =
     host.startsWith("localhost") ||
     host.startsWith("127.0.0.1") ||
     host.startsWith("10.") ||
     host.startsWith("192.168.") ||
     host.startsWith("172.");
-
   const protocol = isLocal ? "http" : "https";
-  let url = new URL(`${protocol}://${host}`);
-
-  return url.href;
+  return new URL(`${protocol}://${host}`).href;
 }
 
-/**
- * Returns common headers needed for API requests (e.g. tunnel bypass)
- */
+/** Common headers for every API request: tunnel-bypass + JWT auth (if logged in). */
 export function getApiHeaders(): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "Bypass-Tunnel-Reminder": "true",
   };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
 }
 
-// Log the API URL once at startup for debugging
 console.log("[API] Base URL:", getApiUrl());
 
-async function throwIfResNotOk(res: Response) {
+// ══════════════════════════════════════════════════════════════
+// Request helpers
+// ══════════════════════════════════════════════════════════════
+
+async function handleResponseStatus(res: Response): Promise<void> {
+  if (res.status === 401) {
+    notifyUnauthorized();
+  }
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
@@ -68,7 +73,7 @@ async function throwIfResNotOk(res: Response) {
 export async function apiRequest(
   method: string,
   route: string,
-  data?: unknown | undefined,
+  data?: unknown,
 ): Promise<Response> {
   activeRequests++;
   notifyListeners();
@@ -87,8 +92,7 @@ export async function apiRequest(
       credentials: "include",
     });
 
-    await throwIfResNotOk(res);
-
+    await handleResponseStatus(res);
     return res;
   } finally {
     activeRequests = Math.max(0, activeRequests - 1);
@@ -97,9 +101,7 @@ export async function apiRequest(
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
-  on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
+export const getQueryFn: <T>(options: { on401: UnauthorizedBehavior }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     activeRequests++;
@@ -114,13 +116,14 @@ export const getQueryFn: <T>(options: {
         credentials: "include",
       });
 
-      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-        return null;
+      if (res.status === 401) {
+        notifyUnauthorized();
+        if (unauthorizedBehavior === "returnNull") return null;
       }
 
-      await throwIfResNotOk(res);
+      await handleResponseStatus(res);
       const json = await res.json();
-      if (json && typeof json === 'object' && 'status' in json && 'message' in json && 'data' in json) {
+      if (json && typeof json === "object" && "status" in json && "message" in json && "data" in json) {
         return json.data;
       }
       return json;
