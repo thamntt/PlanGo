@@ -1,7 +1,7 @@
 import re
 
 def rewrite():
-    with open('server/routes.ts', 'r') as f:
+    with open('server/routes/index.ts', 'r') as f:
         lines = f.readlines()
 
     # Step 1: Add imports at the top
@@ -268,7 +268,7 @@ def rewrite():
     # Actually, let's keep the AI / 3rd party ones as is for a moment and just ensure they dont break.
     # It's better to just write the file to finish.
     
-    with open('server/routes.ts', 'w') as f:
+    with open('server/routes/index.ts', 'w') as f:
         f.write(content)
 
 rewrite()
