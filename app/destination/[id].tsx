@@ -20,7 +20,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
+import { useDestination } from "@/hooks/queries/use-destinations";
+import { useTrips } from "@/hooks/queries/use-trips";
+import { useReviews, useCreateReview, useUpdateReview, useDeleteReview } from "@/hooks/queries/use-reviews";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { formatVND } from "@/lib/storage";
@@ -59,16 +61,23 @@ export default function DestinationDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { destinations, itineraries, reviews, addReview, updateReview, deleteReview, refreshData } = useData();
+  const destinationQuery = useDestination(id);
+  const tripsQuery = useTrips(user ? { memberId: Number(user.id) } : undefined);
+  const reviewsQuery = useReviews({ destinationId: id ? Number(id) : undefined });
+  const createReview = useCreateReview();
+  const updateReviewMut = useUpdateReview();
+  const deleteReviewMut = useDeleteReview();
+  const itineraries = tripsQuery.data ?? [];
+  const reviews = reviewsQuery.data ?? [];
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshData();
+    await Promise.all([destinationQuery.refetch(), reviewsQuery.refetch()]);
     setRefreshing(false);
-  }, [refreshData]);
+  }, [destinationQuery, reviewsQuery]);
 
-  const destination = destinations.find((d) => d.id === id);
+  const destination = destinationQuery.data;
 
 
   const [imageIndex, setImageIndex] = useState(0);
@@ -167,17 +176,19 @@ export default function DestinationDetailScreen() {
     setSubmittingReview(true);
     try {
       if (editingReviewId) {
-        // Find the full review object to preserve itineraryId if it exists
         const existing = reviews.find((r) => r.id === editingReviewId);
-        await updateReview(editingReviewId, {
-          userId: user.id, // Required by server for validation
-          rating: userRating,
-          comment: userComment.trim(),
-          itineraryId: existing?.itineraryId, // Preserve itineraryId for trip reviews
-          type: 'trip',
+        await updateReviewMut.mutateAsync({
+          id: editingReviewId,
+          data: {
+            userId: user.id,
+            rating: userRating,
+            comment: userComment.trim(),
+            itineraryId: existing?.itineraryId,
+            type: "trip",
+          },
         });
       } else {
-        await addReview({
+        await createReview.mutateAsync({
           userId: user.id,
           userName: user.fullName || user.username,
           destinationId: id!,
@@ -196,7 +207,7 @@ export default function DestinationDetailScreen() {
     } finally {
       setSubmittingReview(false);
     }
-  }, [user, userRating, userComment, editingReviewId, id, addReview, updateReview, reviews]);
+  }, [user, userRating, userComment, editingReviewId, id, createReview, updateReviewMut, reviews]);
 
   const handleEditReview = useCallback((review: typeof destUserReviews[0]) => {
     setEditingReviewId(review.id);
@@ -209,7 +220,7 @@ export default function DestinationDetailScreen() {
 
     const doDelete = async () => {
       try {
-        await deleteReview(reviewId, { userId: user.id });
+        await deleteReviewMut.mutateAsync({ id: reviewId, userId: user.id, type: "trip" });
         if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         if (editingReviewId === reviewId) {
           setEditingReviewId(null);
@@ -228,7 +239,7 @@ export default function DestinationDetailScreen() {
         { text: t().common.delete, style: "destructive", onPress: doDelete },
       ]);
     }
-  }, [deleteReview, editingReviewId]);
+  }, [deleteReviewMut, editingReviewId]);
 
   const cancelEdit = useCallback(() => {
     setEditingReviewId(null);

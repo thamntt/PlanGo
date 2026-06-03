@@ -18,9 +18,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { useTrips, useUpdateTrip, useDeleteTrip } from "@/hooks/queries/use-trips";
+import { useDestinations } from "@/hooks/queries/use-destinations";
+import { useReviews, useCreateReview } from "@/hooks/queries/use-reviews";
 import { t } from "@/lib/i18n";
 import type { Itinerary } from "@/lib/storage";
 
@@ -150,9 +152,14 @@ export default function TripsScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, deleteItinerary, updateItinerary, refreshData, reviews, addReview, destinations } = useData();
-  const [refreshing, setRefreshing] = useState(false);
+  const tripsQuery = useTrips(user ? { memberId: Number(user.id) } : undefined);
+  const updateTrip = useUpdateTrip();
+  const deleteTrip = useDeleteTrip();
+  const { data: destinations = [] } = useDestinations();
+  const { data: reviews = [] } = useReviews();
+  const createReview = useCreateReview();
 
+  const [refreshing, setRefreshing] = useState(false);
   const [reviewModal, setReviewModal] = useState<Itinerary | null>(null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
@@ -160,15 +167,17 @@ export default function TripsScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshData();
+    await tripsQuery.refetch();
     setRefreshing(false);
-  }, [refreshData]);
+  }, [tripsQuery]);
+
+  const itineraries = tripsQuery.data ?? [];
 
   const myTrips = useMemo(() => {
     if (!user) return [];
-    return itineraries
-      .filter((i) => String(i.userId) === String(user.id) || (i.companions || []).some((c) => String(c.userId) === String(user.id)))
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return [...itineraries].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
   }, [itineraries, user]);
 
   const handleDelete = (id: string) => {
@@ -177,7 +186,7 @@ export default function TripsScreen() {
     if (isJoined) {
       const doLeave = () => {
         const updated = (trip.companions || []).filter((c) => String(c.userId) !== String(user.id));
-        updateItinerary(id, { companions: updated });
+        updateTrip.mutate({ id, data: { companions: updated } });
       };
       if (Platform.OS === "web") {
         if (window.confirm(t().itinerary.leaveTripMsg)) doLeave();
@@ -188,12 +197,13 @@ export default function TripsScreen() {
         ]);
       }
     } else {
+      const doDelete = () => deleteTrip.mutate(id);
       if (Platform.OS === "web") {
-        if (window.confirm(t().trips.deleteMessage)) deleteItinerary(id);
+        if (window.confirm(t().trips.deleteMessage)) doDelete();
       } else {
         Alert.alert(t().trips.deleteTitle, t().trips.deleteMessage, [
           { text: t().common.cancel, style: "cancel" },
-          { text: t().common.delete, style: "destructive", onPress: () => deleteItinerary(id) },
+          { text: t().common.delete, style: "destructive", onPress: doDelete },
         ]);
       }
     }
@@ -208,14 +218,13 @@ export default function TripsScreen() {
 
     setIsSubmitting(true);
     try {
-      // Find destination ID
       const dest = destinations.find(
         (d) =>
           d.name.toLowerCase() === reviewModal.destination.toLowerCase() ||
-          reviewModal.destination.toLowerCase().includes(d.name.toLowerCase())
+          reviewModal.destination.toLowerCase().includes(d.name.toLowerCase()),
       );
 
-      await addReview({
+      await createReview.mutateAsync({
         userId: user.id,
         userName: user.fullName,
         itineraryId: reviewModal.id,

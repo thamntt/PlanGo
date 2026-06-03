@@ -14,7 +14,6 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { DataProvider } from "@/contexts/DataContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import GlobalLoading from "@/components/GlobalLoading";
 
@@ -102,10 +101,8 @@ export default function RootLayout() {
           <KeyboardProvider>
             <SettingsProvider>
               <AuthProvider>
-                <DataProvider>
-                  <GlobalLoading />
-                  <RootLayoutNav />
-                </DataProvider>
+                <GlobalLoading />
+                <RootLayoutNav />
               </AuthProvider>
             </SettingsProvider>
           </KeyboardProvider>

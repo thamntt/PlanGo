@@ -17,7 +17,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { validateRequired, validateDate, validateDateRange, validateNumPeople } from "@/lib/validation";
@@ -25,7 +24,14 @@ import { parseDDMMYYYY } from "@/lib/validation";
 import { formatVND } from "@/lib/storage";
 import type { ItineraryDay } from "@/lib/storage";
 import { t } from "@/lib/i18n";
-import { getApiUrl, getApiHeaders } from "@/lib/query-client";
+import {
+  useTrips,
+  useCreateTrip,
+  useDeleteTrip,
+  useGenerateItinerary,
+  useDestinations,
+  usePreferences,
+} from "@/hooks/queries";
 
 interface FormErrors {
   destination?: string;
@@ -78,7 +84,12 @@ export default function CreateTripScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { generateItinerary, itineraries, deleteItinerary, destinations, preferences } = useData();
+  const { data: itineraries = [] } = useTrips(user ? { memberId: Number(user.id) } : undefined);
+  const { data: destinations = [] } = useDestinations();
+  const { data: preferences = [] } = usePreferences();
+  const createTripMut = useCreateTrip();
+  const deleteTripMut = useDeleteTrip();
+  const generateItineraryMut = useGenerateItinerary();
   const params = useLocalSearchParams<{ editId?: string; dest?: string }>();
 
   const editingItinerary = params.editId ? itineraries.find((i) => i.id === params.editId) : null;
@@ -179,30 +190,17 @@ export default function CreateTripScreen() {
 
   const fetchAIDays = async (): Promise<ItineraryDay[] | null> => {
     try {
-      const baseUrl = getApiUrl().replace(/\/$/, "");
-
-      const res = await fetch(`${baseUrl}/api/generate-itinerary`, {
-        method: "POST",
-        headers: { ...getApiHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({
-          destination: destination.trim(),
-          startDate,
-          endDate,
-          budget: formatVND(budgetNumber),
-          totalBudget: budgetNumber,
-          startingPoint: startingPoint.trim(),
-          numPeople: parseInt(numPeople) || 2,
-          preferences: selectedPrefs,
-        }),
+      const data = await generateItineraryMut.mutateAsync({
+        destination: destination.trim(),
+        startDate,
+        endDate,
+        budget: formatVND(budgetNumber),
+        totalBudget: budgetNumber,
+        startingPoint: startingPoint.trim(),
+        numPeople: parseInt(numPeople) || 2,
+        preferences: selectedPrefs,
       });
-
-      if (!res.ok) {
-        console.log("AI generation failed, status:", res.status);
-        return null;
-      }
-
-      const data = await res.json();
-      if (data.days && Array.isArray(data.days)) {
+      if (data?.days && Array.isArray(data.days)) {
         return data.days as ItineraryDay[];
       }
       return null;
@@ -231,9 +229,9 @@ export default function CreateTripScreen() {
       setAiError(true);
       try {
         if (isEditing && editingItinerary) {
-          await deleteItinerary(editingItinerary.id);
+          await deleteTripMut.mutateAsync(editingItinerary.id);
         }
-        const itin = await generateItinerary({
+        const itin = await createTripMut.mutateAsync({
           destination: destination.trim(),
           startDate,
           endDate,
@@ -243,7 +241,7 @@ export default function CreateTripScreen() {
           numPeople: parseInt(numPeople) || 2,
           preferences: selectedPrefs,
           userId: user!.id,
-        });
+        } as any);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         router.replace({ pathname: "/itinerary/[id]", params: { id: itin.id } });
       } catch (e) {
@@ -259,9 +257,9 @@ export default function CreateTripScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       if (isEditing && editingItinerary) {
-        await deleteItinerary(editingItinerary.id);
+        await deleteTripMut.mutateAsync(editingItinerary.id);
       }
-      const itin = await generateItinerary({
+      const itin = await createTripMut.mutateAsync({
         destination: destination.trim(),
         startDate,
         endDate,
@@ -271,8 +269,8 @@ export default function CreateTripScreen() {
         numPeople: parseInt(numPeople) || 2,
         preferences: selectedPrefs,
         userId: user!.id,
-        previewDays,
-      });
+        days: previewDays,
+      } as any);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setShowPreview(false);
       router.replace({ pathname: "/itinerary/[id]", params: { id: itin.id } });

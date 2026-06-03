@@ -4,18 +4,20 @@ import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
-import { formatVND } from "@/lib/storage";
 import { t } from "@/lib/i18n";
 import type { Itinerary } from "@/lib/storage";
-import { getApiUrl, getApiHeaders } from "@/lib/query-client";
+import { apiRequest } from "@/lib/query-client";
+import { queryKeys } from "@/hooks/queries/keys";
 import { setPendingRedirect } from "@/app/_layout";
 
-function getServerUrl(): string {
-  return getApiUrl().replace(/\/$/, "");
+async function unwrap<T>(res: Response): Promise<T> {
+  const json = await res.json();
+  if (json && typeof json === "object" && "data" in json && "status" in json) return json.data as T;
+  return json as T;
 }
 
 export default function JoinTripScreen() {
@@ -23,17 +25,16 @@ export default function JoinTripScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
-  const { user } = useAuth();
-  const { itineraries, updateItinerary, importItinerary, isLoading } = useData();
+  const { user, isLoading } = useAuth();
+  const qc = useQueryClient();
   const [status, setStatus] = useState<"loading" | "found" | "invalid" | "joined" | "already" | "error">("loading");
   const [sharedTrip, setSharedTrip] = useState<Itinerary | null>(null);
   const [joinError, setJoinError] = useState("");
 
   const txt = t().itinerary;
 
-  // First check local data, then fallback to server API
+  // Look up the trip server-side using the share code.
   useEffect(() => {
-    // Don't overwrite terminal states (joined/error)
     if (status === "joined" || status === "error") return;
 
     if (isLoading) {
@@ -45,40 +46,19 @@ export default function JoinTripScreen() {
       return;
     }
     if (!user) {
-      // Set pending redirect so AuthGate redirects back here after login
       setPendingRedirect(`/join/${code}`);
       router.replace({ pathname: "/(auth)/login", params: { redirect: `/join/${code}` } });
       return;
     }
 
-    // Check local itineraries first
-    const localTrip = itineraries.find((i) => i.shareCode === code);
-    if (localTrip) {
-      setSharedTrip(localTrip);
-      if (localTrip.userId === user.id) {
-        setStatus("already");
-      } else if ((localTrip.companions || []).some((c) => c.userId === user.id)) {
-        setStatus("already");
-      } else {
-        setStatus("found");
-      }
-      return;
-    }
-
-    // Fallback: fetch from server API
-    const fetchFromServer = async () => {
+    (async () => {
       try {
-        const res = await fetch(`${getServerUrl()}/api/share/${code}`, { headers: getApiHeaders() });
-        if (!res.ok) {
-          setStatus("invalid");
-          return;
-        }
-        const tripJson = await res.json();
-        const trip = tripJson.data || tripJson;
+        const res = await apiRequest("GET", `/api/share/${code}`);
+        const trip = await unwrap<any>(res);
         setSharedTrip(trip);
-        if (trip.userId === user.id) {
+        if (String(trip.userId) === String(user.id)) {
           setStatus("already");
-        } else if ((trip.companions || []).some((c: any) => c.userId === user.id)) {
+        } else if ((trip.companions || []).some((c: any) => String(c.userId) === String(user.id))) {
           setStatus("already");
         } else {
           setStatus("found");
@@ -86,9 +66,8 @@ export default function JoinTripScreen() {
       } catch {
         setStatus("invalid");
       }
-    };
-    fetchFromServer();
-  }, [code, itineraries, user, isLoading]);
+    })();
+  }, [code, user, isLoading, status]);
 
   const handleJoin = async () => {
     if (!sharedTrip || !user || status !== "found") return;
@@ -96,46 +75,19 @@ export default function JoinTripScreen() {
 
     try {
       const role = sharedTrip.sharePermission || "viewer";
-      const companion = {
+      const res = await apiRequest("POST", "/api/share/join", {
+        shareCode: code,
         userId: user.id,
-        userName: user.fullName || user.username || "Người dùng",
         role,
-        joinedAt: new Date().toISOString(),
-      };
+      });
+      const joinData = await unwrap<any>(res);
 
-      // Step 1: Notify server shared_trips table first (source of truth for shared data)
-      try {
-        const joinRes = await fetch(`${getServerUrl()}/api/share/join`, {
-          method: "POST",
-          headers: { ...getApiHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ shareCode: code, companion }),
-        });
-        if (joinRes.ok) {
-          const joinDataJson = await joinRes.json();
-          const joinData = joinDataJson.data || joinDataJson;
-          if (joinData.alreadyJoined) {
-            setStatus("already");
-            return;
-          }
-        }
-      } catch (e) { console.log("Failed to sync join to server:", e); }
-
-      // Step 2: Update local itinerary if it exists (same database)
-      const localTrip = itineraries.find((i) => i.id === sharedTrip.id);
-      if (localTrip) {
-        const existing = localTrip.companions || [];
-        if (existing.some((c) => c.userId === user.id)) {
-          setStatus("already");
-          return;
-        }
-        const updated = [...existing, companion];
-        await updateItinerary(localTrip.id, { companions: updated });
-      } else {
-        // Trip not in local state — import it so it appears in the user's trip list
-        const tripToSave = { ...sharedTrip, companions: [...(sharedTrip.companions || []), companion] };
-        await importItinerary(tripToSave);
+      if (joinData.alreadyJoined) {
+        setStatus("already");
+        return;
       }
 
+      await qc.invalidateQueries({ queryKey: queryKeys.trips() });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setStatus("joined");
     } catch (err: any) {

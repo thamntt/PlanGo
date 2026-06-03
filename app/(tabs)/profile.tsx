@@ -19,12 +19,15 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { useTrips } from "@/hooks/queries/use-trips";
+import { useReviews } from "@/hooks/queries/use-reviews";
+import { queryKeys } from "@/hooks/queries/keys";
+import { useQueryClient } from "@tanstack/react-query";
 import { PREFERENCE_OPTIONS } from "@/lib/seed-data";
 import { t } from "@/lib/i18n";
-import { getApiUrl, getApiHeaders } from "@/lib/query-client";
+import { apiRequest } from "@/lib/query-client";
 
 function StatItem({ icon, value, label, colors }: { icon: string; value: number; label: string; colors: ReturnType<typeof useThemeColors> }) {
   return (
@@ -41,15 +44,19 @@ export default function ProfileScreen() {
   const { isDark, themeMode, setThemeMode } = useSettings();
   const colors = useThemeColors(isDark);
   const { user, logout, updateProfile, isAdmin, changePassword } = useAuth();
-  const { itineraries, reviews, updateItinerary, importItinerary, refreshData } = useData();
+  const qc = useQueryClient();
+  const tripsQuery = useTrips(user ? { memberId: Number(user.id) } : undefined);
+  const reviewsQuery = useReviews();
+  const itineraries = tripsQuery.data ?? [];
+  const reviews = reviewsQuery.data ?? [];
   const [refreshing, setRefreshing] = useState(false);
   const txt = t();
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshData();
+    await Promise.all([tripsQuery.refetch(), reviewsQuery.refetch()]);
     setRefreshing(false);
-  }, [refreshData]);
+  }, [tripsQuery, reviewsQuery]);
 
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState(user?.fullName || "");
@@ -146,25 +153,19 @@ export default function ProfileScreen() {
     setJoinCodeStatus("loading");
     setJoinCodeError("");
     try {
-      const baseUrl = getApiUrl().replace(/\/$/, "");
-      const res = await fetch(`${baseUrl}/api/share/${code}`, { headers: getApiHeaders() });
-      if (!res.ok) {
-        setJoinCodeStatus("error");
-        setJoinCodeError(txt.itinerary.invalidCode);
-        return;
-      }
-      const jsonRes = await res.json();
-      const sharedTrip = jsonRes.data || jsonRes;
+      // Look up the trip by share code
+      const lookupRes = await apiRequest("GET", `/api/share/${code}`);
+      const lookupJson = await lookupRes.json();
+      const sharedTrip = lookupJson.data || lookupJson;
 
       if (sharedTrip.userId === user.id) {
         setJoinCodeStatus("already");
         return;
       }
-      if ((sharedTrip.companions || []).some((c: any) => c.userId === user.id)) {
+      if ((sharedTrip.companions || []).some((c: any) => String(c.userId) === String(user.id))) {
         setJoinCodeStatus("already");
         return;
       }
-
       if (sharedTrip.status === "completed") {
         setJoinCodeStatus("error");
         setJoinCodeError("Không thể tham gia chuyến đi đã hoàn thành.");
@@ -172,49 +173,35 @@ export default function ProfileScreen() {
       }
 
       const role = sharedTrip.sharePermission || "viewer";
-      const companion = {
+      const joinRes = await apiRequest("POST", "/api/share/join", {
+        shareCode: code,
         userId: user.id,
-        userName: user.fullName || user.username || "Người dùng",
         role,
-        joinedAt: new Date().toISOString(),
-      };
+      });
+      const joinJson = await joinRes.json();
+      const joinData = joinJson.data || joinJson;
 
-      try {
-        const joinRes = await fetch(`${baseUrl}/api/share/join`, {
-          method: "POST",
-          headers: { ...getApiHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ shareCode: code, companion }),
-        });
-        if (joinRes.ok) {
-          const joinResJson = await joinRes.json();
-          const joinData = joinResJson.data || joinResJson;
-          if (joinData.alreadyJoined) {
-            setJoinCodeStatus("already");
-            return;
-          }
-        }
-      } catch (e) { console.log("Failed to sync join to server:", e); }
-
-      const localTrip = itineraries.find((i) => i.id === sharedTrip.id);
-      if (localTrip) {
-        const existing = localTrip.companions || [];
-        if (existing.some((c) => c.userId === user.id)) {
-          setJoinCodeStatus("already");
-          return;
-        }
-        await updateItinerary(localTrip.id, { companions: [...existing, companion] });
-      } else {
-        const tripToSave = { ...sharedTrip, companions: [...(sharedTrip.companions || []), companion] };
-        await importItinerary(tripToSave);
+      if (joinData.alreadyJoined) {
+        setJoinCodeStatus("already");
+        return;
       }
+
+      // Refresh trips so the joined trip appears in My Trips
+      await qc.invalidateQueries({ queryKey: queryKeys.trips() });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setJoinCodeStatus("success");
       setJoinCode("");
     } catch (err: any) {
       console.error("Join by code error:", err);
-      setJoinCodeStatus("error");
-      setJoinCodeError(err?.message || "Không thể tham gia. Vui lòng thử lại.");
+      const msg = err?.message || "";
+      if (msg.includes("404")) {
+        setJoinCodeStatus("error");
+        setJoinCodeError(txt.itinerary.invalidCode);
+      } else {
+        setJoinCodeStatus("error");
+        setJoinCodeError(msg || "Không thể tham gia. Vui lòng thử lại.");
+      }
     }
   };
 

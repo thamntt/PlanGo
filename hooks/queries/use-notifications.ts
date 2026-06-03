@@ -22,6 +22,18 @@ export function useNotifications(userId?: number | string) {
   });
 }
 
+export function useCreateNotification() {
+  const qc = useQueryClient();
+  return useMutation<Notification, Error, Omit<Notification, "id" | "createdAt" | "isRead"> & { isRead?: boolean }>({
+    mutationFn: async (input) => {
+      const res = await apiRequest("POST", "/api/notifications", input);
+      const data = await unwrap<any>(res);
+      return mapNotification(data);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications() }),
+  });
+}
+
 export function useMarkAllNotificationsRead() {
   const qc = useQueryClient();
   return useMutation<void, Error, { userId: number | string }>({

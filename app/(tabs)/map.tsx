@@ -15,9 +15,10 @@ import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { useDestinations } from "@/hooks/queries/use-destinations";
+import { useTrips } from "@/hooks/queries/use-trips";
 import { t } from "@/lib/i18n";
 import RouteMap from "@/components/RouteMap";
 import type { Destination } from "@/lib/storage";
@@ -26,8 +27,9 @@ export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
-  const { destinations, itineraries } = useData();
   const { user } = useAuth();
+  const { data: destinations = [] } = useDestinations();
+  const { data: itineraries = [] } = useTrips(user ? { memberId: Number(user.id) } : undefined);
 
   const [permission, requestPermission] = Location.useForegroundPermissions();
   const [location, setLocation] = useState<Location.LocationObject | null>(null);

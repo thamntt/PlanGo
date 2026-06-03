@@ -20,7 +20,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useTrips,
+  useUpdateTrip,
+  useDeleteTrip,
+  useDestinations,
+  useReviews,
+  useCreateReview,
+  useUpdateReview,
+  useDeleteReview,
+  usePois,
+  usePoiTypes,
+  useExpenseTypes,
+  useCreateNotification,
+  queryKeys,
+} from "@/hooks/queries";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import * as Clipboard from "expo-clipboard";
@@ -59,16 +74,62 @@ export default function ItineraryDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
-  const { itineraries, updateItinerary, deleteItinerary, addNotification, destinations, reviews, addReview, updateReview, deleteReview, pois, expenseTypes, poiTypes,
-    refreshData,
-  } = useData();
+  const qc = useQueryClient();
+  const { data: itineraries = [] } = useTrips(user ? { memberId: Number(user.id) } : undefined);
+  const { data: destinations = [] } = useDestinations();
+  const { data: reviews = [] } = useReviews();
+  const { data: pois = [] } = usePois();
+  const { data: expenseTypes = [] } = useExpenseTypes();
+  const { data: poiTypes = [] } = usePoiTypes();
+  const updateTripMut = useUpdateTrip();
+  const deleteTripMut = useDeleteTrip();
+  const createReviewMut = useCreateReview();
+  const updateReviewMut = useUpdateReview();
+  const deleteReviewMut = useDeleteReview();
+  const createNotifMut = useCreateNotification();
+
+  const updateItinerary = useCallback(
+    (tripId: string, data: any) => updateTripMut.mutateAsync({ id: tripId, data }),
+    [updateTripMut],
+  );
+  const deleteItinerary = useCallback(
+    (tripId: string) => deleteTripMut.mutateAsync(tripId),
+    [deleteTripMut],
+  );
+  const addNotification = useCallback(
+    (input: any) => createNotifMut.mutateAsync(input),
+    [createNotifMut],
+  );
+  const addReview = useCallback(
+    (input: any) => createReviewMut.mutateAsync(input),
+    [createReviewMut],
+  );
+  const updateReview = useCallback(
+    (reviewId: string, data: any) =>
+      updateReviewMut.mutateAsync({ id: reviewId, data: { type: data.poiId || data.activityId ? "item" : "trip", ...data } }),
+    [updateReviewMut],
+  );
+  const deleteReview = useCallback(
+    (reviewId: string, params?: { userId: string | number; type?: string }) =>
+      deleteReviewMut.mutateAsync({
+        id: reviewId,
+        userId: params?.userId ?? user?.id ?? "",
+        type: (params?.type as "trip" | "item") ?? "trip",
+      }),
+    [deleteReviewMut, user?.id],
+  );
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshData();
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: queryKeys.trips() }),
+      qc.invalidateQueries({ queryKey: queryKeys.destinations() }),
+      qc.invalidateQueries({ queryKey: queryKeys.reviews() }),
+      qc.invalidateQueries({ queryKey: queryKeys.pois() }),
+    ]);
     setRefreshing(false);
-  }, [refreshData]);
+  }, [qc]);
 
   const itinerary = itineraries.find((i) => i.id === id);
   const [activeTab, setActiveTab] = useState<"itinerary" | "expenses" | "companions">("itinerary");

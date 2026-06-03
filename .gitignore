@@ -40,3 +40,6 @@ yarn-error.*
 .vercel
 
 .env
+
+# Claude Code personal overrides (auto-approve config etc.)
+.claude/settings.local.json
