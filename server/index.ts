@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { env } from "./lib/env";
 import { logger, httpLogger } from "./lib/logger";
+import { initSentry } from "./lib/sentry";
 import { errorHandler } from "./middlewares/error-handler";
 import { notFoundHandler } from "./middlewares/not-found";
 import { pool, pingDb } from "./db";
@@ -228,6 +229,7 @@ function setupGracefulShutdown(server: import("node:http").Server) {
 // ══════════════════════════════════════════════════════════════
 
 (async () => {
+  initSentry();
   setupCors(app);
   setupBodyParsing(app);
   app.use(httpLogger);

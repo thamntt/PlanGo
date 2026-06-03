@@ -1,0 +1,58 @@
+const Colors = {
+  light: {
+    primary: "#0891B2",
+    primaryDark: "#0E7490",
+    accent: "#F97316",
+    accentLight: "#FED7AA",
+    background: "#F8FAFC",
+    card: "#FFFFFF",
+    cardBorder: "#E2E8F0",
+    text: "#0F172A",
+    textSecondary: "#64748B",
+    textTertiary: "#94A3B8",
+    tint: "#0891B2",
+    tabIconDefault: "#94A3B8",
+    tabIconSelected: "#0891B2",
+    success: "#10B981",
+    error: "#EF4444",
+    warning: "#F59E0B",
+    inputBg: "#F1F5F9",
+    inputBorder: "#CBD5E1",
+    divider: "#E2E8F0",
+    overlay: "rgba(0,0,0,0.5)",
+    star: "#FBBF24",
+    tagBg: "#E0F2FE",
+    tagText: "#0369A1",
+  },
+  dark: {
+    primary: "#06B6D4",
+    primaryDark: "#0891B2",
+    accent: "#FB923C",
+    accentLight: "#7C2D12",
+    background: "#0F172A",
+    card: "#1E293B",
+    cardBorder: "#334155",
+    text: "#F8FAFC",
+    textSecondary: "#94A3B8",
+    textTertiary: "#64748B",
+    tint: "#06B6D4",
+    tabIconDefault: "#64748B",
+    tabIconSelected: "#06B6D4",
+    success: "#34D399",
+    error: "#F87171",
+    warning: "#FBBF24",
+    inputBg: "#1E293B",
+    inputBorder: "#475569",
+    divider: "#334155",
+    overlay: "rgba(0,0,0,0.7)",
+    star: "#FBBF24",
+    tagBg: "#164E63",
+    tagText: "#67E8F9",
+  },
+};
+
+export default Colors;
+
+export function useThemeColors(isDark: boolean) {
+  return isDark ? Colors.dark : Colors.light;
+}
