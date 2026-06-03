@@ -20,7 +20,7 @@ const vi = {
 
   auth: {
     appName: "PlanGo",
-    tagline: "Ứng dụng lập kế hoạch du lịch",
+    tagline: "Hành trình tuyệt vời bắt đầu từ một kế hoạch hoàn hảo",
     signIn: "Đăng nhập",
     signUp: "Đăng ký",
     username: "Tên đăng nhập",
@@ -34,6 +34,47 @@ const vi = {
     startPlanning: "Bắt đầu lên kế hoạch cho chuyến đi mơ ước",
     loginFailed: "Đăng nhập thất bại",
     registerFailed: "Đăng ký thất bại",
+    // Login screen
+    welcomeBack: "Chào mừng trở lại",
+    welcomeSubtitle: "Đăng nhập để tiếp tục hành trình",
+    emailOrUsername: "Email hoặc tên đăng nhập",
+    emailOrUsernamePlaceholder: "vd: tham@gmail.com hoặc tham123",
+    rememberMe: "Ghi nhớ tôi",
+    forgotPassword: "Quên mật khẩu?",
+    // Register screen
+    joinTitle: "Tham gia PlanGo",
+    joinSubtitle: "Tạo tài khoản miễn phí trong 30 giây",
+    fullNamePlaceholder: "Nguyễn Văn A",
+    emailPlaceholder: "vd: tham@gmail.com",
+    usernamePlaceholder: "vd: tham_nguyen (chỉ chữ + số + _)",
+    passwordPlaceholder: "Ít nhất 6 ký tự",
+    confirmPasswordPlaceholder: "Nhập lại mật khẩu",
+    agreeToTerms: "Tôi đồng ý với",
+    termsOfService: "Điều khoản dịch vụ",
+    and: "và",
+    privacyPolicy: "Chính sách bảo mật",
+    mustAgreeTerms: "Vui lòng đồng ý với điều khoản để tiếp tục",
+    // Forgot password
+    forgotTitle: "Quên mật khẩu?",
+    forgotSubtitle: "Nhập email của bạn, chúng tôi sẽ gửi liên kết đặt lại mật khẩu",
+    sendResetLink: "Gửi liên kết đặt lại",
+    resetLinkSent: "Đã gửi! Vui lòng kiểm tra email",
+    resetLinkSentSubtitle: "Nếu email tồn tại trong hệ thống, bạn sẽ nhận được hướng dẫn trong vài phút",
+    backToLogin: "Quay lại đăng nhập",
+    // Social
+    orContinueWith: "hoặc tiếp tục với",
+    continueWithGoogle: "Tiếp tục với Google",
+    continueWithFacebook: "Tiếp tục với Facebook",
+    continueWithApple: "Tiếp tục với Apple",
+    comingSoon: "Tính năng sắp ra mắt",
+    socialComingSoon: "Đăng nhập mạng xã hội sẽ sớm có",
+    // Password strength
+    passwordWeak: "Yếu",
+    passwordFair: "Trung bình",
+    passwordGood: "Khá tốt",
+    passwordStrong: "Mạnh",
+    // Network
+    networkError: "Không kết nối được máy chủ. Vui lòng kiểm tra mạng.",
   },
 
   validation: {

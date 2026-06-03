@@ -29,6 +29,23 @@ export const userRepo = {
     return db.select().from(users);
   },
 
+  async getUserByProviderIdentity(
+    provider: string,
+    providerUserId: string,
+  ): Promise<User | undefined> {
+    const [row] = await db
+      .select()
+      .from(users)
+      .where(eq(users.providerUserId, providerUserId));
+    if (!row) return undefined;
+    return row.provider === provider ? row : undefined;
+  },
+
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    const [row] = await db.select().from(users).where(eq(users.resetToken, token));
+    return row;
+  },
+
   async createUser(data: InsertUser): Promise<User> {
     const [row] = await db.insert(users).values(data).returning();
     return row;

@@ -4,12 +4,23 @@ import pg from "pg";
 import * as schema from "../shared/schema";
 import { env, isProd } from "./lib/env";
 
+function buildSslConfig() {
+  // Local Postgres on the same machine: no SSL.
+  // Anything else (Railway proxy, Neon, Supabase, etc.): SSL with permissive cert
+  // check so dev machines without the root CA don't blow up.
+  const url = env.DATABASE_URL;
+  const isLocal =
+    url.includes("localhost") || url.includes("127.0.0.1") || url.includes("@postgres:");
+  if (isLocal) return undefined;
+  return { rejectUnauthorized: false };
+}
+
 export const pool = new pg.Pool({
   connectionString: env.DATABASE_URL,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
-  ssl: isProd ? { rejectUnauthorized: false } : undefined,
+  ssl: buildSslConfig(),
 });
 
 const baseDb = drizzle(pool, { schema });

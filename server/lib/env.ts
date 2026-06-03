@@ -44,6 +44,24 @@ const envSchema = z.object({
   // Observability
   SENTRY_DSN: z.string().url().optional(),
   SENTRY_RELEASE: z.string().optional(),
+
+  // OAuth — provider client IDs (FE sends them as audience; BE verifies)
+  GOOGLE_OAUTH_CLIENT_ID_WEB: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_ID_IOS: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_ID_ANDROID: z.string().optional(),
+  FACEBOOK_APP_ID: z.string().optional(),
+  FACEBOOK_APP_SECRET: z.string().optional(),
+  APPLE_BUNDLE_ID: z.string().optional(),
+  APPLE_SERVICE_ID: z.string().optional(),
+
+  // Email — Resend for transactional emails (reset password, verification)
+  RESEND_API_KEY: z.string().optional(),
+  // Accept both bare email `noreply@plango.vn` and display-name format `PlanGo <noreply@plango.vn>`
+  EMAIL_FROM: z
+    .string()
+    .min(3)
+    .default("PlanGo <noreply@plango.vn>"),
+  APP_URL: z.string().url().default("http://localhost:8081"),
 });
 
 export type Env = z.infer<typeof envSchema>;

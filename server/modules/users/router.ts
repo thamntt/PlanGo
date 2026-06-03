@@ -7,6 +7,41 @@ import { signJwt } from "../../lib/jwt";
 import { requireAuth, requireAdmin } from "../../middlewares/auth";
 import { authLimiter } from "../../middlewares/rate-limit";
 import { logger } from "../../lib/logger";
+import { socialLogin, forgotPassword, resetPassword } from "./service";
+import { validate } from "../../middlewares/validate";
+import { z } from "zod";
+
+const socialLoginSchema = z.object({
+  provider: z.enum(["google", "facebook", "apple"]),
+  idToken: z.string().optional(),
+  accessToken: z.string().optional(),
+  fullName: z.string().optional(),
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(32),
+  newPassword: z.string().min(6).max(100),
+});
+
+async function socialLoginHandler(req: Request, res: Response) {
+  const result = await socialLogin(req.body);
+  sendResponse(res, 200, "Social login successful", result);
+}
+
+async function forgotPasswordHandler(req: Request, res: Response) {
+  await forgotPassword(req.body.email);
+  sendResponse(res, 200, "Nếu email tồn tại, link đặt lại đã được gửi", null);
+}
+
+async function resetPasswordHandler(req: Request, res: Response) {
+  const { token, newPassword } = req.body;
+  await resetPassword(token, newPassword);
+  sendResponse(res, 200, "Mật khẩu đã được đặt lại", null);
+}
 
 async function listUsers(req: Request, res: Response) {
   const search = req.query.search as string | undefined;
@@ -80,6 +115,14 @@ async function login(req: Request, res: Response) {
     throw new AppError("ACCOUNT_LOCKED", "Account is locked");
   }
 
+  // Social-only accounts have NULL password — direct user to use social login.
+  if (!user.password) {
+    throw new AppError(
+      "INVALID_CREDENTIALS",
+      `Tài khoản này đã đăng ký qua ${user.provider || "social login"}. Vui lòng đăng nhập bằng phương thức đó.`,
+    );
+  }
+
   const ok = await verifyPassword(password, user.password);
   if (!ok) throw new AppError("INVALID_CREDENTIALS", "Invalid credentials");
 
@@ -148,6 +191,12 @@ async function changePassword(req: Request, res: Response) {
   const user = await storage.getUser(auth.id);
   if (!user) throw errors.notFound("User");
 
+  if (!user.password) {
+    throw new AppError(
+      "BAD_REQUEST",
+      "Tài khoản social không có mật khẩu. Sử dụng tính năng 'đặt mật khẩu' thay vì 'đổi mật khẩu'.",
+    );
+  }
   const ok = await verifyPassword(currentPassword, user.password);
   if (!ok) throw new AppError("INVALID_CREDENTIALS", "Current password is incorrect");
 
@@ -167,4 +216,22 @@ export function registerUserRoutes(app: Express) {
   app.post("/api/auth/login", authLimiter, asyncHandler(login));
   app.post("/api/auth/register", authLimiter, asyncHandler(register));
   app.post("/api/auth/change-password", requireAuth, asyncHandler(changePassword));
+  app.post(
+    "/api/auth/social",
+    authLimiter,
+    validate({ body: socialLoginSchema }),
+    asyncHandler(socialLoginHandler),
+  );
+  app.post(
+    "/api/auth/forgot-password",
+    authLimiter,
+    validate({ body: forgotPasswordSchema }),
+    asyncHandler(forgotPasswordHandler),
+  );
+  app.post(
+    "/api/auth/reset-password",
+    authLimiter,
+    validate({ body: resetPasswordSchema }),
+    asyncHandler(resetPasswordHandler),
+  );
 }

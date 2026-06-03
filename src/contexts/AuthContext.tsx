@@ -28,6 +28,8 @@ interface AuthContextValue {
   updateProfile: (data: Partial<UserData>) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   refreshUser: () => Promise<void>;
+  /** Apply a JWT obtained externally (social login flows). Loads /me after. */
+  applySession: (token: string, userData?: any) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -175,6 +177,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [persistUser]);
 
+  const applySession = useCallback(async (token: string, userData?: any) => {
+    try {
+      // Only set token if caller provided one. Some flows (social login) set
+      // the token directly inside the hook before calling applySession.
+      if (token) await setToken(token);
+      if (userData) {
+        const mapped = mapUser(userData);
+        if (mapped.role === "admin") {
+          await logout();
+          return { success: false, error: "Admin phải đăng nhập qua admin portal" };
+        }
+        await persistUser(mapped);
+      } else {
+        await loadCurrentUser();
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Apply session failed" };
+    }
+  }, [logout, persistUser, loadCurrentUser]);
+
   const updateProfile = useCallback(async (data: Partial<UserData>) => {
     if (!user) return;
     try {
@@ -218,8 +241,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateProfile,
       changePassword,
       refreshUser,
+      applySession,
     }),
-    [user, isLoading, login, register, logout, updateProfile, changePassword, refreshUser],
+    [user, isLoading, login, register, logout, updateProfile, changePassword, refreshUser, applySession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

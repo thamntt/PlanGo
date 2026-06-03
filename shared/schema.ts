@@ -25,9 +25,18 @@ export const users = pgTable("users", {
   userId: serial("user_id").primaryKey(),
   userName: varchar("user_name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull().unique(),
-  password: varchar("password", { length: 255 }).notNull(),
+  // Password is bcrypt-hashed. NULL allowed for social-login-only accounts.
+  password: varchar("password", { length: 255 }),
   role: varchar("role", { length: 50 }),
   status: varchar("status", { length: 50 }),
+  // OAuth provider linkage. NULL = email/password account.
+  provider: varchar("provider", { length: 50 }), // "google" | "facebook" | "apple" | NULL
+  providerUserId: varchar("provider_user_id", { length: 255 }), // sub from provider
+  avatarUrl: varchar("avatar_url", { length: 500 }),
+  emailVerified: boolean("email_verified").default(false),
+  // Password reset token (single-use, expires in 1h)
+  resetToken: varchar("reset_token", { length: 255 }),
+  resetTokenExpiresAt: timestamp("reset_token_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
