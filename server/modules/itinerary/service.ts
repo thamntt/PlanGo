@@ -6,6 +6,7 @@ import { env } from "../../lib/env";
 import { SERPAPI_BASE, getSerpApiKey } from "../../lib/api-keys";
 import { internalGeocode } from "../../lib/geocode";
 import { extractPlaceName, associatePreferencesToPoi } from "../../lib/itinerary-helpers";
+import { getCachedItinerary, setCachedItinerary } from "../../lib/ai-cache";
 import type { GenerateItineraryInput } from "./schema";
 
 const PROVINCE_MAP: Record<string, string> = {
@@ -45,7 +46,8 @@ const PROVINCE_MAP: Record<string, string> = {
 function computeNumDays(startDate: string, endDate: string): number {
   const parseDate = (d: string) => {
     const parts = d.split(/[-/]/);
-    if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    if (parts.length === 3)
+      return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
     return new Date(d);
   };
   const start = parseDate(startDate);
@@ -102,7 +104,8 @@ activityType: "food" | "sightseeing" | "transport" | "shopping" | "hotel" | "oth
 }
 
 async function callGemini(prompt: string, retries = 3): Promise<any> {
-  if (!env.GEMINI_API_KEY) throw new AppError("AI_PROVIDER_UNAVAILABLE", "GEMINI_API_KEY not configured");
+  if (!env.GEMINI_API_KEY)
+    throw new AppError("AI_PROVIDER_UNAVAILABLE", "GEMINI_API_KEY not configured");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key=${env.GEMINI_API_KEY}`;
 
   for (let i = 0; i < retries; i++) {
@@ -138,13 +141,18 @@ async function callGemini(prompt: string, retries = 3): Promise<any> {
 }
 
 async function callOpenAI(prompt: string): Promise<any> {
-  if (!env.OPENAI_API_KEY) throw new AppError("AI_PROVIDER_UNAVAILABLE", "OPENAI_API_KEY not configured");
+  if (!env.OPENAI_API_KEY)
+    throw new AppError("AI_PROVIDER_UNAVAILABLE", "OPENAI_API_KEY not configured");
   const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
   const res = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "Bạn là chuyên gia du lịch Việt Nam. BẮT BUỘC trả về JSON hợp lệ duy nhất theo format: { days: [...] }. KHÔNG markdown, KHÔNG giải thích." },
+      {
+        role: "system",
+        content:
+          "Bạn là chuyên gia du lịch Việt Nam. BẮT BUỘC trả về JSON hợp lệ duy nhất theo format: { days: [...] }. KHÔNG markdown, KHÔNG giải thích.",
+      },
       { role: "user", content: prompt },
     ],
     temperature: 0.3,
@@ -160,7 +168,13 @@ async function callOpenAI(prompt: string): Promise<any> {
   return parsed;
 }
 
-async function enrichActivitiesWithSerpApi(activities: any[], destination: string, province: string, destLat: number, destLng: number): Promise<boolean> {
+async function enrichActivitiesWithSerpApi(
+  activities: any[],
+  destination: string,
+  province: string,
+  destLat: number,
+  destLng: number,
+): Promise<boolean> {
   const serpApiKey = getSerpApiKey();
   if (!serpApiKey) return false;
 
@@ -170,25 +184,40 @@ async function enrichActivitiesWithSerpApi(activities: any[], destination: strin
   for (const act of activities) {
     if (quotaExceeded) break;
     const titleLower = act.title.toLowerCase();
-    if (titleLower.includes("chi phí") || titleLower.includes("di chuyển") || titleLower.includes("tổng kết")) continue;
+    if (
+      titleLower.includes("chi phí") ||
+      titleLower.includes("di chuyển") ||
+      titleLower.includes("tổng kết")
+    )
+      continue;
 
     const placeName = extractPlaceName(act.title);
     const baseName = placeName.length > 3 ? placeName : act.title;
     const city = destination || province || "";
-    const searchQuery = baseName.toLowerCase().includes(city.toLowerCase()) ? baseName.trim() : `${baseName} ${city}`.trim();
+    const searchQuery = baseName.toLowerCase().includes(city.toLowerCase())
+      ? baseName.trim()
+      : `${baseName} ${city}`.trim();
 
     try {
-      const params = new URLSearchParams({ engine: "google_maps", q: searchQuery, hl: "vi", type: "search", api_key: serpApiKey });
+      const params = new URLSearchParams({
+        engine: "google_maps",
+        q: searchQuery,
+        hl: "vi",
+        type: "search",
+        api_key: serpApiKey,
+      });
       if (locationBias) params.set("ll", locationBias);
       const serpRes = await fetch(`${SERPAPI_BASE}?${params.toString()}`);
       const data = await serpRes.json();
       if (serpRes.ok) {
         const results = data.local_results || [];
         if (results.length > 0) {
-          const match = results.find((r: any) =>
-            r.address?.toLowerCase().includes(destination.toLowerCase()) ||
-            r.address?.toLowerCase().includes((province || "").toLowerCase()),
-          ) || results[0];
+          const match =
+            results.find(
+              (r: any) =>
+                r.address?.toLowerCase().includes(destination.toLowerCase()) ||
+                r.address?.toLowerCase().includes((province || "").toLowerCase()),
+            ) || results[0];
 
           if (match.gps_coordinates?.latitude) {
             act.latitude = match.gps_coordinates.latitude;
@@ -199,7 +228,9 @@ async function enrichActivitiesWithSerpApi(activities: any[], destination: strin
           if (match.reviews) act.reviewCount = match.reviews;
           if (match.place_id) act.googlePlaceId = match.place_id;
           if (match.thumbnail) act.thumbnail = match.thumbnail;
-          if (match.title) act.description = `${match.title} — ★ ${match.rating || "N/A"}/5. ${act.description || ""}`.trim();
+          if (match.title)
+            act.description =
+              `${match.title} — ★ ${match.rating || "N/A"}/5. ${act.description || ""}`.trim();
           act.googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${act.latitude},${act.longitude}`;
         }
       } else if ((data as any)?.error?.includes("quota")) {
@@ -213,13 +244,21 @@ async function enrichActivitiesWithSerpApi(activities: any[], destination: strin
   return quotaExceeded;
 }
 
-async function fallbackGeocodeActivities(activities: any[], destination: string, province: string, destLat: number, destLng: number, quotaExceeded: boolean) {
+async function fallbackGeocodeActivities(
+  activities: any[],
+  destination: string,
+  province: string,
+  destLat: number,
+  destLng: number,
+  quotaExceeded: boolean,
+) {
   const serpApiKey = getSerpApiKey();
   const locationBias = destLat && destLng ? `@${destLat},${destLng},14z` : "";
 
   for (const act of activities) {
     const hasCoords = act.latitude && act.latitude !== 0 && act.latitude !== "0";
-    const isTrash = act.title.toLowerCase().includes("chi phí") || act.title.toLowerCase().includes("di chuyển");
+    const isTrash =
+      act.title.toLowerCase().includes("chi phí") || act.title.toLowerCase().includes("di chuyển");
     if (hasCoords || isTrash) continue;
 
     try {
@@ -239,17 +278,25 @@ async function fallbackGeocodeActivities(activities: any[], destination: string,
 
       if (serpApiKey && !quotaExceeded) {
         try {
-          const params = new URLSearchParams({ engine: "google_maps", q: query, hl: "vi", type: "search", api_key: serpApiKey });
+          const params = new URLSearchParams({
+            engine: "google_maps",
+            q: query,
+            hl: "vi",
+            type: "search",
+            api_key: serpApiKey,
+          });
           if (locationBias) params.set("ll", locationBias);
           const serpRes = await fetch(`${SERPAPI_BASE}?${params.toString()}`);
           const data = await serpRes.json();
           if (serpRes.ok) {
             const results = data.local_results || [];
             if (results.length > 0) {
-              const match = results.find((r: any) =>
-                r.address?.toLowerCase().includes(destination.toLowerCase()) ||
-                r.address?.toLowerCase().includes((province || "").toLowerCase()),
-              ) || results[0];
+              const match =
+                results.find(
+                  (r: any) =>
+                    r.address?.toLowerCase().includes(destination.toLowerCase()) ||
+                    r.address?.toLowerCase().includes((province || "").toLowerCase()),
+                ) || results[0];
               if (match.rating) act.rating = match.rating;
               if (match.reviews) act.reviewCount = match.reviews;
               if (match.place_id) act.googlePlaceId = match.place_id;
@@ -258,12 +305,16 @@ async function fallbackGeocodeActivities(activities: any[], destination: string,
                 act.latitude = match.gps_coordinates.latitude;
                 act.longitude = match.gps_coordinates.longitude;
               }
-              if (match.title) act.description = `${match.title} — ★ ${match.rating || "N/A"}/5. ${act.description || ""}`.trim();
+              if (match.title)
+                act.description =
+                  `${match.title} — ★ ${match.rating || "N/A"}/5. ${act.description || ""}`.trim();
             }
           } else if ((data as any)?.error?.includes("quota")) {
             quotaExceeded = true;
           }
-        } catch { /* SerpAPI rating optional */ }
+        } catch {
+          /* SerpAPI rating optional */
+        }
         await new Promise((r) => setTimeout(r, 200));
       }
     } catch (err) {
@@ -290,7 +341,12 @@ async function linkPoisAndCleanup(parsedData: any) {
         act.activityType = specificType;
         if (createdPoi?.poiId) {
           act.poiId = createdPoi.poiId;
-          await associatePreferencesToPoi(createdPoi.poiId, act.activityType, act.title, act.description);
+          await associatePreferencesToPoi(
+            createdPoi.poiId,
+            act.activityType,
+            act.title,
+            act.description,
+          );
         }
       } catch (err) {
         logger.warn({ err, title: act.title }, "Failed to link POI");
@@ -335,6 +391,17 @@ async function persistPois(activities: any[], destination: string) {
 }
 
 export async function generateItinerary(input: GenerateItineraryInput): Promise<any> {
+  // Check LRU cache first — saves $ + ~10s wait when input matches
+  const cached = getCachedItinerary({
+    destination: input.destination,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    totalBudget: input.totalBudget,
+    numPeople: input.numPeople,
+    preferences: input.preferences,
+  });
+  if (cached) return cached;
+
   const numDays = computeNumDays(input.startDate, input.endDate);
   const destKey = input.destination.toLowerCase().trim();
   const province = PROVINCE_MAP[destKey] || input.destination;
@@ -355,7 +422,9 @@ export async function generateItinerary(input: GenerateItineraryInput): Promise<
       parsedData.provider = "openai";
     } catch (openErr) {
       logger.error({ err: openErr }, "OpenAI also failed");
-      throw new AppError("AI_PROVIDER_UNAVAILABLE", "Both Gemini and OpenAI failed", { details: String(openErr) });
+      throw new AppError("AI_PROVIDER_UNAVAILABLE", "Both Gemini and OpenAI failed", {
+        details: String(openErr),
+      });
     }
   }
 
@@ -382,10 +451,38 @@ export async function generateItinerary(input: GenerateItineraryInput): Promise<
   const destLat = destGeo?.lat ?? 0;
   const destLng = destGeo?.lng ?? 0;
 
-  const quotaExceeded = await enrichActivitiesWithSerpApi(allActivities, input.destination, province, destLat, destLng);
-  await fallbackGeocodeActivities(allActivities, input.destination, province, destLat, destLng, quotaExceeded);
+  const quotaExceeded = await enrichActivitiesWithSerpApi(
+    allActivities,
+    input.destination,
+    province,
+    destLat,
+    destLng,
+  );
+  await fallbackGeocodeActivities(
+    allActivities,
+    input.destination,
+    province,
+    destLat,
+    destLng,
+    quotaExceeded,
+  );
   await linkPoisAndCleanup(parsedData);
   await persistPois(allActivities, input.destination);
 
-  return { ...parsedData, provider: activeProvider };
+  const result = { ...parsedData, provider: activeProvider };
+
+  // Cache the enriched + geocoded result so a duplicate request skips AI + SerpAPI
+  setCachedItinerary(
+    {
+      destination: input.destination,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      totalBudget: input.totalBudget,
+      numPeople: input.numPeople,
+      preferences: input.preferences,
+    },
+    result,
+  );
+
+  return result;
 }

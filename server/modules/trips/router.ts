@@ -1,6 +1,12 @@
 import type { Express, Request, Response } from "express";
 import { asyncHandler, sendResponse } from "../../lib/http";
-import { validate, numericIdParam, numericTripIdParam, numericDayIdParam } from "../../middlewares/validate";
+import {
+  validate,
+  numericIdParam,
+  numericTripIdParam,
+  numericDayIdParam,
+} from "../../middlewares/validate";
+import { requireAuth } from "../../middlewares/auth";
 import * as tripService from "./service";
 import {
   createTripInputSchema,
@@ -85,49 +91,71 @@ async function createTripExpense(req: Request, res: Response) {
 // ══════════════════════════════════════════════════════════════
 
 export function registerTripRoutes(app: Express) {
-  app.get("/api/trips",
+  app.get(
+    "/api/trips",
+    requireAuth,
     validate({ query: listTripsQuerySchema }),
     asyncHandler(listTrips),
   );
-  app.get("/api/trips/:id",
+  app.get(
+    "/api/trips/:id",
+    requireAuth,
     validate({ params: numericIdParam }),
     asyncHandler(getTripById),
   );
-  app.post("/api/trips",
+  app.post(
+    "/api/trips",
+    requireAuth,
     validate({ body: createTripInputSchema }),
     asyncHandler(createTrip),
   );
-  app.put("/api/trips/:id",
+  app.put(
+    "/api/trips/:id",
+    requireAuth,
     validate({ params: numericIdParam, body: updateTripInputSchema }),
     asyncHandler(updateTrip),
   );
-  app.delete("/api/trips/:id",
+  app.delete(
+    "/api/trips/:id",
+    requireAuth,
     validate({ params: numericIdParam }),
     asyncHandler(deleteTrip),
   );
 
-  app.get("/api/trips/:tripId/days",
+  app.get(
+    "/api/trips/:tripId/days",
+    requireAuth,
     validate({ params: numericTripIdParam }),
     asyncHandler(getTripDays),
   );
-  app.post("/api/trips/:tripId/days",
+  app.post(
+    "/api/trips/:tripId/days",
+    requireAuth,
     validate({ params: numericTripIdParam, body: createDayInputSchema }),
     asyncHandler(createTripDay),
   );
-  app.get("/api/days/:dayId/items",
+  app.get(
+    "/api/days/:dayId/items",
+    requireAuth,
     validate({ params: numericDayIdParam }),
     asyncHandler(getDayItems),
   );
-  app.post("/api/days/:dayId/items",
+  app.post(
+    "/api/days/:dayId/items",
+    requireAuth,
     validate({ params: numericDayIdParam, body: createItemInputSchema }),
     asyncHandler(createDayItem),
   );
 
-  app.get("/api/trips/:tripId/expenses",
+  app.get(
+    "/api/trips/:tripId/expenses",
+    requireAuth,
     validate({ params: numericTripIdParam }),
     asyncHandler(getTripExpenses),
   );
-  app.post("/api/trips/:tripId/expenses",
+  app.post(
+    "/api/trips/:tripId/expenses",
+    requireAuth,
     validate({ params: numericTripIdParam, body: createTripExpenseInputSchema }),
     asyncHandler(createTripExpense),
   );

@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { AppError } from "../lib/errors";
 import { logger } from "../lib/logger";
 import { isProd } from "../lib/env";
+import { captureException } from "../lib/sentry";
 
 interface ErrorResponse {
   status: number;
@@ -12,12 +13,7 @@ interface ErrorResponse {
   requestId?: string;
 }
 
-export function errorHandler(
-  err: unknown,
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
+export function errorHandler(err: unknown, req: Request, res: Response, next: NextFunction) {
   if (res.headersSent) return next(err);
 
   const requestId = (req as any).id as string | undefined;
@@ -51,6 +47,7 @@ export function errorHandler(
       requestId,
     };
     log.error({ err }, `Unhandled error: ${err.message}`);
+    captureException(err, { requestId, userId: req.auth?.id });
   } else {
     body = {
       status: 500,
@@ -59,6 +56,7 @@ export function errorHandler(
       requestId,
     };
     log.error({ err }, "Unknown error type thrown");
+    captureException(err, { requestId, userId: req.auth?.id });
   }
 
   res.status(body.status).json(body);

@@ -45,9 +45,34 @@ async function markAllRead(req: Request, res: Response) {
 }
 
 export function registerNotificationRoutes(app: Express) {
-  app.get("/api/notifications", validate({ query: listNotificationsQuerySchema }), asyncHandler(listNotifications));
-  app.post("/api/notifications", requireAuth, validate({ body: createNotificationInputSchema }), asyncHandler(createNotification));
-  app.put("/api/notifications/:id", requireAuth, validate({ params: numericIdParam, body: updateNotificationInputSchema }), asyncHandler(updateNotification));
-  app.delete("/api/notifications/:id", requireAuth, validate({ params: numericIdParam }), asyncHandler(deleteNotification));
-  app.patch("/api/notifications/mark-read", requireAuth, validate({ body: markReadInputSchema }), asyncHandler(markAllRead));
+  app.get(
+    "/api/notifications",
+    requireAuth,
+    validate({ query: listNotificationsQuerySchema }),
+    asyncHandler(listNotifications),
+  );
+  app.post(
+    "/api/notifications",
+    requireAuth,
+    validate({ body: createNotificationInputSchema }),
+    asyncHandler(createNotification),
+  );
+  app.put(
+    "/api/notifications/:id",
+    requireAuth,
+    validate({ params: numericIdParam, body: updateNotificationInputSchema }),
+    asyncHandler(updateNotification),
+  );
+  app.delete(
+    "/api/notifications/:id",
+    requireAuth,
+    validate({ params: numericIdParam }),
+    asyncHandler(deleteNotification),
+  );
+  app.patch(
+    "/api/notifications/mark-read",
+    requireAuth,
+    validate({ body: markReadInputSchema }),
+    asyncHandler(markAllRead),
+  );
 }

@@ -40,6 +40,10 @@ const envSchema = z.object({
 
   // Logging
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+
+  // Observability
+  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_RELEASE: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
