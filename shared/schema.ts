@@ -32,11 +32,18 @@ export const users = pgTable("users", {
   // OAuth provider linkage. NULL = email/password account.
   provider: varchar("provider", { length: 50 }), // "google" | "facebook" | "apple" | NULL
   providerUserId: varchar("provider_user_id", { length: 255 }), // sub from provider
-  avatarUrl: varchar("avatar_url", { length: 500 }),
+  // TEXT (unbounded) so we can store base64 data URIs for MVP. Phase 2: move
+  // to file upload + CDN URL (~80 chars), can revert to varchar then.
+  avatarUrl: text("avatar_url"),
   emailVerified: boolean("email_verified").default(false),
   // Password reset token (single-use, expires in 1h)
   resetToken: varchar("reset_token", { length: 255 }),
   resetTokenExpiresAt: timestamp("reset_token_expires_at"),
+  // Phase 1.5 reviewer stats — derived materialized fields. Updated via cron
+  // (helpful_received) or trigger (review_count). Used for badges + sorting.
+  reviewCount: integer("review_count").default(0),
+  helpfulReceived: integer("helpful_received").default(0),
+  reviewerLevel: varchar("reviewer_level", { length: 20 }), // 'newcomer'|'active'|'top'|'legend'
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -69,7 +76,9 @@ export const expenseType = pgTable("expensetype", {
 
 export const destinations = pgTable("destinations", {
   destinationId: serial("destination_id").primaryKey(),
-  destinationTypeId: integer("destinationtype_id").references(() => destinationType.destinationtypeId),
+  destinationTypeId: integer("destinationtype_id").references(
+    () => destinationType.destinationtypeId,
+  ),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   address: text("address"),
@@ -120,37 +129,67 @@ export const trips = pgTable("trips", {
 // BẢNG CẤP 3
 // ==============================================================================
 
-export const poiOpeningHours = pgTable("poi_opening_hours", {
-  poiId: integer("poi_id").notNull().references(() => pois.poiId, { onDelete: "cascade" }),
-  dayOfWeek: integer("day_of_week").notNull(),
-  openTime: time("open_time"),
-  closeTime: time("close_time"),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.poiId, table.dayOfWeek] }),
-}));
+export const poiOpeningHours = pgTable(
+  "poi_opening_hours",
+  {
+    poiId: integer("poi_id")
+      .notNull()
+      .references(() => pois.poiId, { onDelete: "cascade" }),
+    dayOfWeek: integer("day_of_week").notNull(),
+    openTime: time("open_time"),
+    closeTime: time("close_time"),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.poiId, table.dayOfWeek] }),
+  }),
+);
 
-export const poiPreferences = pgTable("poi_preferences", {
-  poiId: integer("poi_id").notNull().references(() => pois.poiId, { onDelete: "cascade" }),
-  preferenceId: integer("preference_id").notNull().references(() => preferences.preferenceId, { onDelete: "cascade" }),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.poiId, table.preferenceId] }),
-}));
+export const poiPreferences = pgTable(
+  "poi_preferences",
+  {
+    poiId: integer("poi_id")
+      .notNull()
+      .references(() => pois.poiId, { onDelete: "cascade" }),
+    preferenceId: integer("preference_id")
+      .notNull()
+      .references(() => preferences.preferenceId, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.poiId, table.preferenceId] }),
+  }),
+);
 
-export const tripMembers = pgTable("trip_members", {
-  tripId: integer("trip_id").notNull().references(() => trips.tripId, { onDelete: "cascade" }),
-  userId: integer("user_id").notNull().references(() => users.userId, { onDelete: "cascade" }),
-  role: varchar("role", { length: 50 }),
-  joinedAt: timestamp("joined_at").defaultNow(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.tripId, table.userId] }),
-}));
+export const tripMembers = pgTable(
+  "trip_members",
+  {
+    tripId: integer("trip_id")
+      .notNull()
+      .references(() => trips.tripId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    role: varchar("role", { length: 50 }),
+    joinedAt: timestamp("joined_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.tripId, table.userId] }),
+  }),
+);
 
-export const tripPreferences = pgTable("trip_preferences", {
-  tripId: integer("trip_id").notNull().references(() => trips.tripId, { onDelete: "cascade" }),
-  preferenceId: integer("preference_id").notNull().references(() => preferences.preferenceId, { onDelete: "cascade" }),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.tripId, table.preferenceId] }),
-}));
+export const tripPreferences = pgTable(
+  "trip_preferences",
+  {
+    tripId: integer("trip_id")
+      .notNull()
+      .references(() => trips.tripId, { onDelete: "cascade" }),
+    preferenceId: integer("preference_id")
+      .notNull()
+      .references(() => preferences.preferenceId, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.tripId, table.preferenceId] }),
+  }),
+);
 
 export const itineraryDay = pgTable("itineraryday", {
   dayId: serial("day_id").primaryKey(),
@@ -159,16 +198,282 @@ export const itineraryDay = pgTable("itineraryday", {
   dayIndex: integer("day_index"),
 });
 
-export const tripReviews = pgTable("trip_reviews", {
-  userId: integer("user_id").notNull().references(() => users.userId, { onDelete: "cascade" }),
-  tripId: integer("trip_id").notNull().references(() => trips.tripId, { onDelete: "cascade" }),
-  rating: decimal("rating", { precision: 3, scale: 2 }),
-  comment: text("comment"),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.userId, table.tripId] }),
-}));
+export const tripReviews = pgTable(
+  "trip_reviews",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    tripId: integer("trip_id")
+      .notNull()
+      .references(() => trips.tripId, { onDelete: "cascade" }),
+    rating: decimal("rating", { precision: 3, scale: 2 }),
+    comment: text("comment"),
+    // Phase 1.5: array of photo URLs / base64 data URIs (max 10/review enforced at app layer)
+    photos: jsonb("photos"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.tripId] }),
+  }),
+);
 
+// ──────────────────────────────────────────────────────────────
+// Review engagement tables (Phase 1.5 community features)
+// ──────────────────────────────────────────────────────────────
+
+/** Per-user upvote / downvote on someone else's review (helpful or not). */
+export const reviewVotes = pgTable(
+  "review_votes",
+  {
+    reviewUserId: integer("review_user_id").notNull(),
+    reviewTripId: integer("review_trip_id").notNull(),
+    voterUserId: integer("voter_user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    voteType: varchar("vote_type", { length: 20 }).notNull(), // 'helpful' | 'not_helpful'
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.reviewUserId, table.reviewTripId, table.voterUserId] }),
+  }),
+);
+
+/** Threaded reply / discussion under a review. */
+export const reviewReplies = pgTable("review_replies", {
+  replyId: serial("reply_id").primaryKey(),
+  parentReviewUserId: integer("parent_review_user_id").notNull(),
+  parentReviewTripId: integer("parent_review_trip_id").notNull(),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => users.userId, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** Generic content moderation report (review / reply / blog / Q&A). */
+export const contentReports = pgTable("content_reports", {
+  reportId: serial("report_id").primaryKey(),
+  contentType: varchar("content_type", { length: 50 }).notNull(), // 'review'|'reply'|'blog'|'qa'
+  contentRefId: varchar("content_ref_id", { length: 100 }).notNull(), // freeform — composite key encoded as string
+  reporterId: integer("reporter_id")
+    .notNull()
+    .references(() => users.userId, { onDelete: "cascade" }),
+  reason: varchar("reason", { length: 100 }).notNull(),
+  details: text("details"),
+  status: varchar("status", { length: 30 }).default("pending"), // pending/reviewed/resolved/dismissed
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** Per-category ratings on a review (Airbnb-style breakdown).
+ *  Categories: 'experience'/'value'/'cleanliness'/'safety'/'service' */
+export const reviewCategories = pgTable(
+  "review_categories",
+  {
+    reviewUserId: integer("review_user_id").notNull(),
+    reviewTripId: integer("review_trip_id").notNull(),
+    categoryName: varchar("category_name", { length: 50 }).notNull(),
+    rating: decimal("rating", { precision: 3, scale: 2 }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.reviewUserId, table.reviewTripId, table.categoryName] }),
+  }),
+);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMMUNITY MODULES — Blog + Forum (Phase 2 production)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Blog posts authored by users. Linked to destinations + optional trip recap. */
+export const blogPosts = pgTable("blog_posts", {
+  postId: serial("post_id").primaryKey(),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => users.userId, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 280 }).notNull().unique(),
+  excerpt: text("excerpt"),
+  content: text("content").notNull(),
+  coverImage: text("cover_image"),
+  images: jsonb("images"), // array of image URLs / base64
+  category: varchar("category", { length: 50 }), // 'guide' | 'review' | 'food' | 'tips' | 'experience'
+  readMinutes: integer("read_minutes").default(5),
+  status: varchar("status", { length: 20 }).default("published"), // 'draft' | 'published' | 'hidden'
+  viewCount: integer("view_count").default(0),
+  likeCount: integer("like_count").default(0),
+  commentCount: integer("comment_count").default(0),
+  bookmarkCount: integer("bookmark_count").default(0),
+  referencedTripId: integer("referenced_trip_id").references(() => trips.tripId, {
+    onDelete: "set null",
+  }),
+  publishedAt: timestamp("published_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** Tags for blog posts (shared with forum threads). */
+export const communityTags = pgTable("community_tags", {
+  tagId: serial("tag_id").primaryKey(),
+  name: varchar("name", { length: 50 }).notNull().unique(),
+  slug: varchar("slug", { length: 60 }).notNull().unique(),
+  color: varchar("color", { length: 20 }), // hex
+  usageCount: integer("usage_count").default(0),
+});
+
+/** Many-to-many: blog posts ↔ tags */
+export const blogPostTags = pgTable(
+  "blog_post_tags",
+  {
+    postId: integer("post_id")
+      .notNull()
+      .references(() => blogPosts.postId, { onDelete: "cascade" }),
+    tagId: integer("tag_id")
+      .notNull()
+      .references(() => communityTags.tagId, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.postId, table.tagId] }),
+  }),
+);
+
+/** Many-to-many: blog posts ↔ destinations (a guide can cover multiple cities) */
+export const blogPostDestinations = pgTable(
+  "blog_post_destinations",
+  {
+    postId: integer("post_id")
+      .notNull()
+      .references(() => blogPosts.postId, { onDelete: "cascade" }),
+    destinationId: integer("destination_id")
+      .notNull()
+      .references(() => destinations.destinationId, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.postId, table.destinationId] }),
+  }),
+);
+
+/** User likes on blog posts (toggle). */
+export const blogLikes = pgTable(
+  "blog_likes",
+  {
+    postId: integer("post_id")
+      .notNull()
+      .references(() => blogPosts.postId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.postId, table.userId] }),
+  }),
+);
+
+/** Bookmarks / saved posts for later reading. */
+export const blogBookmarks = pgTable(
+  "blog_bookmarks",
+  {
+    postId: integer("post_id")
+      .notNull()
+      .references(() => blogPosts.postId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.postId, table.userId] }),
+  }),
+);
+
+/** Comments on blog posts (nested via parent_id, 1 level deep usually). */
+export const blogComments = pgTable("blog_comments", {
+  commentId: serial("comment_id").primaryKey(),
+  postId: integer("post_id")
+    .notNull()
+    .references(() => blogPosts.postId, { onDelete: "cascade" }),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => users.userId, { onDelete: "cascade" }),
+  parentCommentId: integer("parent_comment_id"),
+  content: text("content").notNull(),
+  likeCount: integer("like_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ─── Forum ────────────────────────────────────────────────────
+
+/** Forum discussion threads — questions / discussions. */
+export const forumThreads = pgTable("forum_threads", {
+  threadId: serial("thread_id").primaryKey(),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => users.userId, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  destinationId: integer("destination_id").references(() => destinations.destinationId, {
+    onDelete: "set null",
+  }),
+  category: varchar("category", { length: 50 }), // 'question' | 'discussion' | 'tip' | 'recommendation'
+  status: varchar("status", { length: 20 }).default("open"), // 'open' | 'solved' | 'closed' | 'locked'
+  acceptedReplyId: integer("accepted_reply_id"),
+  viewCount: integer("view_count").default(0),
+  replyCount: integer("reply_count").default(0),
+  upvotes: integer("upvotes").default(0),
+  downvotes: integer("downvotes").default(0),
+  isPinned: boolean("is_pinned").default(false),
+  lastReplyAt: timestamp("last_reply_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** Forum thread tags (reuses community_tags). */
+export const forumThreadTags = pgTable(
+  "forum_thread_tags",
+  {
+    threadId: integer("thread_id")
+      .notNull()
+      .references(() => forumThreads.threadId, { onDelete: "cascade" }),
+    tagId: integer("tag_id")
+      .notNull()
+      .references(() => communityTags.tagId, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.threadId, table.tagId] }),
+  }),
+);
+
+/** Replies on a forum thread (nested via parent_reply_id, 1 level). */
+export const forumReplies = pgTable("forum_replies", {
+  replyId: serial("reply_id").primaryKey(),
+  threadId: integer("thread_id")
+    .notNull()
+    .references(() => forumThreads.threadId, { onDelete: "cascade" }),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => users.userId, { onDelete: "cascade" }),
+  parentReplyId: integer("parent_reply_id"),
+  body: text("body").notNull(),
+  upvotes: integer("upvotes").default(0),
+  downvotes: integer("downvotes").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** Generic vote table for threads + replies. */
+export const forumVotes = pgTable(
+  "forum_votes",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    targetType: varchar("target_type", { length: 20 }).notNull(), // 'thread' | 'reply'
+    targetId: integer("target_id").notNull(),
+    voteType: varchar("vote_type", { length: 10 }).notNull(), // 'up' | 'down'
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.targetType, table.targetId] }),
+  }),
+);
 
 export const notifications = pgTable("notifications", {
   notificationId: serial("notification_id").primaryKey(),
@@ -203,16 +508,23 @@ export const itineraryItems = pgTable("itinerary_items", {
   activityType: varchar("activity_type", { length: 50 }),
 });
 
-export const itemReviews = pgTable("item_reviews", {
-  userId: integer("user_id").notNull().references(() => users.userId, { onDelete: "cascade" }),
-  itemId: integer("item_id").notNull().references(() => itineraryItems.itemId, { onDelete: "cascade" }),
-  rating: decimal("rating", { precision: 3, scale: 2 }),
-  comment: text("comment"),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.userId, table.itemId] }),
-}));
-
+export const itemReviews = pgTable(
+  "item_reviews",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    itemId: integer("item_id")
+      .notNull()
+      .references(() => itineraryItems.itemId, { onDelete: "cascade" }),
+    rating: decimal("rating", { precision: 3, scale: 2 }),
+    comment: text("comment"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.itemId] }),
+  }),
+);
 
 export const expenses = pgTable("expenses", {
   expenseId: serial("expense_id").primaryKey(),

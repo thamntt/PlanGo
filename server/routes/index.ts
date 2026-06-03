@@ -2,12 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "node:http";
 import { storage } from "../storage";
 import { logger } from "../lib/logger";
-import {
-  getActiveProvider,
-  getGoogleKey,
-  getGoongKey,
-  getSerpApiKey,
-} from "../lib/api-keys";
+import { getActiveProvider, getGoogleKey, getGoongKey, getSerpApiKey } from "../lib/api-keys";
 
 import { registerPlacesRoutes } from "../modules/places/router";
 import { registerShareRoutes } from "../modules/share/router";
@@ -21,6 +16,8 @@ import { registerLookupRoutes } from "../modules/lookups/router";
 import { registerNotificationRoutes } from "../modules/notifications/router";
 import { registerAdminRoutes } from "../modules/admin/router";
 import { registerDocsRoutes } from "../modules/docs/router";
+import { registerBlogRoutes } from "../modules/blog/router";
+import { registerForumRoutes } from "../modules/forum/router";
 
 function logActiveProvider() {
   const provider = getActiveProvider();
@@ -36,7 +33,9 @@ function logActiveProvider() {
 }
 
 function seedLookupTables() {
-  storage.seedDestinationTypes().catch((err) => logger.error({ err }, "Destination type seeding failed"));
+  storage
+    .seedDestinationTypes()
+    .catch((err) => logger.error({ err }, "Destination type seeding failed"));
   storage.seedPoiTypes().catch((err) => logger.error({ err }, "POI type seeding failed"));
   storage.seedPreferences().catch((err) => logger.error({ err }, "Preference seeding failed"));
   storage.seedAdminUser().catch((err) => logger.error({ err }, "Admin user seeding failed"));
@@ -58,6 +57,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerNotificationRoutes(app);
   registerAdminRoutes(app);
   registerDocsRoutes(app);
+  registerBlogRoutes(app);
+  registerForumRoutes(app);
 
   return createServer(app);
 }
