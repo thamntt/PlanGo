@@ -1,0 +1,15 @@
+node_modules
+dist
+server_dist
+.expo
+web-build
+static-build
+ios
+android
+admin-plango/dist
+admin-plango/node_modules
+package-lock.json
+patches
+migrations/meta
+scratch
+attached_assets
