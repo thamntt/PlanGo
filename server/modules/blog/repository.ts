@@ -353,9 +353,17 @@ export const blogRepo = {
     if (data.destinationIds !== undefined) {
       await db.delete(blogPostDestinations).where(eq(blogPostDestinations.postId, postId));
       if (data.destinationIds.length > 0) {
-        await db
-          .insert(blogPostDestinations)
-          .values(data.destinationIds.map((destinationId) => ({ postId, destinationId })));
+        // Validate destination IDs actually exist to avoid FK violation
+        const validRows = await db
+          .select({ id: destinations.destinationId })
+          .from(destinations)
+          .where(inArray(destinations.destinationId, data.destinationIds));
+        const validIds = validRows.map((r) => r.id);
+        if (validIds.length > 0) {
+          await db
+            .insert(blogPostDestinations)
+            .values(validIds.map((destinationId) => ({ postId, destinationId })));
+        }
       }
     }
     return post;

@@ -102,10 +102,17 @@ export default function CreateBlogPostScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [16, 9],
-      quality: 0.8,
+      quality: 0.7,
+      base64: true, // need base64 so we can persist server-side
     });
     if (!result.canceled && result.assets[0]) {
-      setCoverImage(result.assets[0].uri);
+      const a = result.assets[0];
+      // Persist as base64 data URI — temp blob:/file: URIs become invalid
+      // after the session ends, so the image would disappear on next reload.
+      const dataUri = a.base64
+        ? `data:image/${a.uri.split(".").pop() === "png" ? "png" : "jpeg"};base64,${a.base64}`
+        : a.uri;
+      setCoverImage(dataUri);
     }
   }, []);
 

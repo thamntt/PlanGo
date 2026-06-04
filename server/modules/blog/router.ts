@@ -91,8 +91,18 @@ async function updatePost(req: Request, res: Response) {
   const existing = await blogRepo.getPost(id);
   if (!existing) throw errors.notFound("Blog post");
   if (existing.authorId !== authorId) throw errors.forbidden();
-  const post = await blogRepo.updatePost(id, req.body ?? {});
-  sendResponse(res, 200, "Blog post updated", post);
+  try {
+    const post = await blogRepo.updatePost(id, req.body ?? {});
+    sendResponse(res, 200, "Blog post updated", post);
+  } catch (err: any) {
+    console.error("[updatePost] failed:", {
+      postId: id,
+      body: req.body,
+      err: err?.message,
+      stack: err?.stack?.split("\n").slice(0, 3),
+    });
+    throw err;
+  }
 }
 
 async function deletePost(req: Request, res: Response) {
