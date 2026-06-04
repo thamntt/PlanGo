@@ -9,6 +9,23 @@ import type { ForumThread } from "@/hooks/queries/use-forum";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
+// Category labels + colors — shared with community tab
+const BLOG_CAT: Record<string, { label: string; color: string }> = {
+  guide: { label: "Hướng dẫn", color: "#0891B2" },
+  review: { label: "Review", color: "#10B981" },
+  food: { label: "Ẩm thực", color: "#F97316" },
+  tips: { label: "Mẹo hay", color: "#8B5CF6" },
+  tip: { label: "Mẹo hay", color: "#8B5CF6" },
+  experience: { label: "Trải nghiệm", color: "#EC4899" },
+  story: { label: "Trải nghiệm", color: "#EC4899" },
+};
+const FORUM_CAT: Record<string, { label: string; color: string }> = {
+  question: { label: "Câu hỏi", color: "#3B82F6" },
+  discussion: { label: "Thảo luận", color: "#A855F7" },
+  tip: { label: "Mẹo", color: "#10B981" },
+  recommendation: { label: "Gợi ý", color: "#F59E0B" },
+};
+
 function timeAgo(iso?: string | null): string {
   if (!iso) return "";
   const ms = Date.now() - new Date(iso).getTime();
@@ -27,6 +44,7 @@ function timeAgo(iso?: string | null): string {
 }
 
 export function BlogPostRow({ post, colors }: { post: BlogPost; colors: ThemeColors }) {
+  const cat = post.category ? BLOG_CAT[post.category] : null;
   return (
     <Pressable
       onPress={() =>
@@ -45,6 +63,14 @@ export function BlogPostRow({ post, colors }: { post: BlogPost; colors: ThemeCol
         <Image source={{ uri: post.coverImage }} style={styles.thumb} contentFit="cover" />
       )}
       <View style={{ flex: 1 }}>
+        {/* Category badge */}
+        {cat && (
+          <View style={styles.catRow}>
+            <View style={[styles.catBadge, { backgroundColor: cat.color + "1A" }]}>
+              <Text style={[styles.catText, { color: cat.color }]}>{cat.label}</Text>
+            </View>
+          </View>
+        )}
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
           {post.title}
         </Text>
@@ -88,21 +114,6 @@ export function BlogPostRow({ post, colors }: { post: BlogPost; colors: ThemeCol
             {timeAgo(post.publishedAt)}
           </Text>
         </Pressable>
-        {/* Tags row */}
-        {post.tags && post.tags.length > 0 && (
-          <View style={styles.tagsRow}>
-            {post.tags.slice(0, 4).map((t) => (
-              <View
-                key={t.tagId}
-                style={[styles.tagChip, { backgroundColor: (t.color || colors.primary) + "1A" }]}
-              >
-                <Text style={[styles.tagText, { color: t.color || colors.primary }]}>
-                  #{t.name}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
         <View style={styles.metaRow}>
           <Ionicons name="heart" size={10} color="#EF4444" />
           <Text style={[styles.metaText, { color: colors.textTertiary }]}>{post.likeCount}</Text>
@@ -118,6 +129,7 @@ export function BlogPostRow({ post, colors }: { post: BlogPost; colors: ThemeCol
 
 export function ForumThreadRow({ thread, colors }: { thread: ForumThread; colors: ThemeColors }) {
   const solved = thread.status === "solved";
+  const cat = thread.category ? FORUM_CAT[thread.category] : null;
   return (
     <Pressable
       onPress={() =>
@@ -132,6 +144,14 @@ export function ForumThreadRow({ thread, colors }: { thread: ForumThread; colors
         },
       ]}
     >
+      {/* Category badge */}
+      {cat && (
+        <View style={styles.catRow}>
+          <View style={[styles.catBadge, { backgroundColor: cat.color + "1A" }]}>
+            <Text style={[styles.catText, { color: cat.color }]}>{cat.label}</Text>
+          </View>
+        </View>
+      )}
       <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
         {thread.title}
       </Text>
@@ -170,19 +190,6 @@ export function ForumThreadRow({ thread, colors }: { thread: ForumThread; colors
           {timeAgo(thread.createdAt)}
         </Text>
       </Pressable>
-      {/* Tags row */}
-      {thread.tags && thread.tags.length > 0 && (
-        <View style={styles.tagsRow}>
-          {thread.tags.slice(0, 4).map((t) => (
-            <View
-              key={t.tagId}
-              style={[styles.tagChip, { backgroundColor: (t.color || colors.primary) + "1A" }]}
-            >
-              <Text style={[styles.tagText, { color: t.color || colors.primary }]}>#{t.name}</Text>
-            </View>
-          ))}
-        </View>
-      )}
       <View style={styles.metaRow}>
         {solved && (
           <View style={styles.solvedBadge}>
@@ -247,9 +254,9 @@ const styles = StyleSheet.create({
   authorRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 5 },
   authorAvatar: { width: 18, height: 18, borderRadius: 9 },
   authorName: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 5 },
-  tagChip: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
-  tagText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  catRow: { flexDirection: "row", marginBottom: 5 },
+  catBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  catText: { fontSize: 10, fontFamily: "Inter_700Bold" },
 
   threadCard: { padding: 12, borderRadius: 12, borderWidth: 1, gap: 4 },
   solvedBadge: {
