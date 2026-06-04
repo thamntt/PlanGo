@@ -137,7 +137,20 @@ export default function ProfileScreen() {
   const followingCount = profileSummaryQuery.data?.followingCount ?? 0;
   const replyCount = profileSummaryQuery.data?.replyCount ?? 0;
   const totalThreadActivity = myThreadCount + replyCount;
-  const [communityTab, setCommunityTab] = useState<"blog" | "forum">("blog");
+  const [communityTab, _setCommunityTab] = useState<"blog" | "forum">(() => {
+    try {
+      const saved = (globalThis as any)?._profileCommunityTab;
+      return saved === "forum" ? "forum" : "blog";
+    } catch {
+      return "blog";
+    }
+  });
+  const setCommunityTab = (t: "blog" | "forum") => {
+    try {
+      (globalThis as any)._profileCommunityTab = t;
+    } catch {}
+    _setCommunityTab(t);
+  };
   const memberSince = user?.createdAt
     ? new Date(user.createdAt).toLocaleDateString("vi-VN", { month: "short", year: "numeric" })
     : "—";

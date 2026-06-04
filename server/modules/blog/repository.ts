@@ -319,13 +319,45 @@ export const blogRepo = {
       content: string;
       coverImage: string;
       category: string;
+      readMinutes: number;
+      tagNames: string[];
+      destinationIds: number[];
     }>,
   ) {
+    // Only update direct columns; tags + destinations handled separately
+    const directUpdate: Record<string, any> = { updatedAt: new Date() };
+    if (data.title !== undefined) directUpdate.title = data.title;
+    if (data.excerpt !== undefined) directUpdate.excerpt = data.excerpt;
+    if (data.content !== undefined) directUpdate.content = data.content;
+    if (data.coverImage !== undefined) directUpdate.coverImage = data.coverImage;
+    if (data.category !== undefined) directUpdate.category = data.category;
+    if (data.readMinutes !== undefined) directUpdate.readMinutes = data.readMinutes;
+
     const [post] = await db
       .update(blogPosts)
-      .set({ ...data, updatedAt: new Date() })
+      .set(directUpdate)
       .where(eq(blogPosts.postId, postId))
       .returning();
+
+    // Replace tags if provided
+    if (data.tagNames !== undefined) {
+      await db.delete(blogPostTags).where(eq(blogPostTags.postId, postId));
+      if (data.tagNames.length > 0) {
+        const tagIds = await this.ensureTags(data.tagNames);
+        if (tagIds.length > 0) {
+          await db.insert(blogPostTags).values(tagIds.map((tagId) => ({ postId, tagId })));
+        }
+      }
+    }
+    // Replace destinations if provided
+    if (data.destinationIds !== undefined) {
+      await db.delete(blogPostDestinations).where(eq(blogPostDestinations.postId, postId));
+      if (data.destinationIds.length > 0) {
+        await db
+          .insert(blogPostDestinations)
+          .values(data.destinationIds.map((destinationId) => ({ postId, destinationId })));
+      }
+    }
     return post;
   },
 

@@ -21,12 +21,14 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest } from "@/lib/api/query-client";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user, refreshUser } = useAuth();
+  const qc = useQueryClient();
   const [fullName, setFullName] = useState(user?.fullName || "");
   const [email, setEmail] = useState(user?.email || "");
   const [avatar, setAvatar] = useState<string | null>(user?.avatar || null);
@@ -79,6 +81,12 @@ export default function EditProfileScreen() {
         avatar,
       });
       await refreshUser?.();
+      // Invalidate everything that displays author name/avatar so changes
+      // propagate without manual reload
+      qc.invalidateQueries({ queryKey: ["blog"] });
+      qc.invalidateQueries({ queryKey: ["forum"] });
+      qc.invalidateQueries({ queryKey: ["userCommunity"] });
+      qc.invalidateQueries({ queryKey: ["reviews"] });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (err: any) {
@@ -86,7 +94,7 @@ export default function EditProfileScreen() {
     } finally {
       setSaving(false);
     }
-  }, [user, fullName, email, avatar, validate, refreshUser]);
+  }, [user, fullName, email, avatar, validate, refreshUser, qc]);
 
   const dirty =
     fullName.trim() !== (user?.fullName || "") ||

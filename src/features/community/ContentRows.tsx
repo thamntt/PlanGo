@@ -88,6 +88,21 @@ export function BlogPostRow({ post, colors }: { post: BlogPost; colors: ThemeCol
             {timeAgo(post.publishedAt)}
           </Text>
         </Pressable>
+        {/* Tags row */}
+        {post.tags && post.tags.length > 0 && (
+          <View style={styles.tagsRow}>
+            {post.tags.slice(0, 4).map((t) => (
+              <View
+                key={t.tagId}
+                style={[styles.tagChip, { backgroundColor: (t.color || colors.primary) + "1A" }]}
+              >
+                <Text style={[styles.tagText, { color: t.color || colors.primary }]}>
+                  #{t.name}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
         <View style={styles.metaRow}>
           <Ionicons name="heart" size={10} color="#EF4444" />
           <Text style={[styles.metaText, { color: colors.textTertiary }]}>{post.likeCount}</Text>
@@ -155,6 +170,19 @@ export function ForumThreadRow({ thread, colors }: { thread: ForumThread; colors
           {timeAgo(thread.createdAt)}
         </Text>
       </Pressable>
+      {/* Tags row */}
+      {thread.tags && thread.tags.length > 0 && (
+        <View style={styles.tagsRow}>
+          {thread.tags.slice(0, 4).map((t) => (
+            <View
+              key={t.tagId}
+              style={[styles.tagChip, { backgroundColor: (t.color || colors.primary) + "1A" }]}
+            >
+              <Text style={[styles.tagText, { color: t.color || colors.primary }]}>#{t.name}</Text>
+            </View>
+          ))}
+        </View>
+      )}
       <View style={styles.metaRow}>
         {solved && (
           <View style={styles.solvedBadge}>
@@ -219,6 +247,9 @@ const styles = StyleSheet.create({
   authorRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 5 },
   authorAvatar: { width: 18, height: 18, borderRadius: 9 },
   authorName: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 5 },
+  tagChip: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
+  tagText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
 
   threadCard: { padding: 12, borderRadius: 12, borderWidth: 1, gap: 4 },
   solvedBadge: {
