@@ -95,7 +95,18 @@ export default function CreateForumThreadScreen() {
   const canSubmit = title.trim().length >= 8 && body.trim().length >= 20;
 
   const handleSubmit = useCallback(async () => {
-    if (!canSubmit || !user) return;
+    if (!user) {
+      Alert.alert("Cần đăng nhập", "Vui lòng đăng nhập để đặt câu hỏi");
+      return;
+    }
+    if (title.trim().length < 8) {
+      Alert.alert("Tiêu đề quá ngắn", "Vui lòng nhập tiêu đề tối thiểu 8 ký tự");
+      return;
+    }
+    if (body.trim().length < 20) {
+      Alert.alert("Nội dung quá ngắn", "Vui lòng mô tả tối thiểu 20 ký tự");
+      return;
+    }
     try {
       const created = await createThread.mutateAsync({
         title: title.trim(),
@@ -140,7 +151,7 @@ export default function CreateForumThreadScreen() {
           <Text style={[styles.headerTitle, { color: colors.text }]}>Đặt câu hỏi</Text>
           <Pressable
             onPress={handleSubmit}
-            disabled={!canSubmit || createThread.isPending}
+            disabled={createThread.isPending}
             style={[
               styles.publishBtn,
               {

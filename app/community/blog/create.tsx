@@ -128,7 +128,18 @@ export default function CreateBlogPostScreen() {
   const canSubmit = title.trim().length >= 8 && content.trim().length >= 50;
 
   const handleSubmit = useCallback(async () => {
-    if (!canSubmit || !user) return;
+    if (!user) {
+      Alert.alert("Cần đăng nhập", "Vui lòng đăng nhập để đăng bài");
+      return;
+    }
+    if (title.trim().length < 8) {
+      Alert.alert("Tiêu đề quá ngắn", "Vui lòng nhập tiêu đề tối thiểu 8 ký tự");
+      return;
+    }
+    if (content.trim().length < 50) {
+      Alert.alert("Nội dung quá ngắn", "Vui lòng nhập nội dung tối thiểu 50 ký tự");
+      return;
+    }
     try {
       const payload = {
         title: title.trim(),
@@ -140,18 +151,42 @@ export default function CreateBlogPostScreen() {
         tagNames: tags,
         destinationIds: selectedDestinationIds,
       };
-      let resultId: number;
+      console.log("[blog/create] submitting", { isEdit, editId, payload });
+      let resultId: number | undefined;
       if (isEdit && editId) {
         const updated = await updatePost.mutateAsync({ postId: editId, input: payload });
-        resultId = updated.postId;
+        console.log("[blog/create] update response:", updated);
+        resultId = updated?.postId ?? editId;
       } else {
         const created = await createPost.mutateAsync(payload);
-        resultId = created.postId;
+        console.log("[blog/create] create response:", created);
+        resultId = created?.postId;
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace({ pathname: "/community/blog/[id]", params: { id: String(resultId) } });
+      if (!resultId) {
+        Alert.alert("Lỗi", "Đã lưu nhưng ko nhận được ID bài viết");
+        return;
+      }
+      // Try replace first; if that doesn't navigate, fall back to back+push
+      if (isEdit) {
+        // For edit: just go back to the detail screen
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace({
+            pathname: "/community/blog/[id]",
+            params: { id: String(resultId) },
+          });
+        }
+      } else {
+        router.replace({ pathname: "/community/blog/[id]", params: { id: String(resultId) } });
+      }
     } catch (err: any) {
-      Alert.alert("Lỗi", err?.message || (isEdit ? "Không lưu được" : "Không tạo được bài viết"));
+      console.error("[blog/create] submit failed:", err);
+      Alert.alert(
+        "Lỗi",
+        err?.message || (isEdit ? "Không lưu được bài viết" : "Không tạo được bài viết"),
+      );
     }
   }, [
     canSubmit,
@@ -198,11 +233,11 @@ export default function CreateBlogPostScreen() {
           </Text>
           <Pressable
             onPress={handleSubmit}
-            disabled={!canSubmit || createPost.isPending}
+            disabled={createPost.isPending || updatePost.isPending}
             style={[
               styles.publishBtn,
               {
-                backgroundColor: canSubmit ? colors.primary : colors.inputBg,
+                backgroundColor: canSubmit ? colors.primary : colors.textTertiary,
                 opacity: createPost.isPending || updatePost.isPending ? 0.6 : 1,
               },
             ]}
