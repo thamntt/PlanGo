@@ -45,7 +45,11 @@ export interface BlogComment {
   parentCommentId?: number | null;
   content: string;
   likeCount: number;
+  isLikedByViewer?: boolean;
+  isPinned?: boolean;
+  pinnedAt?: string | null;
   createdAt: string;
+  updatedAt?: string | null;
   authorName: string;
   authorHandle?: string;
   authorRole?: string | null;
@@ -160,6 +164,71 @@ export function useCreateBlogComment() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: [...KEY, "comments", vars.postId] });
       qc.invalidateQueries({ queryKey: [...KEY, "post", vars.postId] });
+    },
+  });
+}
+
+export function useUpdateBlogComment() {
+  const qc = useQueryClient();
+  return useMutation<BlogComment, Error, { commentId: number; postId: number; content: string }>({
+    mutationFn: async ({ commentId, content }) => {
+      const res = await apiRequest("PUT", `/api/blog/comments/${commentId}`, { content });
+      return unwrap(res);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: [...KEY, "comments", vars.postId] });
+    },
+  });
+}
+
+export function useToggleCommentLike() {
+  const qc = useQueryClient();
+  return useMutation<
+    { liked: boolean; likeCount: number },
+    Error,
+    { commentId: number; postId: number }
+  >({
+    mutationFn: async ({ commentId }) => {
+      const res = await apiRequest("POST", `/api/blog/comments/${commentId}/like`);
+      return unwrap(res);
+    },
+    onMutate: async ({ commentId, postId }) => {
+      await qc.cancelQueries({ queryKey: [...KEY, "comments", postId] });
+      const prev = qc.getQueryData<BlogComment[]>([...KEY, "comments", postId]);
+      if (prev) {
+        qc.setQueryData<BlogComment[]>(
+          [...KEY, "comments", postId],
+          prev.map((c) =>
+            c.commentId === commentId
+              ? {
+                  ...c,
+                  isLikedByViewer: !c.isLikedByViewer,
+                  likeCount: (c.likeCount || 0) + (c.isLikedByViewer ? -1 : 1),
+                }
+              : c,
+          ),
+        );
+      }
+      return { prev };
+    },
+    onError: (_err, vars, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData([...KEY, "comments", vars.postId], ctx.prev);
+    },
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({ queryKey: [...KEY, "comments", vars.postId] });
+    },
+  });
+}
+
+export function useTogglePinComment() {
+  const qc = useQueryClient();
+  return useMutation<{ pinned: boolean }, Error, { commentId: number; postId: number }>({
+    mutationFn: async ({ commentId }) => {
+      const res = await apiRequest("POST", `/api/blog/comments/${commentId}/pin`);
+      return unwrap(res);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: [...KEY, "comments", vars.postId] });
     },
   });
 }

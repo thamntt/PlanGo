@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -23,8 +24,11 @@ import {
   useForumThread,
   useForumReplies,
   useCreateForumReply,
+  useUpdateForumThread,
+  useUpdateForumReply,
   useVoteThread,
   useVoteReply,
+  useVotePoll,
   useAcceptReply,
   useDeleteForumThread,
   useDeleteForumReply,
@@ -32,21 +36,26 @@ import {
 } from "@/hooks/queries/use-forum";
 import { ReportSheet } from "@/features/community/ReportSheet";
 import { AdminBadge } from "@/features/community/AdminBadge";
+import { ForumReplyItem } from "@/features/community/ForumReplyItem";
+import { CommentReplies } from "@/features/community/CommentReplies";
+import { CommentActionSheet, type ActionItem } from "@/features/community/CommentActionSheet";
+import { PollBlock } from "@/features/community/PollBlock";
+import { useToast } from "@/contexts/ToastContext";
+import { getForumCategory } from "@/features/community/categories";
 
-const CAT_LABEL: Record<string, string> = {
-  question: "Câu hỏi",
-  discussion: "Thảo luận",
-  tip: "Mẹo",
-  recommendation: "Gợi ý",
-};
-const CAT_COLOR: Record<string, string> = {
-  question: "#3B82F6",
-  discussion: "#A855F7",
-  tip: "#10B981",
-  recommendation: "#F59E0B",
-};
+const EDIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
-type ThemeColors = ReturnType<typeof useThemeColors>;
+function stripMarkdown(input: string): string {
+  if (!input) return "";
+  return input
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+}
 
 export default function ThreadDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -55,11 +64,15 @@ export default function ThreadDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
+  const toast = useToast();
   const threadQuery = useForumThread(threadId);
   const repliesQuery = useForumReplies(threadId);
   const createReply = useCreateForumReply();
+  const updateThread = useUpdateForumThread();
+  const updateReply = useUpdateForumReply();
   const voteThread = useVoteThread();
   const voteReply = useVoteReply();
+  const votePoll = useVotePoll();
   const acceptReply = useAcceptReply();
   const deleteThread = useDeleteForumThread();
   const deleteReply = useDeleteForumReply();
@@ -69,11 +82,39 @@ export default function ThreadDetailScreen() {
     type: "forum_thread" | "forum_reply";
     id: number;
   } | null>(null);
+  const [editingThread, setEditingThread] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [savingThread, setSavingThread] = useState(false);
+  const [threadMenuOpen, setThreadMenuOpen] = useState(false);
 
   const thread = threadQuery.data;
   const replies = repliesQuery.data || [];
   const isOwn = !!user && thread?.authorId === Number(user.id);
+  const isAdminViewer = user?.role === "admin";
   const webTopInset = Platform.OS === "web" ? 67 : 0;
+  const cat = getForumCategory(thread?.category);
+  const isSolved = thread?.status === "solved";
+  const threadEditable = useMemo(() => {
+    if (!thread || !isOwn || isSolved) return false;
+    const age = Date.now() - new Date(thread.createdAt).getTime();
+    return age < EDIT_WINDOW_MS;
+  }, [thread, isOwn, isSolved]);
+  const threadEdited = !!thread?.updatedAt;
+
+  // Group replies — top-level + nested
+  const topLevelReplies = useMemo(() => replies.filter((r) => !r.parentReplyId), [replies]);
+  const childrenByParent = useMemo(() => {
+    const map = new Map<number, ForumReply[]>();
+    for (const r of replies) {
+      if (r.parentReplyId) {
+        const arr = map.get(r.parentReplyId) || [];
+        arr.push(r);
+        map.set(r.parentReplyId, arr);
+      }
+    }
+    return map;
+  }, [replies]);
 
   const handleVoteThread = useCallback(
     (voteType: "up" | "down") => {
@@ -122,6 +163,45 @@ export default function ThreadDetailScreen() {
     [threadId, acceptReply],
   );
 
+  const handleEditReply = useCallback(
+    async (replyId: number, body: string) => {
+      if (!threadId) throw new Error("missing thread");
+      await updateReply.mutateAsync({ replyId, threadId, body });
+    },
+    [threadId, updateReply],
+  );
+
+  const handleDeleteReply = useCallback(
+    (replyId: number) => {
+      if (!threadId) return;
+      deleteReply.mutate({ replyId, threadId });
+    },
+    [threadId, deleteReply],
+  );
+
+  const handleReplyToReply = useCallback(
+    async (parentId: number, body: string) => {
+      if (!threadId) throw new Error("missing thread");
+      await createReply.mutateAsync({ threadId, body, parentReplyId: parentId });
+    },
+    [threadId, createReply],
+  );
+
+  // FB/IG-style: nested reply targets the top-level parent + @mentions the user.
+  const makeReplyToNestedReply = useCallback(
+    (topLevelParentId: number, targetName: string) => async (_replyId: number, body: string) => {
+      if (!threadId) throw new Error("missing thread");
+      const marker = `@{${targetName}}`;
+      const prefixed = body.startsWith(marker) ? body : `${marker} ${body}`;
+      await createReply.mutateAsync({
+        threadId,
+        body: prefixed,
+        parentReplyId: topLevelParentId,
+      });
+    },
+    [threadId, createReply],
+  );
+
   const handleDeleteThread = useCallback(() => {
     if (!threadId) return;
     const doDel = async () => {
@@ -140,6 +220,37 @@ export default function ThreadDetailScreen() {
     }
   }, [threadId, deleteThread]);
 
+  const startEditThread = useCallback(() => {
+    if (!thread) return;
+    setEditTitle(thread.title);
+    setEditBody(thread.body);
+    setEditingThread(true);
+  }, [thread]);
+
+  const saveThreadEdit = useCallback(async () => {
+    if (!threadId || !thread) return;
+    const title = editTitle.trim();
+    const body = editBody.trim();
+    if (!title || !body) {
+      Alert.alert("Lỗi", "Tiêu đề và nội dung không được trống");
+      return;
+    }
+    if (title === thread.title && body === thread.body) {
+      setEditingThread(false);
+      return;
+    }
+    setSavingThread(true);
+    try {
+      await updateThread.mutateAsync({ threadId, input: { title, body } });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setEditingThread(false);
+    } catch (err: any) {
+      Alert.alert("Không sửa được", err?.message || "Đã xảy ra lỗi");
+    } finally {
+      setSavingThread(false);
+    }
+  }, [threadId, thread, editTitle, editBody, updateThread]);
+
   if (threadQuery.isLoading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
@@ -155,9 +266,6 @@ export default function ThreadDetailScreen() {
     );
   }
 
-  const catColor = CAT_COLOR[thread.category || ""] || colors.primary;
-  const isSolved = thread.status === "solved";
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <KeyboardAvoidingView
@@ -171,15 +279,10 @@ export default function ThreadDetailScreen() {
               router.canGoBack() ? router.back() : router.replace("/(tabs)/community")
             }
             style={({ pressed }) => [
+              styles.headerBtn,
               {
-                width: 40,
-                height: 40,
-                borderRadius: 20,
                 backgroundColor: colors.card,
-                borderWidth: 1,
                 borderColor: colors.cardBorder,
-                alignItems: "center",
-                justifyContent: "center",
                 opacity: pressed ? 0.85 : 1,
               },
             ]}
@@ -188,46 +291,20 @@ export default function ThreadDetailScreen() {
             <Ionicons name="arrow-back" size={20} color={colors.text} />
           </Pressable>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Câu hỏi</Text>
-          {isOwn ? (
+          {(isOwn || user) && !editingThread ? (
             <Pressable
-              onPress={handleDeleteThread}
+              onPress={() => setThreadMenuOpen(true)}
               style={({ pressed }) => [
+                styles.headerBtn,
                 {
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
                   backgroundColor: colors.card,
-                  borderWidth: 1,
                   borderColor: colors.cardBorder,
-                  alignItems: "center",
-                  justifyContent: "center",
                   opacity: pressed ? 0.85 : 1,
                 },
               ]}
+              hitSlop={6}
             >
-              <Ionicons name="trash-outline" size={18} color="#EF4444" />
-            </Pressable>
-          ) : user ? (
-            <Pressable
-              onPress={() => {
-                setReportTarget({ type: "forum_thread", id: thread.threadId });
-                setReportOpen(true);
-              }}
-              style={({ pressed }) => [
-                {
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: colors.card,
-                  borderWidth: 1,
-                  borderColor: colors.cardBorder,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: pressed ? 0.85 : 1,
-                },
-              ]}
-            >
-              <Ionicons name="flag-outline" size={16} color={colors.text} />
+              <Ionicons name="ellipsis-horizontal" size={18} color={colors.text} />
             </Pressable>
           ) : (
             <View style={{ width: 40 }} />
@@ -238,408 +315,306 @@ export default function ThreadDetailScreen() {
           contentContainerStyle={{ paddingBottom: 120 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Thread card */}
-          <View
-            style={[
-              styles.threadCard,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
-            ]}
-          >
-            {/* Tags row */}
-            <View style={styles.tagsRow}>
-              {thread.category && (
-                <View style={[styles.tagChip, { backgroundColor: catColor + "1A" }]}>
-                  <Text style={[styles.tagText, { color: catColor }]}>
-                    {CAT_LABEL[thread.category] || thread.category}
-                  </Text>
-                </View>
-              )}
-              {thread.destinationName && (
+          {/* Tags row (above title) */}
+          <View style={styles.tagsRow}>
+            {cat && (
+              <View style={[styles.tagChip, { backgroundColor: cat.color + "1A" }]}>
+                <Ionicons name={cat.icon} size={11} color={cat.color} />
+                <Text style={[styles.tagText, { color: cat.color }]}>{cat.label}</Text>
+              </View>
+            )}
+            {thread.destinationName && (
+              <Pressable
+                onPress={() =>
+                  thread.destinationId
+                    ? router.push({
+                        pathname: "/destination/[id]",
+                        params: { id: String(thread.destinationId) },
+                      })
+                    : null
+                }
+                style={[styles.tagChip, { backgroundColor: colors.inputBg }]}
+              >
+                <Ionicons name="location" size={10} color={colors.textSecondary} />
+                <Text style={[styles.tagText, { color: colors.textSecondary }]}>
+                  {thread.destinationName}
+                </Text>
+              </Pressable>
+            )}
+            {isSolved && (
+              <View style={[styles.tagChip, { backgroundColor: "#10B981" }]}>
+                <Ionicons name="checkmark-circle" size={11} color="#fff" />
+                <Text style={[styles.tagText, { color: "#fff" }]}>Đã giải đáp</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Title + body OR edit form */}
+          {editingThread ? (
+            <View style={styles.editThreadBlock}>
+              <TextInput
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="Tiêu đề"
+                placeholderTextColor={colors.textTertiary}
+                style={[
+                  styles.editThreadTitle,
+                  {
+                    color: colors.text,
+                    borderColor: colors.cardBorder,
+                    backgroundColor: colors.inputBg,
+                  },
+                ]}
+              />
+              <TextInput
+                value={editBody}
+                onChangeText={setEditBody}
+                placeholder="Nội dung câu hỏi"
+                placeholderTextColor={colors.textTertiary}
+                multiline
+                style={[
+                  styles.editThreadBody,
+                  {
+                    color: colors.text,
+                    borderColor: colors.cardBorder,
+                    backgroundColor: colors.inputBg,
+                  },
+                ]}
+              />
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
                 <Pressable
-                  onPress={() =>
-                    thread.destinationId
-                      ? router.push({
-                          pathname: "/destination/[id]",
-                          params: { id: String(thread.destinationId) },
-                        })
-                      : null
-                  }
-                  style={[styles.tagChip, { backgroundColor: colors.inputBg }]}
+                  onPress={() => setEditingThread(false)}
+                  disabled={savingThread}
+                  style={({ pressed }) => [
+                    styles.editBtn,
+                    { backgroundColor: colors.card, opacity: pressed ? 0.85 : 1 },
+                  ]}
                 >
-                  <Ionicons name="location" size={10} color={colors.textSecondary} />
-                  <Text style={[styles.tagText, { color: colors.textSecondary }]}>
-                    {thread.destinationName}
-                  </Text>
+                  <Text style={[styles.editBtnText, { color: colors.text }]}>Hủy</Text>
                 </Pressable>
-              )}
-              {isSolved && (
-                <View style={[styles.tagChip, { backgroundColor: "#10B981" }]}>
-                  <Ionicons name="checkmark-circle" size={11} color="#fff" />
-                  <Text style={[styles.tagText, { color: "#fff" }]}>Đã giải đáp</Text>
-                </View>
-              )}
-            </View>
-
-            <Text style={[styles.threadTitle, { color: colors.text }]}>{thread.title}</Text>
-            <Text style={[styles.threadBody, { color: colors.text }]}>{thread.body}</Text>
-
-            {/* Author bar */}
-            <Pressable
-              onPress={() =>
-                router.push({ pathname: "/user/[id]", params: { id: String(thread.authorId) } })
-              }
-              style={({ pressed }) => [styles.authorBar, { opacity: pressed ? 0.9 : 1 }]}
-            >
-              {thread.authorAvatar ? (
-                <Image
-                  source={{ uri: thread.authorAvatar }}
-                  style={styles.authorAvatar}
-                  contentFit="cover"
-                />
-              ) : (
-                <View
-                  style={[
-                    styles.authorAvatar,
+                <Pressable
+                  onPress={saveThreadEdit}
+                  disabled={savingThread}
+                  style={({ pressed }) => [
+                    styles.editBtn,
                     {
                       backgroundColor: colors.primary,
-                      alignItems: "center",
-                      justifyContent: "center",
+                      opacity: pressed || savingThread ? 0.7 : 1,
                     },
                   ]}
                 >
-                  <Text style={{ fontSize: 12, fontFamily: "Inter_700Bold", color: "#fff" }}>
-                    {thread.authorName.charAt(0).toUpperCase()}
+                  <Text style={[styles.editBtnText, { color: "#fff" }]}>
+                    {savingThread ? "..." : "Lưu"}
                   </Text>
-                </View>
-              )}
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={[styles.authorName, { color: colors.text }]}>
-                    {thread.authorName}
-                  </Text>
-                  <AdminBadge role={thread.authorRole} size="small" />
-                </View>
-                <Text style={[styles.authorTime, { color: colors.textTertiary }]}>
-                  {new Date(thread.createdAt).toLocaleDateString("vi-VN")} · {thread.viewCount} lượt
-                  xem
+                </Pressable>
+              </View>
+              <Text style={[styles.editHint, { color: colors.textTertiary }]}>
+                * Câu hỏi chỉ được sửa trong 1 tiếng đầu hoặc trước khi có câu trả lời được chọn.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <Text style={[styles.threadTitle, { color: colors.text }]}>{thread.title}</Text>
+              <Pressable
+                onLongPress={async () => {
+                  await Clipboard.setStringAsync(stripMarkdown(thread.body));
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  toast.show("Đã sao chép câu hỏi vào bộ nhớ tạm", "success");
+                }}
+                delayLongPress={350}
+                android_disableSound
+              >
+                <Text style={[styles.threadBody, { color: colors.text }]}>
+                  {stripMarkdown(thread.body)}
+                </Text>
+              </Pressable>
+            </>
+          )}
+
+          {/* Author row — borderless */}
+          <Pressable
+            onPress={() =>
+              router.push({ pathname: "/user/[id]", params: { id: String(thread.authorId) } })
+            }
+            style={({ pressed }) => [styles.authorBar, { opacity: pressed ? 0.85 : 1 }]}
+          >
+            {thread.authorAvatar ? (
+              <Image
+                source={{ uri: thread.authorAvatar }}
+                style={styles.authorAvatar}
+                contentFit="cover"
+              />
+            ) : (
+              <View
+                style={[
+                  styles.authorAvatar,
+                  {
+                    backgroundColor: colors.primary,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  },
+                ]}
+              >
+                <Text style={{ fontSize: 13, fontFamily: "Inter_700Bold", color: "#fff" }}>
+                  {thread.authorName.charAt(0).toUpperCase()}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
-            </Pressable>
+            )}
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>
+                  {thread.authorName}
+                </Text>
+                <AdminBadge role={thread.authorRole} size="small" />
+              </View>
+              <Text style={[styles.authorTime, { color: colors.textTertiary }]} numberOfLines={1}>
+                {new Date(thread.createdAt).toLocaleDateString("vi-VN")}
+                {"  ·  "}
+                {thread.viewCount} lượt xem
+                {threadEdited && "  ·  đã chỉnh sửa"}
+              </Text>
+            </View>
+          </Pressable>
 
-            {/* Vote bar — explicit labels (Hữu ích / Không hữu ích) */}
-            <View style={styles.voteBar}>
-              <Pressable
-                onPress={() => handleVoteThread("up")}
-                style={({ pressed }) => [
-                  styles.voteBtnLabeled,
+          {/* Poll (optional) */}
+          {thread.poll && (
+            <PollBlock
+              poll={thread.poll}
+              colors={colors}
+              isAuthenticated={!!user}
+              onLoginRequired={() => toast.show("Vui lòng đăng nhập để bỏ phiếu", "info")}
+              onVote={(optionId) =>
+                votePoll.mutate(
+                  { pollId: thread.poll!.pollId, optionId, threadId: thread.threadId },
                   {
-                    backgroundColor: thread.myVote === "up" ? "#10B981" : colors.inputBg,
-                    borderColor: thread.myVote === "up" ? "#10B981" : colors.cardBorder,
-                    opacity: pressed ? 0.85 : 1,
+                    onError: (err: any) =>
+                      toast.show(err?.message || "Không bỏ phiếu được", "error"),
                   },
-                ]}
-                hitSlop={4}
-              >
-                <Ionicons
-                  name="arrow-up"
-                  size={15}
-                  color={thread.myVote === "up" ? "#fff" : "#10B981"}
-                />
-                <Text
-                  style={[
-                    styles.voteBtnLabel,
-                    { color: thread.myVote === "up" ? "#fff" : "#10B981" },
-                  ]}
-                >
-                  Hữu ích
-                </Text>
-                <Text
-                  style={[
-                    styles.voteBtnCount,
-                    { color: thread.myVote === "up" ? "#fff" : colors.text },
-                  ]}
-                >
-                  {thread.upvotes}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => handleVoteThread("down")}
-                style={({ pressed }) => [
-                  styles.voteBtnLabeled,
-                  {
-                    backgroundColor: thread.myVote === "down" ? "#EF4444" : colors.inputBg,
-                    borderColor: thread.myVote === "down" ? "#EF4444" : colors.cardBorder,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-                hitSlop={4}
-              >
-                <Ionicons
-                  name="arrow-down"
-                  size={15}
-                  color={thread.myVote === "down" ? "#fff" : "#EF4444"}
-                />
-                <Text
-                  style={[
-                    styles.voteBtnLabel,
-                    { color: thread.myVote === "down" ? "#fff" : "#EF4444" },
-                  ]}
-                >
-                  Phản đối
-                </Text>
-                <Text
-                  style={[
-                    styles.voteBtnCount,
-                    { color: thread.myVote === "down" ? "#fff" : colors.text },
-                  ]}
-                >
-                  {thread.downvotes}
-                </Text>
-              </Pressable>
-              <View style={{ flex: 1 }} />
-              <Ionicons name="chatbubble-ellipses" size={14} color={colors.textTertiary} />
-              <Text style={[styles.replyCount, { color: colors.textTertiary }]}>
-                {thread.replyCount} trả lời
+                )
+              }
+            />
+          )}
+
+          {/* Inline thread reaction row — icon + count */}
+          <View
+            style={[
+              styles.reactionRow,
+              { borderTopColor: colors.divider, borderBottomColor: colors.divider },
+            ]}
+          >
+            <Pressable onPress={() => handleVoteThread("up")} style={styles.reactBtn} hitSlop={6}>
+              <Ionicons
+                name={thread.myVote === "up" ? "arrow-up-circle" : "arrow-up-circle-outline"}
+                size={22}
+                color={thread.myVote === "up" ? "#10B981" : colors.text}
+              />
+              <Text style={[styles.reactCount, { color: colors.text }]}>{thread.upvotes}</Text>
+            </Pressable>
+            <Pressable onPress={() => handleVoteThread("down")} style={styles.reactBtn} hitSlop={6}>
+              <Ionicons
+                name={thread.myVote === "down" ? "arrow-down-circle" : "arrow-down-circle-outline"}
+                size={22}
+                color={thread.myVote === "down" ? "#EF4444" : colors.text}
+              />
+              <Text style={[styles.reactCount, { color: colors.text }]}>{thread.downvotes}</Text>
+            </Pressable>
+            <View style={styles.reactBtn}>
+              <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
+              <Text style={[styles.reactCount, { color: colors.text }]}>{thread.replyCount}</Text>
+            </View>
+            <View style={{ flex: 1 }} />
+            <View style={styles.viewMeta}>
+              <Ionicons name="eye-outline" size={14} color={colors.textTertiary} />
+              <Text style={[styles.viewMetaText, { color: colors.textTertiary }]}>
+                {thread.viewCount}
               </Text>
             </View>
           </View>
 
-          {/* Replies section */}
+          {/* Replies */}
           <View style={styles.repliesSection}>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 12,
-              }}
-            >
-              <Text style={[styles.repliesTitle, { color: colors.text, marginBottom: 0 }]}>
+            <View style={styles.repliesHeader}>
+              <Text style={[styles.repliesTitle, { color: colors.text }]}>
                 {replies.length} câu trả lời
               </Text>
               {isOwn && replies.length > 0 && !thread.acceptedReplyId && (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                    backgroundColor: "#10B981" + "14",
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                    borderRadius: 8,
-                  }}
-                >
+                <View style={styles.hintBadge}>
                   <Ionicons name="bulb-outline" size={11} color="#10B981" />
-                  <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#10B981" }}>
-                    Chọn 1 câu trả lời đúng nhất
-                  </Text>
+                  <Text style={styles.hintText}>Chọn 1 câu trả lời đúng nhất</Text>
                 </View>
               )}
             </View>
-            {replies.length === 0 ? (
+            {topLevelReplies.length === 0 ? (
               <Text style={[styles.empty, { color: colors.textTertiary }]}>
                 Chưa có ai trả lời. Hãy là người đầu tiên!
               </Text>
             ) : (
-              <View style={{ gap: 10 }}>
-                {replies.map((r) => {
-                  const isOwnReply = !!user && r.authorId === Number(user.id);
+              <View>
+                {topLevelReplies.map((r) => {
+                  const children = childrenByParent.get(r.replyId) || [];
                   const isAccepted = thread.acceptedReplyId === r.replyId;
                   return (
-                    <View
+                    <ForumReplyItem
                       key={r.replyId}
-                      style={[
-                        styles.replyCard,
-                        {
-                          backgroundColor: colors.card,
-                          borderColor: isAccepted ? "#10B981" : colors.cardBorder,
-                          borderWidth: isAccepted ? 2 : 1,
-                        },
-                      ]}
-                    >
-                      {isAccepted && (
-                        <Pressable
-                          onPress={() =>
-                            Alert.alert(
-                              "Câu trả lời được chọn",
-                              "Chủ thớt đã đánh dấu đây là câu trả lời giải quyết được vấn đề. Người sau xem có thể nhanh chóng tìm thấy lời giải đáng tin nhất.",
-                            )
-                          }
-                          style={styles.acceptedBadge}
-                          hitSlop={4}
-                        >
-                          <Ionicons name="checkmark-circle" size={11} color="#fff" />
-                          <Text style={styles.acceptedText}>Câu trả lời được chọn</Text>
-                          <Ionicons name="information-circle-outline" size={11} color="#fff" />
-                        </Pressable>
-                      )}
-                      <View style={styles.replyHeader}>
-                        <Pressable
-                          onPress={() =>
-                            router.push({
-                              pathname: "/user/[id]",
-                              params: { id: String(r.authorId) },
-                            })
-                          }
-                          hitSlop={4}
-                        >
-                          {r.authorAvatar ? (
-                            <Image
-                              source={{ uri: r.authorAvatar }}
-                              style={styles.replyAvatar}
-                              contentFit="cover"
-                            />
-                          ) : (
-                            <View
-                              style={[
-                                styles.replyAvatar,
-                                {
-                                  backgroundColor: colors.primary,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#fff" }}
-                              >
-                                {r.authorName.charAt(0).toUpperCase()}
-                              </Text>
-                            </View>
-                          )}
-                        </Pressable>
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                            <Text style={[styles.replyAuthor, { color: colors.text }]}>
-                              {r.authorName}
-                            </Text>
-                            <AdminBadge role={(r as any).authorRole} size="tiny" />
-                          </View>
-                          <Text style={[styles.replyTime, { color: colors.textTertiary }]}>
-                            {new Date(r.createdAt).toLocaleDateString("vi-VN")}
-                          </Text>
-                        </View>
-                        {isOwnReply && (
-                          <Pressable
-                            onPress={() =>
-                              deleteReply.mutate({ replyId: r.replyId, threadId: threadId! })
+                      reply={r}
+                      colors={colors}
+                      currentUserId={user?.id}
+                      isThreadAuthor={isOwn}
+                      isAdminViewer={isAdminViewer}
+                      isAccepted={isAccepted}
+                      threadAuthorId={thread.authorId}
+                      onVote={(vt) => handleVoteReply(r, vt)}
+                      onEdit={handleEditReply}
+                      onDelete={handleDeleteReply}
+                      onReply={user ? handleReplyToReply : undefined}
+                      onAccept={!isAccepted ? () => handleAccept(r.replyId) : undefined}
+                      onUnaccept={isAccepted ? () => handleAccept(r.replyId) : undefined}
+                      onReport={
+                        user
+                          ? (replyId) => {
+                              setReportTarget({ type: "forum_reply", id: replyId });
+                              setReportOpen(true);
                             }
-                            hitSlop={6}
-                          >
-                            <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                          </Pressable>
-                        )}
-                      </View>
-                      <Text style={[styles.replyBody, { color: colors.text }]}>{r.body}</Text>
-                      <View style={styles.replyActions}>
-                        <View style={styles.replyVote}>
-                          <Pressable
-                            onPress={() => handleVoteReply(r, "up")}
-                            style={({ pressed }) => [
-                              styles.smallVoteBtnLabeled,
-                              {
-                                backgroundColor: r.myVote === "up" ? "#10B981" : colors.inputBg,
-                                opacity: pressed ? 0.85 : 1,
-                              },
-                            ]}
-                            hitSlop={4}
-                          >
-                            <Ionicons
-                              name="arrow-up"
-                              size={12}
-                              color={r.myVote === "up" ? "#fff" : "#10B981"}
-                            />
-                            <Text
-                              style={[
-                                styles.smallVoteLabel,
-                                { color: r.myVote === "up" ? "#fff" : colors.text },
-                              ]}
-                            >
-                              {r.upvotes}
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => handleVoteReply(r, "down")}
-                            style={({ pressed }) => [
-                              styles.smallVoteBtnLabeled,
-                              {
-                                backgroundColor: r.myVote === "down" ? "#EF4444" : colors.inputBg,
-                                opacity: pressed ? 0.85 : 1,
-                              },
-                            ]}
-                            hitSlop={4}
-                          >
-                            <Ionicons
-                              name="arrow-down"
-                              size={12}
-                              color={r.myVote === "down" ? "#fff" : "#EF4444"}
-                            />
-                            <Text
-                              style={[
-                                styles.smallVoteLabel,
-                                { color: r.myVote === "down" ? "#fff" : colors.text },
-                              ]}
-                            >
-                              {r.downvotes}
-                            </Text>
-                          </Pressable>
-                        </View>
-                        {/* Owner can accept/un-accept best answer */}
-                        {isOwn && !isAccepted && (
-                          <Pressable
-                            onPress={() => handleAccept(r.replyId)}
-                            style={({ pressed }) => [
-                              styles.acceptBtn,
-                              {
-                                borderColor: "#10B981",
-                                opacity: pressed ? 0.85 : 1,
-                              },
-                            ]}
-                          >
-                            <Ionicons name="checkmark-circle-outline" size={13} color="#10B981" />
-                            <Text style={[styles.acceptBtnText, { color: "#10B981" }]}>
-                              Chọn làm câu trả lời
-                            </Text>
-                          </Pressable>
-                        )}
-                        {isOwn && isAccepted && (
-                          <Pressable
-                            onPress={() => {
-                              const doUnaccept = () => handleAccept(r.replyId);
-                              if (Platform.OS === "web") {
-                                if (confirm("Bỏ chọn câu trả lời này?")) doUnaccept();
-                              } else {
-                                Alert.alert(
-                                  "Bỏ chọn câu trả lời",
-                                  "Bạn có chắc muốn bỏ chọn câu trả lời này? Thread sẽ chuyển về trạng thái 'Đang mở'.",
-                                  [
-                                    { text: "Hủy", style: "cancel" },
-                                    { text: "Bỏ chọn", style: "destructive", onPress: doUnaccept },
-                                  ],
-                                );
-                              }
-                            }}
-                            style={({ pressed }) => [
-                              styles.acceptBtn,
-                              {
-                                borderColor: colors.textTertiary,
-                                opacity: pressed ? 0.85 : 1,
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name="close-circle-outline"
-                              size={13}
-                              color={colors.textSecondary}
-                            />
-                            <Text style={[styles.acceptBtnText, { color: colors.textSecondary }]}>
-                              Bỏ chọn
-                            </Text>
-                          </Pressable>
-                        )}
-                      </View>
-                    </View>
+                          : undefined
+                      }
+                    >
+                      {children.length > 0 && (
+                        <CommentReplies
+                          count={children.length}
+                          colors={colors}
+                          renderVisible={(limit) =>
+                            (limit ? children.slice(0, limit) : children).map((child) => (
+                              <ForumReplyItem
+                                key={child.replyId}
+                                reply={child}
+                                colors={colors}
+                                currentUserId={user?.id}
+                                isThreadAuthor={isOwn}
+                                isAdminViewer={isAdminViewer}
+                                threadAuthorId={thread.authorId}
+                                onVote={(vt) => handleVoteReply(child, vt)}
+                                onEdit={handleEditReply}
+                                onDelete={handleDeleteReply}
+                                onReply={
+                                  user
+                                    ? makeReplyToNestedReply(r.replyId, child.authorName)
+                                    : undefined
+                                }
+                                onReport={
+                                  user
+                                    ? (replyId) => {
+                                        setReportTarget({ type: "forum_reply", id: replyId });
+                                        setReportOpen(true);
+                                      }
+                                    : undefined
+                                }
+                                nested
+                              />
+                            ))
+                          }
+                        />
+                      )}
+                    </ForumReplyItem>
                   );
                 })}
               </View>
@@ -704,6 +679,54 @@ export default function ThreadDetailScreen() {
           contentRefId={reportTarget.id}
         />
       )}
+
+      <CommentActionSheet
+        visible={threadMenuOpen}
+        onClose={() => setThreadMenuOpen(false)}
+        colors={colors}
+        actions={(() => {
+          const items: ActionItem[] = [];
+          items.push({
+            key: "copy",
+            label: "Sao chép",
+            icon: "copy-outline",
+            onPress: async () => {
+              await Clipboard.setStringAsync(stripMarkdown(thread.body));
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              toast.show("Đã sao chép câu hỏi vào bộ nhớ tạm", "success");
+            },
+          });
+          if (threadEditable) {
+            items.push({
+              key: "edit",
+              label: "Sửa câu hỏi",
+              icon: "create-outline",
+              onPress: startEditThread,
+            });
+          }
+          if (!isOwn && user) {
+            items.push({
+              key: "report",
+              label: "Báo cáo",
+              icon: "flag-outline",
+              onPress: () => {
+                setReportTarget({ type: "forum_thread", id: thread.threadId });
+                setReportOpen(true);
+              },
+            });
+          }
+          if (isOwn) {
+            items.push({
+              key: "delete",
+              label: "Xóa câu hỏi",
+              icon: "trash-outline",
+              destructive: true,
+              onPress: handleDeleteThread,
+            });
+          }
+          return items;
+        })()}
+      />
     </View>
   );
 }
@@ -719,17 +742,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 10,
   },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
 
-  threadCard: {
-    marginHorizontal: 16,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 10,
-    marginTop: 4,
+  tagsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 20,
+    marginTop: 6,
+    marginBottom: 10,
   },
-  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   tagChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -739,94 +769,90 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   tagText: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  threadTitle: { fontSize: 18, fontFamily: "Inter_700Bold", lineHeight: 24 },
-  threadBody: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 21 },
 
-  authorBar: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
-  authorAvatar: { width: 36, height: 36, borderRadius: 18 },
-  authorName: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  authorTime: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 1 },
+  threadTitle: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    lineHeight: 28,
+    letterSpacing: -0.3,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  threadBody: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 23,
+    paddingHorizontal: 20,
+    marginBottom: 14,
+  },
 
-  voteBar: {
+  editThreadBlock: { paddingHorizontal: 20, gap: 10, marginBottom: 14 },
+  editThreadTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  editThreadBody: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    minHeight: 100,
+    textAlignVertical: "top",
+  },
+  editBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 14 },
+  editBtnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  editHint: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 4 },
+
+  authorBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingTop: 10,
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  authorAvatar: { width: 40, height: 40, borderRadius: 20 },
+  authorName: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  authorTime: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 2 },
+
+  reactionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginBottom: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(0,0,0,0.06)",
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  voteBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  voteBtnLabeled: {
+  reactBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  reactCount: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  viewMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
+  viewMetaText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+
+  repliesSection: { paddingHorizontal: 20, marginTop: 14 },
+  repliesHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 16,
-    borderWidth: 1.5,
+    justifyContent: "space-between",
+    marginBottom: 16,
   },
-  voteBtnLabel: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  voteBtnCount: { fontSize: 12, fontFamily: "Inter_700Bold", marginLeft: 2 },
-  voteCount: { fontSize: 14, fontFamily: "Inter_700Bold", minWidth: 28, textAlign: "center" },
-  replyCount: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-
-  repliesSection: { paddingHorizontal: 16, marginTop: 18 },
-  repliesTitle: { fontSize: 14, fontFamily: "Inter_700Bold", marginBottom: 12 },
-  empty: { fontSize: 13, fontFamily: "Inter_400Regular", fontStyle: "italic", paddingVertical: 10 },
-
-  replyCard: { padding: 12, borderRadius: 12, gap: 8 },
-  acceptedBadge: {
+  repliesTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  hintBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#10B981",
+    backgroundColor: "#10B98114",
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 8,
-    alignSelf: "flex-start",
   },
-  acceptedText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
-  replyHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  replyAvatar: { width: 32, height: 32, borderRadius: 16 },
-  replyAuthor: { fontSize: 12, fontFamily: "Inter_700Bold" },
-  replyTime: { fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 1 },
-  replyBody: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
-
-  replyActions: { flexDirection: "row", alignItems: "center", gap: 12 },
-  replyVote: { flexDirection: "row", alignItems: "center", gap: 6 },
-  smallVoteBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  smallVoteCount: { fontSize: 12, fontFamily: "Inter_700Bold", minWidth: 18, textAlign: "center" },
-  smallVoteBtnLabeled: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 12,
-  },
-  smallVoteLabel: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  acceptBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: 1.5,
-  },
-  acceptBtnText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  hintText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#10B981" },
+  empty: { fontSize: 13, fontFamily: "Inter_400Regular", fontStyle: "italic", paddingVertical: 10 },
 
   replyInputBar: {
     paddingHorizontal: 16,

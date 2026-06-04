@@ -240,23 +240,26 @@ export default function CreateBlogPostScreen() {
           </Text>
           <Pressable
             onPress={handleSubmit}
-            disabled={createPost.isPending || updatePost.isPending}
-            style={[
+            disabled={!canSubmit || createPost.isPending || updatePost.isPending}
+            style={({ pressed }) => [
               styles.publishBtn,
               {
-                backgroundColor: canSubmit ? colors.primary : colors.textTertiary,
-                opacity: createPost.isPending || updatePost.isPending ? 0.6 : 1,
+                backgroundColor: colors.primary,
+                opacity:
+                  createPost.isPending || updatePost.isPending
+                    ? 0.6
+                    : !canSubmit
+                      ? 0.4
+                      : pressed
+                        ? 0.85
+                        : 1,
               },
             ]}
           >
             {createPost.isPending || updatePost.isPending ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text
-                style={[styles.publishText, { color: canSubmit ? "#fff" : colors.textTertiary }]}
-              >
-                {isEdit ? "Lưu" : "Đăng"}
-              </Text>
+              <Text style={[styles.publishText, { color: "#fff" }]}>{isEdit ? "Lưu" : "Đăng"}</Text>
             )}
           </Pressable>
         </View>
@@ -303,8 +306,20 @@ export default function CreateBlogPostScreen() {
               multiline
               maxLength={120}
             />
-            <Text style={[styles.charCount, { color: colors.textTertiary }]}>
-              {title.length}/120
+            <Text
+              style={[
+                styles.charCount,
+                {
+                  color:
+                    title.trim().length > 0 && title.trim().length < 8
+                      ? "#EF4444"
+                      : colors.textTertiary,
+                },
+              ]}
+            >
+              {title.trim().length < 8
+                ? `Tối thiểu 8 ký tự · ${title.length}/120`
+                : `${title.length}/120`}
             </Text>
           </View>
 
@@ -387,8 +402,20 @@ export default function CreateBlogPostScreen() {
               textAlignVertical="top"
             />
             <View style={styles.contentMeta}>
-              <Text style={[styles.charCount, { color: colors.textTertiary }]}>
-                {content.length} ký tự
+              <Text
+                style={[
+                  styles.charCount,
+                  {
+                    color:
+                      content.trim().length > 0 && content.trim().length < 50
+                        ? "#EF4444"
+                        : colors.textTertiary,
+                  },
+                ]}
+              >
+                {content.trim().length < 50
+                  ? `Tối thiểu 50 ký tự · ${content.length}`
+                  : `${content.length} ký tự`}
               </Text>
               <Text style={[styles.charCount, { color: colors.textTertiary }]}>
                 · ~{readMinutes} phút đọc

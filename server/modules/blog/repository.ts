@@ -7,6 +7,7 @@ import {
   blogLikes,
   blogBookmarks,
   blogComments,
+  blogCommentLikes,
   communityTags,
   users,
   userFollows,
@@ -432,8 +433,8 @@ export const blogRepo = {
   },
 
   // ─── Comments ──
-  async listComments(postId: number) {
-    return db
+  async listComments(postId: number, viewerId?: number) {
+    const rows = await db
       .select({
         commentId: blogComments.commentId,
         postId: blogComments.postId,
@@ -441,16 +442,97 @@ export const blogRepo = {
         parentCommentId: blogComments.parentCommentId,
         content: blogComments.content,
         likeCount: blogComments.likeCount,
+        isPinned: blogComments.isPinned,
+        pinnedAt: blogComments.pinnedAt,
         createdAt: blogComments.createdAt,
+        updatedAt: blogComments.updatedAt,
         authorName: sql<string>`COALESCE(${users.fullName}, ${users.userName})`,
         authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
         authorRole: users.role,
+        isLikedByViewer: viewerId
+          ? sql<boolean>`EXISTS(
+              SELECT 1 FROM ${blogCommentLikes}
+              WHERE ${blogCommentLikes.commentId} = ${blogComments.commentId}
+                AND ${blogCommentLikes.userId} = ${viewerId}
+            )`
+          : sql<boolean>`false`,
       })
       .from(blogComments)
       .innerJoin(users, eq(blogComments.authorId, users.userId))
       .where(eq(blogComments.postId, postId))
-      .orderBy(blogComments.createdAt);
+      .orderBy(
+        // Pinned first (per post), then most-liked, then oldest
+        desc(blogComments.isPinned),
+        desc(blogComments.likeCount),
+        blogComments.createdAt,
+      );
+    return rows;
+  },
+
+  async togglePinComment(commentId: number, viewerId: number) {
+    const [comment] = await db
+      .select({
+        commentId: blogComments.commentId,
+        postId: blogComments.postId,
+        parentCommentId: blogComments.parentCommentId,
+        isPinned: blogComments.isPinned,
+      })
+      .from(blogComments)
+      .where(eq(blogComments.commentId, commentId));
+    if (!comment) return { ok: false, reason: "not_found" as const };
+    // Only top-level comments can be pinned (no nested replies)
+    if (comment.parentCommentId) return { ok: false, reason: "not_top_level" as const };
+
+    const [post] = await db
+      .select({ authorId: blogPosts.authorId })
+      .from(blogPosts)
+      .where(eq(blogPosts.postId, comment.postId));
+    if (!post) return { ok: false, reason: "post_not_found" as const };
+    if (post.authorId !== viewerId) return { ok: false, reason: "forbidden" as const };
+
+    if (comment.isPinned) {
+      await db
+        .update(blogComments)
+        .set({ isPinned: false, pinnedAt: null })
+        .where(eq(blogComments.commentId, commentId));
+      return { ok: true as const, pinned: false };
+    }
+    // Unpin any currently pinned comment on this post, then pin this one
+    await db
+      .update(blogComments)
+      .set({ isPinned: false, pinnedAt: null })
+      .where(and(eq(blogComments.postId, comment.postId), eq(blogComments.isPinned, true)));
+    await db
+      .update(blogComments)
+      .set({ isPinned: true, pinnedAt: new Date() })
+      .where(eq(blogComments.commentId, commentId));
+    return { ok: true as const, pinned: true };
+  },
+
+  async toggleCommentLike(commentId: number, userId: number) {
+    const [existing] = await db
+      .select()
+      .from(blogCommentLikes)
+      .where(and(eq(blogCommentLikes.commentId, commentId), eq(blogCommentLikes.userId, userId)));
+    if (existing) {
+      await db
+        .delete(blogCommentLikes)
+        .where(and(eq(blogCommentLikes.commentId, commentId), eq(blogCommentLikes.userId, userId)));
+      const [c] = await db
+        .update(blogComments)
+        .set({ likeCount: sql`GREATEST(0, ${blogComments.likeCount} - 1)` })
+        .where(eq(blogComments.commentId, commentId))
+        .returning({ likeCount: blogComments.likeCount });
+      return { liked: false, likeCount: c?.likeCount ?? 0 };
+    }
+    await db.insert(blogCommentLikes).values({ commentId, userId });
+    const [c] = await db
+      .update(blogComments)
+      .set({ likeCount: sql`${blogComments.likeCount} + 1` })
+      .where(eq(blogComments.commentId, commentId))
+      .returning({ likeCount: blogComments.likeCount });
+    return { liked: true, likeCount: c?.likeCount ?? 1 };
   },
 
   async createComment(data: {
@@ -465,6 +547,16 @@ export const blogRepo = {
       .set({ commentCount: sql`${blogPosts.commentCount} + 1` })
       .where(eq(blogPosts.postId, data.postId));
     return comment;
+  },
+
+  async updateComment(commentId: number, authorId: number, content: string) {
+    // Owner only — no time limit (Reddit/FB pattern)
+    const [updated] = await db
+      .update(blogComments)
+      .set({ content, updatedAt: new Date() })
+      .where(and(eq(blogComments.commentId, commentId), eq(blogComments.authorId, authorId)))
+      .returning();
+    return updated || null;
   },
 
   async deleteComment(commentId: number, authorId: number) {

@@ -401,8 +401,30 @@ export const blogComments = pgTable("blog_comments", {
   parentCommentId: integer("parent_comment_id"),
   content: text("content").notNull(),
   likeCount: integer("like_count").default(0),
+  // Author/admin can pin one comment to the top per post
+  isPinned: boolean("is_pinned").default(false).notNull(),
+  pinnedAt: timestamp("pinned_at"),
   createdAt: timestamp("created_at").defaultNow(),
+  // Set when user edits — used to show "Đã chỉnh sửa" indicator
+  updatedAt: timestamp("updated_at"),
 });
+
+/** User likes on individual blog comments (toggle, like FB reactions). */
+export const blogCommentLikes = pgTable(
+  "blog_comment_likes",
+  {
+    commentId: integer("comment_id")
+      .notNull()
+      .references(() => blogComments.commentId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.commentId, table.userId] }),
+  }),
+);
 
 // ─── Forum ────────────────────────────────────────────────────
 
@@ -427,6 +449,7 @@ export const forumThreads = pgTable("forum_threads", {
   isPinned: boolean("is_pinned").default(false),
   lastReplyAt: timestamp("last_reply_at"),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
 });
 
 /** Forum thread tags (reuses community_tags). */
@@ -459,6 +482,7 @@ export const forumReplies = pgTable("forum_replies", {
   upvotes: integer("upvotes").default(0),
   downvotes: integer("downvotes").default(0),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at"),
 });
 
 /** Generic vote table for threads + replies. */
@@ -475,6 +499,49 @@ export const forumVotes = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.targetType, table.targetId] }),
+  }),
+);
+
+/** Optional poll attached to a forum thread (1-per-thread). */
+export const forumPolls = pgTable("forum_polls", {
+  pollId: serial("poll_id").primaryKey(),
+  threadId: integer("thread_id")
+    .notNull()
+    .unique()
+    .references(() => forumThreads.threadId, { onDelete: "cascade" }),
+  question: varchar("question", { length: 280 }), // null → reuses thread.title
+  closesAt: timestamp("closes_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** Poll options — 2-6 per poll, ordered by position. */
+export const forumPollOptions = pgTable("forum_poll_options", {
+  optionId: serial("option_id").primaryKey(),
+  pollId: integer("poll_id")
+    .notNull()
+    .references(() => forumPolls.pollId, { onDelete: "cascade" }),
+  optionText: varchar("option_text", { length: 200 }).notNull(),
+  position: integer("position").notNull().default(0),
+  voteCount: integer("vote_count").notNull().default(0),
+});
+
+/** A user's vote on a poll — single-choice (PK enforces 1 vote per user per poll). */
+export const forumPollVotes = pgTable(
+  "forum_poll_votes",
+  {
+    pollId: integer("poll_id")
+      .notNull()
+      .references(() => forumPolls.pollId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    optionId: integer("option_id")
+      .notNull()
+      .references(() => forumPollOptions.optionId, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.pollId, table.userId] }),
   }),
 );
 

@@ -27,21 +27,25 @@ export function AdminBadge({ role, size = "small", showLabel = true }: Props) {
         { paddingHorizontal: padH, paddingVertical: padV, gap: showLabel ? 3 : 0 },
       ]}
     >
-      <MaterialCommunityIcons name="shield-check" size={dim} color="#fff" />
+      <MaterialCommunityIcons name="shield-crown" size={dim} color={ADMIN_FG} />
       {showLabel && <Text style={[styles.text, { fontSize }]}>PlanGo</Text>}
     </View>
   );
 }
 
+// Match the amber theme used on profile screen's admin badge
+const ADMIN_BG = "rgba(251, 191, 36, 0.18)"; // #FBBF24 @ 18% opacity
+const ADMIN_FG = "#D97706";
+
 const styles = StyleSheet.create({
   badge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#0891B2",
+    backgroundColor: ADMIN_BG,
     borderRadius: 6,
   },
   text: {
-    color: "#fff",
+    color: ADMIN_FG,
     fontFamily: "Inter_700Bold",
     letterSpacing: 0.2,
   },

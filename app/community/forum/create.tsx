@@ -69,6 +69,8 @@ export default function CreateForumThreadScreen() {
   const [destSearch, setDestSearch] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [pollEnabled, setPollEnabled] = useState(false);
+  const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const destinations = destinationsQuery.data || [];
@@ -92,7 +94,9 @@ export default function CreateForumThreadScreen() {
   }, [tagInput, tags]);
   const removeTag = useCallback((t: string) => setTags(tags.filter((x) => x !== t)), [tags]);
 
-  const canSubmit = title.trim().length >= 8 && body.trim().length >= 20;
+  const validPollOptions = pollOptions.map((o) => o.trim()).filter((o) => o.length > 0);
+  const pollValid = !pollEnabled || validPollOptions.length >= 2;
+  const canSubmit = title.trim().length >= 8 && body.trim().length >= 20 && pollValid;
 
   const handleSubmit = useCallback(async () => {
     if (!user) {
@@ -114,6 +118,7 @@ export default function CreateForumThreadScreen() {
         destinationId,
         category,
         tagNames: tags,
+        poll: pollEnabled && validPollOptions.length >= 2 ? { options: validPollOptions } : null,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({
@@ -151,23 +156,19 @@ export default function CreateForumThreadScreen() {
           <Text style={[styles.headerTitle, { color: colors.text }]}>Đặt câu hỏi</Text>
           <Pressable
             onPress={handleSubmit}
-            disabled={createThread.isPending}
-            style={[
+            disabled={!canSubmit || createThread.isPending}
+            style={({ pressed }) => [
               styles.publishBtn,
               {
-                backgroundColor: canSubmit ? colors.primary : colors.inputBg,
-                opacity: createThread.isPending ? 0.6 : 1,
+                backgroundColor: colors.primary,
+                opacity: createThread.isPending ? 0.6 : !canSubmit ? 0.4 : pressed ? 0.85 : 1,
               },
             ]}
           >
             {createThread.isPending ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text
-                style={[styles.publishText, { color: canSubmit ? "#fff" : colors.textTertiary }]}
-              >
-                Đăng
-              </Text>
+              <Text style={[styles.publishText, { color: "#fff" }]}>Đăng</Text>
             )}
           </Pressable>
         </View>
@@ -245,8 +246,20 @@ export default function CreateForumThreadScreen() {
               multiline
               maxLength={150}
             />
-            <Text style={[styles.charCount, { color: colors.textTertiary }]}>
-              {title.length}/150 · cụ thể, rõ ràng để dễ nhận trợ giúp
+            <Text
+              style={[
+                styles.charCount,
+                {
+                  color:
+                    title.trim().length > 0 && title.trim().length < 8
+                      ? "#EF4444"
+                      : colors.textTertiary,
+                },
+              ]}
+            >
+              {title.trim().length < 8
+                ? `Tối thiểu 8 ký tự · ${title.length}/150`
+                : `${title.length}/150 · cụ thể, rõ ràng để dễ nhận trợ giúp`}
             </Text>
           </View>
 
@@ -271,9 +284,140 @@ export default function CreateForumThreadScreen() {
               multiline
               textAlignVertical="top"
             />
-            <Text style={[styles.charCount, { color: colors.textTertiary }]}>
-              {body.length} ký tự
+            <Text
+              style={[
+                styles.charCount,
+                {
+                  color:
+                    body.trim().length > 0 && body.trim().length < 20
+                      ? "#EF4444"
+                      : colors.textTertiary,
+                },
+              ]}
+            >
+              {body.trim().length < 20
+                ? `Tối thiểu 20 ký tự · ${body.length}`
+                : `${body.length} ký tự`}
             </Text>
+          </View>
+
+          {/* Poll (optional) */}
+          <View style={styles.section}>
+            <Pressable
+              onPress={() => {
+                Haptics.selectionAsync();
+                setPollEnabled((v) => !v);
+              }}
+              style={[
+                styles.pollToggle,
+                {
+                  backgroundColor: pollEnabled ? colors.primary + "12" : colors.inputBg,
+                  borderColor: pollEnabled ? colors.primary : colors.cardBorder,
+                },
+              ]}
+            >
+              <Ionicons
+                name="bar-chart-outline"
+                size={18}
+                color={pollEnabled ? colors.primary : colors.textSecondary}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.pollToggleLabel,
+                    { color: pollEnabled ? colors.primary : colors.text },
+                  ]}
+                >
+                  Thêm cuộc thăm dò
+                </Text>
+                <Text style={[styles.pollToggleHelp, { color: colors.textTertiary }]}>
+                  Cho cộng đồng bỏ phiếu (2-6 lựa chọn)
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.pollSwitch,
+                  {
+                    backgroundColor: pollEnabled ? colors.primary : colors.inputBg,
+                    borderColor: pollEnabled ? colors.primary : colors.cardBorder,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.pollSwitchKnob,
+                    {
+                      backgroundColor: "#fff",
+                      transform: [{ translateX: pollEnabled ? 16 : 0 }],
+                    },
+                  ]}
+                />
+              </View>
+            </Pressable>
+
+            {pollEnabled && (
+              <View style={{ marginTop: 12, gap: 8 }}>
+                {pollOptions.map((opt, i) => (
+                  <View key={i} style={styles.pollOptRow}>
+                    <View
+                      style={[
+                        styles.pollOptNum,
+                        { backgroundColor: colors.inputBg, borderColor: colors.cardBorder },
+                      ]}
+                    >
+                      <Text style={[styles.pollOptNumText, { color: colors.textSecondary }]}>
+                        {i + 1}
+                      </Text>
+                    </View>
+                    <TextInput
+                      value={opt}
+                      onChangeText={(t) =>
+                        setPollOptions(pollOptions.map((o, idx) => (idx === i ? t : o)))
+                      }
+                      placeholder={`Lựa chọn ${i + 1}`}
+                      placeholderTextColor={colors.textTertiary}
+                      maxLength={200}
+                      style={[
+                        styles.pollOptInput,
+                        {
+                          color: colors.text,
+                          backgroundColor: colors.inputBg,
+                          borderColor: colors.cardBorder,
+                        },
+                      ]}
+                    />
+                    {pollOptions.length > 2 && (
+                      <Pressable
+                        onPress={() => setPollOptions(pollOptions.filter((_, idx) => idx !== i))}
+                        hitSlop={6}
+                        style={styles.pollOptRemove}
+                      >
+                        <Ionicons name="close" size={16} color={colors.textTertiary} />
+                      </Pressable>
+                    )}
+                  </View>
+                ))}
+                {pollOptions.length < 6 && (
+                  <Pressable
+                    onPress={() => setPollOptions([...pollOptions, ""])}
+                    style={[
+                      styles.pollAddBtn,
+                      { borderColor: colors.cardBorder, backgroundColor: colors.inputBg },
+                    ]}
+                  >
+                    <Ionicons name="add" size={16} color={colors.primary} />
+                    <Text style={[styles.pollAddText, { color: colors.primary }]}>
+                      Thêm lựa chọn
+                    </Text>
+                  </Pressable>
+                )}
+                <Text style={[styles.helpText, { color: colors.textTertiary }]}>
+                  {validPollOptions.length < 2
+                    ? "Nhập ít nhất 2 lựa chọn"
+                    : `${validPollOptions.length}/6 lựa chọn`}
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Destination tag */}
@@ -540,6 +684,57 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   charCount: { fontSize: 10, fontFamily: "Inter_500Medium", textAlign: "right", marginTop: 4 },
+
+  pollToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  pollToggleLabel: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  pollToggleHelp: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  pollSwitch: {
+    width: 36,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 1,
+    justifyContent: "center",
+  },
+  pollSwitchKnob: { width: 16, height: 16, borderRadius: 8 },
+  pollOptRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  pollOptNum: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pollOptNumText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  pollOptInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pollOptRemove: { padding: 4 },
+  pollAddBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: "dashed",
+  },
+  pollAddText: { fontSize: 13, fontFamily: "Inter_700Bold" },
 
   selectedDestCard: {
     flexDirection: "row",

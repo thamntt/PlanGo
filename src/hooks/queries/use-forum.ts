@@ -6,6 +6,25 @@ async function unwrap<T>(res: Response): Promise<T> {
   return ("data" in json ? json.data : json) as T;
 }
 
+export interface ForumPollOption {
+  optionId: number;
+  pollId: number;
+  optionText: string;
+  voteCount: number;
+  position: number;
+}
+
+export interface ForumPoll {
+  pollId: number;
+  threadId: number;
+  question?: string | null;
+  closesAt?: string | null;
+  createdAt: string;
+  options: ForumPollOption[];
+  totalVotes: number;
+  myVote: number | null;
+}
+
 export interface ForumThread {
   threadId: number;
   authorId: number;
@@ -23,6 +42,7 @@ export interface ForumThread {
   isPinned: boolean;
   lastReplyAt?: string | null;
   createdAt: string;
+  updatedAt?: string | null;
   authorName: string;
   authorHandle?: string;
   authorRole?: string | null;
@@ -30,6 +50,7 @@ export interface ForumThread {
   authorLevel?: string | null;
   tags: { tagId: number; name: string; color?: string | null }[];
   myVote: string | null;
+  poll?: ForumPoll | null;
 }
 
 export interface ForumReply {
@@ -41,6 +62,7 @@ export interface ForumReply {
   upvotes: number;
   downvotes: number;
   createdAt: string;
+  updatedAt?: string | null;
   authorName: string;
   authorHandle?: string;
   authorRole?: string | null;
@@ -121,6 +143,7 @@ export function useCreateForumThread() {
       destinationId?: number | null;
       category?: string;
       tagNames?: string[];
+      poll?: { question?: string; options: string[] } | null;
     }
   >({
     mutationFn: async (input) => {
@@ -184,6 +207,23 @@ export function useVoteReply() {
   });
 }
 
+export function useVotePoll() {
+  const qc = useQueryClient();
+  return useMutation<
+    { voted: number | null },
+    Error,
+    { pollId: number; optionId: number; threadId: number }
+  >({
+    mutationFn: async ({ pollId, optionId }) => {
+      const res = await apiRequest("POST", `/api/forum/polls/${pollId}/vote`, { optionId });
+      return unwrap(res);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: [...KEY, "thread", vars.threadId] });
+    },
+  });
+}
+
 export function useAcceptReply() {
   const qc = useQueryClient();
   return useMutation<void, Error, { threadId: number; replyId: number }>({
@@ -195,6 +235,45 @@ export function useAcceptReply() {
       qc.invalidateQueries({ queryKey: [...KEY, "replies", vars.threadId] });
       // Also refresh thread lists so "Đã giải đáp" badge updates everywhere
       qc.invalidateQueries({ queryKey: [...KEY, "threads"] });
+    },
+  });
+}
+
+export function useUpdateForumThread() {
+  const qc = useQueryClient();
+  return useMutation<
+    ForumThread,
+    Error,
+    {
+      threadId: number;
+      input: {
+        title?: string;
+        body?: string;
+        category?: string | null;
+        destinationId?: number | null;
+      };
+    }
+  >({
+    mutationFn: async ({ threadId, input }) => {
+      const res = await apiRequest("PUT", `/api/forum/threads/${threadId}`, input);
+      return unwrap(res);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: [...KEY, "thread", vars.threadId] });
+      qc.invalidateQueries({ queryKey: [...KEY, "threads"] });
+    },
+  });
+}
+
+export function useUpdateForumReply() {
+  const qc = useQueryClient();
+  return useMutation<ForumReply, Error, { replyId: number; threadId: number; body: string }>({
+    mutationFn: async ({ replyId, body }) => {
+      const res = await apiRequest("PUT", `/api/forum/replies/${replyId}`, { body });
+      return unwrap(res);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: [...KEY, "replies", vars.threadId] });
     },
   });
 }

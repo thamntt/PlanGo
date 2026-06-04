@@ -15,6 +15,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/api/query-client";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
+import { ToastProvider } from "@/contexts/ToastContext";
 import GlobalLoading from "@/components/GlobalLoading";
 
 SplashScreen.preventAutoHideAsync();
@@ -114,8 +115,10 @@ export default function RootLayout() {
           <KeyboardProvider>
             <SettingsProvider>
               <AuthProvider>
-                <GlobalLoading />
-                <RootLayoutNav />
+                <ToastProvider>
+                  <GlobalLoading />
+                  <RootLayoutNav />
+                </ToastProvider>
               </AuthProvider>
             </SettingsProvider>
           </KeyboardProvider>

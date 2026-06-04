@@ -132,8 +132,32 @@ async function toggleBookmark(req: Request, res: Response) {
 
 async function listComments(req: Request, res: Response) {
   const id = Number(req.params.id);
-  const data = await blogRepo.listComments(id);
+  const data = await blogRepo.listComments(id, viewerIdOf(req));
   sendResponse(res, 200, "Comments retrieved", data);
+}
+
+async function toggleCommentLike(req: Request, res: Response) {
+  const commentId = Number(req.params.commentId);
+  const userId = viewerIdOf(req);
+  if (!userId) throw errors.unauthorized();
+  const r = await blogRepo.toggleCommentLike(commentId, userId);
+  sendResponse(res, 200, "Like toggled", r);
+}
+
+async function togglePinComment(req: Request, res: Response) {
+  const commentId = Number(req.params.commentId);
+  const userId = viewerIdOf(req);
+  if (!userId) throw errors.unauthorized();
+  const result = await blogRepo.togglePinComment(commentId, userId);
+  if (!result.ok) {
+    if (result.reason === "not_found") throw errors.notFound("Comment");
+    if (result.reason === "post_not_found") throw errors.notFound("Post");
+    if (result.reason === "not_top_level") throw errors.badRequest("Chỉ ghim được bình luận cấp 1");
+    if (result.reason === "forbidden")
+      throw errors.forbidden("Chỉ tác giả bài viết mới ghim được bình luận");
+    throw errors.badRequest("Không ghim được");
+  }
+  sendResponse(res, 200, "Pin toggled", { pinned: result.pinned });
 }
 
 async function createComment(req: Request, res: Response) {
@@ -158,6 +182,17 @@ async function deleteComment(req: Request, res: Response) {
   const ok = await blogRepo.deleteComment(commentId, userId);
   if (!ok) throw errors.notFound("Comment");
   sendResponse(res, 200, "Comment deleted", null);
+}
+
+async function updateComment(req: Request, res: Response) {
+  const commentId = Number(req.params.commentId);
+  const userId = viewerIdOf(req);
+  if (!userId) throw errors.unauthorized();
+  const { content } = req.body ?? {};
+  if (!content || String(content).trim().length < 2) throw errors.badRequest("Comment too short");
+  const updated = await blogRepo.updateComment(commentId, userId, String(content).trim());
+  if (!updated) throw errors.forbidden("Comment not found or not yours");
+  sendResponse(res, 200, "Comment updated", updated);
 }
 
 async function listMyBookmarks(req: Request, res: Response) {
@@ -212,9 +247,12 @@ export function registerBlogRoutes(app: Express) {
   app.delete("/api/blog/posts/:id", requireAuth, asyncHandler(deletePost));
   app.post("/api/blog/posts/:id/like", requireAuth, asyncHandler(toggleLike));
   app.post("/api/blog/posts/:id/bookmark", requireAuth, asyncHandler(toggleBookmark));
-  app.get("/api/blog/posts/:id/comments", asyncHandler(listComments));
+  app.get("/api/blog/posts/:id/comments", optionalAuth, asyncHandler(listComments));
   app.post("/api/blog/posts/:id/comments", requireAuth, asyncHandler(createComment));
+  app.put("/api/blog/comments/:commentId", requireAuth, asyncHandler(updateComment));
   app.delete("/api/blog/comments/:commentId", requireAuth, asyncHandler(deleteComment));
+  app.post("/api/blog/comments/:commentId/like", requireAuth, asyncHandler(toggleCommentLike));
+  app.post("/api/blog/comments/:commentId/pin", requireAuth, asyncHandler(togglePinComment));
   app.get("/api/blog/me/bookmarks", requireAuth, asyncHandler(listMyBookmarks));
   app.get("/api/blog/tags", asyncHandler(listTags));
   app.post("/api/blog/tags", requireAdmin, asyncHandler(createTag));

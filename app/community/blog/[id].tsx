@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -13,10 +13,11 @@ import {
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,26 +27,31 @@ import {
   useToggleBlogLike,
   useToggleBlogBookmark,
   useCreateBlogComment,
+  useUpdateBlogComment,
   useDeleteBlogComment,
   useDeleteBlogPost,
+  useToggleCommentLike,
+  useTogglePinComment,
+  type BlogComment,
 } from "@/hooks/queries/use-blog";
 import { ReportSheet } from "@/features/community/ReportSheet";
 import { AdminBadge } from "@/features/community/AdminBadge";
+import { CommentItem } from "@/features/community/CommentItem";
+import { CommentReplies } from "@/features/community/CommentReplies";
+import { useToast } from "@/contexts/ToastContext";
+import { getBlogCategory } from "@/features/community/categories";
 
-const CAT_LABEL: Record<string, string> = {
-  guide: "Hướng dẫn",
-  review: "Review",
-  food: "Ẩm thực",
-  tips: "Mẹo hay",
-  experience: "Trải nghiệm",
-};
-const CAT_COLOR: Record<string, string> = {
-  guide: "#0891B2",
-  review: "#10B981",
-  food: "#F97316",
-  tips: "#8B5CF6",
-  experience: "#EC4899",
-};
+function stripMarkdown(input: string): string {
+  if (!input) return "";
+  return input
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "") // leading headings ##
+    .replace(/\*\*([^*]+)\*\*/g, "$1") // **bold**
+    .replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, "$1$2") // *italic*
+    .replace(/`([^`]+)`/g, "$1") // `code`
+    .replace(/^\s{0,3}>\s?/gm, "") // > quotes
+    .replace(/^\s*[-*]\s+/gm, "• ") // bullets - / * → •
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // [text](url)
+}
 
 export default function BlogDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -54,20 +60,43 @@ export default function BlogDetailScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
+  const toast = useToast();
   const postQuery = useBlogPost(postId);
   const commentsQuery = useBlogComments(postId);
   const toggleLike = useToggleBlogLike();
   const toggleBookmark = useToggleBlogBookmark();
   const createComment = useCreateBlogComment();
+  const updateComment = useUpdateBlogComment();
   const deleteComment = useDeleteBlogComment();
+  const toggleCommentLike = useToggleCommentLike();
+  const togglePinComment = useTogglePinComment();
   const deletePost = useDeleteBlogPost();
   const [commentDraft, setCommentDraft] = useState("");
-  const [reportOpen, setReportOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{
+    type: "blog" | "blog_comment";
+    id: number;
+  } | null>(null);
 
   const post = postQuery.data;
   const comments = commentsQuery.data || [];
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const isOwn = !!user && post?.authorId === Number(user.id);
+  const isAdminViewer = user?.role === "admin";
+  const cat = getBlogCategory(post?.category);
+
+  // Group comments by parent (1-level nesting)
+  const topLevelComments = useMemo(() => comments.filter((c) => !c.parentCommentId), [comments]);
+  const repliesByParent = useMemo(() => {
+    const map = new Map<number, BlogComment[]>();
+    for (const c of comments) {
+      if (c.parentCommentId) {
+        const arr = map.get(c.parentCommentId) || [];
+        arr.push(c);
+        map.set(c.parentCommentId, arr);
+      }
+    }
+    return map;
+  }, [comments]);
 
   const handleLike = useCallback(() => {
     if (!postId || !user) {
@@ -95,6 +124,72 @@ export default function BlogDetailScreen() {
       Alert.alert("Lỗi", err?.message || "Không gửi được bình luận");
     }
   }, [commentDraft, postId, user, createComment]);
+
+  const handleEditComment = useCallback(
+    async (commentId: number, content: string) => {
+      if (!postId) throw new Error("missing post");
+      await updateComment.mutateAsync({ commentId, postId, content });
+    },
+    [postId, updateComment],
+  );
+
+  const handleDeleteComment = useCallback(
+    (commentId: number) => {
+      if (!postId) return;
+      deleteComment.mutate({ commentId, postId });
+    },
+    [postId, deleteComment],
+  );
+
+  const handleReply = useCallback(
+    async (parentId: number, body: string) => {
+      if (!postId) throw new Error("missing post");
+      await createComment.mutateAsync({ postId, content: body, parentCommentId: parentId });
+    },
+    [postId, createComment],
+  );
+
+  // FB/IG-style: replying to a nested reply still goes under the top-level parent,
+  // but prefixes the body with @authorName so the conversation thread stays flat (1 level).
+  const makeReplyToNested = useCallback(
+    (topLevelParentId: number, targetName: string) => async (_replyId: number, body: string) => {
+      if (!postId) throw new Error("missing post");
+      const marker = `@{${targetName}}`;
+      const prefixed = body.startsWith(marker) ? body : `${marker} ${body}`;
+      await createComment.mutateAsync({
+        postId,
+        content: prefixed,
+        parentCommentId: topLevelParentId,
+      });
+    },
+    [postId, createComment],
+  );
+
+  const handleToggleCommentLike = useCallback(
+    (commentId: number) => {
+      if (!postId || !user) {
+        Alert.alert("", "Vui lòng đăng nhập để thích bình luận");
+        return;
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      toggleCommentLike.mutate({ commentId, postId });
+    },
+    [postId, user, toggleCommentLike],
+  );
+
+  const handleTogglePinComment = useCallback(
+    (commentId: number) => {
+      if (!postId) return;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      togglePinComment.mutate(
+        { commentId, postId },
+        {
+          onError: (err: any) => Alert.alert("Lỗi", err?.message || "Không ghim được bình luận"),
+        },
+      );
+    },
+    [postId, togglePinComment],
+  );
 
   const handleDeletePost = useCallback(() => {
     if (!postId) return;
@@ -139,7 +234,7 @@ export default function BlogDetailScreen() {
           contentContainerStyle={{ paddingBottom: 80 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Hero image with overlay */}
+          {/* Hero image */}
           <View style={styles.heroWrap}>
             {post.coverImage ? (
               <Image source={{ uri: post.coverImage }} style={styles.cover} contentFit="cover" />
@@ -147,7 +242,7 @@ export default function BlogDetailScreen() {
               <View style={[styles.cover, { backgroundColor: colors.inputBg }]} />
             )}
             <LinearGradient
-              colors={["rgba(0,0,0,0.45)", "transparent", "rgba(0,0,0,0.65)"]}
+              colors={["rgba(0,0,0,0.4)", "transparent", "rgba(0,0,0,0.55)"]}
               locations={[0, 0.4, 1]}
               style={StyleSheet.absoluteFill}
               pointerEvents="none"
@@ -195,7 +290,7 @@ export default function BlogDetailScreen() {
                   </>
                 ) : user ? (
                   <Pressable
-                    onPress={() => setReportOpen(true)}
+                    onPress={() => setReportTarget({ type: "blog", id: post.postId })}
                     style={({ pressed }) => [styles.floatBtn, { opacity: pressed ? 0.85 : 1 }]}
                   >
                     <Ionicons name="flag-outline" size={18} color="#fff" />
@@ -205,35 +300,22 @@ export default function BlogDetailScreen() {
             </View>
             {/* Title overlay */}
             <View style={styles.titleOverlay}>
-              {post.category && (
-                <View
-                  style={[
-                    styles.catBadge,
-                    { backgroundColor: CAT_COLOR[post.category] || colors.primary },
-                  ]}
-                >
-                  <Text style={styles.catBadgeText}>
-                    {CAT_LABEL[post.category] || post.category}
-                  </Text>
+              {cat && (
+                <View style={[styles.catBadge, { backgroundColor: cat.color }]}>
+                  <Ionicons name={cat.icon} size={11} color="#fff" />
+                  <Text style={styles.catBadgeText}>{cat.label}</Text>
                 </View>
               )}
               <Text style={styles.heroTitle}>{post.title}</Text>
             </View>
           </View>
 
-          {/* Author bar */}
+          {/* Author row — borderless */}
           <Pressable
             onPress={() =>
               router.push({ pathname: "/user/[id]", params: { id: String(post.authorId) } })
             }
-            style={({ pressed }) => [
-              styles.authorBar,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.cardBorder,
-                opacity: pressed ? 0.9 : 1,
-              },
-            ]}
+            style={({ pressed }) => [styles.authorRow, { opacity: pressed ? 0.85 : 1 }]}
           >
             {post.authorAvatar ? (
               <Image
@@ -252,236 +334,196 @@ export default function BlogDetailScreen() {
                   },
                 ]}
               >
-                <Text style={{ fontSize: 14, fontFamily: "Inter_700Bold", color: "#fff" }}>
+                <Text style={{ fontSize: 15, fontFamily: "Inter_700Bold", color: "#fff" }}>
                   {post.authorName.charAt(0).toUpperCase()}
                 </Text>
               </View>
             )}
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text style={[styles.authorName, { color: colors.text }]}>{post.authorName}</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}
+              >
+                <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>
+                  {post.authorName}
+                </Text>
                 <AdminBadge role={post.authorRole} size="small" />
               </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
-                <Ionicons name="time-outline" size={11} color={colors.textTertiary} />
-                <Text style={[styles.authorMeta, { color: colors.textTertiary }]}>
-                  {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString("vi-VN") : ""}
-                </Text>
-                <Text style={[styles.authorMeta, { color: colors.textTertiary }]}>·</Text>
-                <Text style={[styles.authorMeta, { color: colors.textTertiary }]}>
-                  {post.readMinutes} phút đọc
-                </Text>
-                <Text style={[styles.authorMeta, { color: colors.textTertiary }]}>·</Text>
-                <Ionicons name="eye-outline" size={11} color={colors.textTertiary} />
-                <Text style={[styles.authorMeta, { color: colors.textTertiary }]}>
-                  {post.viewCount}
-                </Text>
-              </View>
+              <Text style={[styles.authorMeta, { color: colors.textTertiary }]} numberOfLines={1}>
+                {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString("vi-VN") : ""}
+                {"  ·  "}
+                {post.readMinutes ? `${post.readMinutes} phút đọc  ·  ` : ""}
+                {post.viewCount} lượt xem
+              </Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
           </Pressable>
 
-          {/* Destinations linked */}
+          {/* Excerpt — italic lead */}
+          {post.excerpt && (
+            <Text style={[styles.excerpt, { color: colors.textSecondary }]}>
+              {stripMarkdown(post.excerpt)}
+            </Text>
+          )}
+
+          {/* Body content (long-press to copy plain text) */}
+          <Pressable
+            onLongPress={async () => {
+              await Clipboard.setStringAsync(stripMarkdown(post.content || ""));
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              toast.show("Đã sao chép bài viết vào bộ nhớ tạm", "success");
+            }}
+            delayLongPress={350}
+            android_disableSound
+          >
+            <Text style={[styles.content, { color: colors.text }]}>
+              {stripMarkdown(post.content || "")}
+            </Text>
+          </Pressable>
+
+          {/* Destinations linked — chips inline */}
           {post.destinationsList.length > 0 && (
-            <View style={styles.section}>
-              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ĐỊA ĐIỂM</Text>
-              <View style={styles.destChipsRow}>
-                {post.destinationsList.map((d) => (
-                  <Pressable
-                    key={d.destinationId}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/destination/[id]",
-                        params: { id: String(d.destinationId) },
-                      })
-                    }
-                    style={[
-                      styles.destChip,
-                      {
-                        backgroundColor: colors.primary + "1A",
-                        borderColor: colors.primary + "40",
-                      },
-                    ]}
-                  >
-                    <Ionicons name="location" size={11} color={colors.primary} />
-                    <Text style={[styles.destChipText, { color: colors.primary }]}>{d.name}</Text>
-                  </Pressable>
-                ))}
-              </View>
+            <View style={styles.chipsBlock}>
+              {post.destinationsList.map((d) => (
+                <Pressable
+                  key={d.destinationId}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/destination/[id]",
+                      params: { id: String(d.destinationId) },
+                    })
+                  }
+                  style={[
+                    styles.destChip,
+                    { backgroundColor: colors.primary + "12", borderColor: colors.primary + "33" },
+                  ]}
+                >
+                  <Ionicons name="location" size={11} color={colors.primary} />
+                  <Text style={[styles.destChipText, { color: colors.primary }]}>{d.name}</Text>
+                </Pressable>
+              ))}
             </View>
           )}
 
           {/* Tags */}
           {post.tags.length > 0 && (
-            <View style={styles.section}>
-              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>CHỦ ĐỀ</Text>
-              <View style={styles.tagsRow}>
-                {post.tags.map((t) => (
-                  <View
-                    key={t.tagId}
-                    style={[
-                      styles.tagChip,
-                      { backgroundColor: (t.color || colors.primary) + "18" },
-                    ]}
-                  >
-                    <Text style={[styles.tagText, { color: t.color || colors.primary }]}>
-                      #{t.name}
-                    </Text>
-                  </View>
-                ))}
-              </View>
+            <View style={styles.chipsBlock}>
+              {post.tags.map((t) => (
+                <Text key={t.tagId} style={[styles.hashTag, { color: t.color || colors.primary }]}>
+                  #{t.name}
+                </Text>
+              ))}
             </View>
           )}
 
-          {/* Content */}
-          {post.excerpt && (
-            <Text style={[styles.excerpt, { color: colors.textSecondary }]}>{post.excerpt}</Text>
-          )}
-          <Text style={[styles.content, { color: colors.text }]}>{post.content}</Text>
-
-          {/* Stats + actions */}
+          {/* Inline reaction row — IG/Threads style */}
           <View
             style={[
-              styles.actionsBar,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+              styles.reactionRow,
+              { borderTopColor: colors.divider, borderBottomColor: colors.divider },
             ]}
           >
-            <Pressable
-              onPress={handleLike}
-              style={({ pressed }) => [
-                styles.actionBtn,
-                {
-                  backgroundColor: post.isLikedByViewer ? "#EF4444" + "1A" : "transparent",
-                  borderColor: post.isLikedByViewer ? "#EF4444" : colors.cardBorder,
-                  opacity: pressed ? 0.85 : 1,
-                },
-              ]}
-            >
+            <Pressable onPress={handleLike} style={styles.reactBtn} hitSlop={6}>
               <Ionicons
                 name={post.isLikedByViewer ? "heart" : "heart-outline"}
-                size={16}
-                color={post.isLikedByViewer ? "#EF4444" : colors.textSecondary}
+                size={22}
+                color={post.isLikedByViewer ? "#EF4444" : colors.text}
               />
-              <Text
-                style={[
-                  styles.actionText,
-                  { color: post.isLikedByViewer ? "#EF4444" : colors.text },
-                ]}
-              >
-                {post.likeCount} thích
-              </Text>
+              <Text style={[styles.reactCount, { color: colors.text }]}>{post.likeCount}</Text>
             </Pressable>
             <Pressable
-              onPress={handleBookmark}
-              style={({ pressed }) => [
-                styles.actionBtn,
-                {
-                  backgroundColor: post.isBookmarkedByViewer
-                    ? colors.primary + "1A"
-                    : "transparent",
-                  borderColor: post.isBookmarkedByViewer ? colors.primary : colors.cardBorder,
-                  opacity: pressed ? 0.85 : 1,
-                },
-              ]}
+              onPress={() => {
+                /* scroll-to-comments would go here; minimal for now */
+              }}
+              style={styles.reactBtn}
+              hitSlop={6}
             >
+              <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
+              <Text style={[styles.reactCount, { color: colors.text }]}>{post.commentCount}</Text>
+            </Pressable>
+            <Pressable onPress={handleBookmark} style={styles.reactBtn} hitSlop={6}>
               <Ionicons
                 name={post.isBookmarkedByViewer ? "bookmark" : "bookmark-outline"}
-                size={16}
-                color={post.isBookmarkedByViewer ? colors.primary : colors.textSecondary}
+                size={20}
+                color={post.isBookmarkedByViewer ? colors.primary : colors.text}
               />
-              <Text
-                style={[
-                  styles.actionText,
-                  { color: post.isBookmarkedByViewer ? colors.primary : colors.text },
-                ]}
-              >
-                Lưu
-              </Text>
+              <Text style={[styles.reactCount, { color: colors.text }]}>{post.bookmarkCount}</Text>
             </Pressable>
+            <View style={{ flex: 1 }} />
+            <View style={styles.viewMeta}>
+              <Ionicons name="eye-outline" size={14} color={colors.textTertiary} />
+              <Text style={[styles.viewMetaText, { color: colors.textTertiary }]}>
+                {post.viewCount}
+              </Text>
+            </View>
           </View>
 
           {/* Comments */}
-          <View style={styles.section}>
+          <View style={styles.commentsSection}>
             <Text style={[styles.commentsTitle, { color: colors.text }]}>
-              Bình luận ({comments.length})
+              Bình luận{" "}
+              <Text style={{ color: colors.textTertiary, fontFamily: "Inter_500Medium" }}>
+                {comments.length}
+              </Text>
             </Text>
-            {comments.length === 0 ? (
+            {topLevelComments.length === 0 ? (
               <Text style={[styles.commentsEmpty, { color: colors.textTertiary }]}>
                 Hãy là người đầu tiên bình luận
               </Text>
             ) : (
-              <View style={{ gap: 12 }}>
-                {comments.map((c) => {
-                  const isOwnComment = !!user && c.authorId === Number(user.id);
+              <View>
+                {topLevelComments.map((c) => {
+                  const replies = repliesByParent.get(c.commentId) || [];
                   return (
-                    <View
+                    <CommentItem
                       key={c.commentId}
-                      style={[
-                        styles.comment,
-                        { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                      ]}
+                      comment={c}
+                      colors={colors}
+                      currentUserId={user?.id}
+                      isAdminViewer={isAdminViewer}
+                      postAuthorId={post.authorId}
+                      onEdit={handleEditComment}
+                      onDelete={handleDeleteComment}
+                      onReply={user ? handleReply : undefined}
+                      onReport={
+                        user
+                          ? (commentId) => setReportTarget({ type: "blog_comment", id: commentId })
+                          : undefined
+                      }
+                      onToggleLike={handleToggleCommentLike}
+                      onTogglePin={isOwn ? handleTogglePinComment : undefined}
+                      canPin={isOwn}
                     >
-                      <View style={styles.commentHeader}>
-                        <Pressable
-                          onPress={() =>
-                            router.push({
-                              pathname: "/user/[id]",
-                              params: { id: String(c.authorId) },
-                            })
+                      {replies.length > 0 && (
+                        <CommentReplies
+                          count={replies.length}
+                          colors={colors}
+                          renderVisible={(limit) =>
+                            (limit ? replies.slice(0, limit) : replies).map((r) => (
+                              <CommentItem
+                                key={r.commentId}
+                                comment={r}
+                                colors={colors}
+                                currentUserId={user?.id}
+                                isAdminViewer={isAdminViewer}
+                                postAuthorId={post.authorId}
+                                onEdit={handleEditComment}
+                                onDelete={handleDeleteComment}
+                                onReply={
+                                  user ? makeReplyToNested(c.commentId, r.authorName) : undefined
+                                }
+                                onReport={
+                                  user
+                                    ? (commentId) =>
+                                        setReportTarget({ type: "blog_comment", id: commentId })
+                                    : undefined
+                                }
+                                onToggleLike={handleToggleCommentLike}
+                                nested
+                              />
+                            ))
                           }
-                          hitSlop={4}
-                        >
-                          {c.authorAvatar ? (
-                            <Image
-                              source={{ uri: c.authorAvatar }}
-                              style={styles.commentAvatar}
-                              contentFit="cover"
-                            />
-                          ) : (
-                            <View
-                              style={[
-                                styles.commentAvatar,
-                                {
-                                  backgroundColor: colors.primary,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#fff" }}
-                              >
-                                {c.authorName.charAt(0).toUpperCase()}
-                              </Text>
-                            </View>
-                          )}
-                        </Pressable>
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                            <Text style={[styles.commentAuthor, { color: colors.text }]}>
-                              {c.authorName}
-                            </Text>
-                            <AdminBadge role={c.authorRole} size="tiny" />
-                          </View>
-                          <Text style={[styles.commentTime, { color: colors.textTertiary }]}>
-                            {new Date(c.createdAt).toLocaleDateString("vi-VN")}
-                          </Text>
-                        </View>
-                        {isOwnComment && (
-                          <Pressable
-                            onPress={() =>
-                              deleteComment.mutate({ commentId: c.commentId, postId: postId! })
-                            }
-                            hitSlop={6}
-                          >
-                            <Ionicons name="trash-outline" size={14} color={colors.error} />
-                          </Pressable>
-                        )}
-                      </View>
-                      <Text style={[styles.commentContent, { color: colors.text }]}>
-                        {c.content}
-                      </Text>
-                    </View>
+                        />
+                      )}
+                    </CommentItem>
                   );
                 })}
               </View>
@@ -535,12 +577,14 @@ export default function BlogDetailScreen() {
         )}
       </KeyboardAvoidingView>
 
-      <ReportSheet
-        visible={reportOpen}
-        onClose={() => setReportOpen(false)}
-        contentType="blog"
-        contentRefId={post.postId}
-      />
+      {reportTarget && (
+        <ReportSheet
+          visible
+          onClose={() => setReportTarget(null)}
+          contentType={reportTarget.type}
+          contentRefId={reportTarget.id}
+        />
+      )}
     </View>
   );
 }
@@ -570,37 +614,59 @@ const styles = StyleSheet.create({
   titleOverlay: { position: "absolute", left: 16, right: 16, bottom: 16, gap: 8 },
   catBadge: {
     alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 10,
   },
   catBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
   heroTitle: {
-    fontSize: 24,
+    fontSize: 26,
     fontFamily: "Inter_700Bold",
     color: "#fff",
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
+    lineHeight: 32,
     textShadowColor: "rgba(0,0,0,0.4)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
 
-  authorBar: {
+  authorRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    padding: 14,
-    margin: 16,
-    borderRadius: 14,
-    borderWidth: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
-  authorAvatar: { width: 40, height: 40, borderRadius: 20 },
-  authorName: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  authorMeta: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  authorAvatar: { width: 44, height: 44, borderRadius: 22 },
+  authorName: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  authorMeta: { fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 2 },
 
-  section: { paddingHorizontal: 20, marginBottom: 14 },
-  sectionLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.5, marginBottom: 8 },
-  destChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  excerpt: {
+    fontSize: 16,
+    fontFamily: "Inter_500Medium",
+    paddingHorizontal: 20,
+    lineHeight: 24,
+    fontStyle: "italic",
+    marginBottom: 14,
+  },
+  content: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    paddingHorizontal: 20,
+    lineHeight: 24,
+    marginBottom: 16,
+  },
+
+  chipsBlock: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 20,
+    marginBottom: 14,
+  },
   destChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -611,61 +677,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   destChipText: { fontSize: 12, fontFamily: "Inter_700Bold" },
-  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
-  tagText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  hashTag: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 
-  excerpt: {
-    fontSize: 15,
-    fontFamily: "Inter_500Medium",
-    paddingHorizontal: 20,
-    lineHeight: 22,
-    fontStyle: "italic",
-    marginBottom: 12,
-  },
-  content: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    paddingHorizontal: 20,
-    lineHeight: 23,
-    marginBottom: 20,
-  },
-
-  actionsBar: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginHorizontal: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginBottom: 20,
-  },
-  actionBtn: {
-    flex: 1,
+  reactionRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
+    gap: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginTop: 4,
+    marginBottom: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  actionText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  reactBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  reactCount: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  viewMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
+  viewMetaText: { fontSize: 12, fontFamily: "Inter_500Medium" },
 
-  commentsTitle: { fontSize: 15, fontFamily: "Inter_700Bold", marginBottom: 14 },
+  commentsSection: { paddingHorizontal: 20, paddingTop: 14 },
+  commentsTitle: { fontSize: 16, fontFamily: "Inter_700Bold", marginBottom: 16 },
   commentsEmpty: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
     fontStyle: "italic",
     paddingVertical: 10,
   },
-  comment: { padding: 12, borderRadius: 12, borderWidth: 1, gap: 6 },
-  commentHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  commentAvatar: { width: 32, height: 32, borderRadius: 16 },
-  commentAuthor: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  commentTime: { fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 2 },
-  commentContent: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
 
   commentInputBar: {
     paddingHorizontal: 16,

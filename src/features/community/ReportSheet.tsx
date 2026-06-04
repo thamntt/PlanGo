@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
   TextInput,
   ActivityIndicator,
   ScrollView,
-  Alert,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -77,9 +76,20 @@ export function ReportSheet({
   const reportMutation = useReportContent();
   const [selectedReason, setSelectedReason] = useState<ReportReason | null>(null);
   const [details, setDetails] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const close = useCallback(() => {
+    setSelectedReason(null);
+    setDetails("");
+    setSubmitted(false);
+    setErrorMsg(null);
+    onClose();
+  }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
     if (!selectedReason) return;
+    setErrorMsg(null);
     try {
       await reportMutation.mutateAsync({
         contentType,
@@ -88,20 +98,18 @@ export function ReportSheet({
         details: details.trim() || undefined,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Đã gửi báo cáo", "Cảm ơn bạn. Team PlanGo sẽ xem xét trong 24h và quyết định.");
-      setSelectedReason(null);
-      setDetails("");
-      onClose();
+      setSubmitted(true);
     } catch (err: any) {
-      Alert.alert("Không gửi được", err?.message || "Có lỗi xảy ra");
+      setErrorMsg(err?.message || "Có lỗi xảy ra. Vui lòng thử lại.");
     }
-  }, [selectedReason, details, contentType, contentRefId, reportMutation, onClose]);
+  }, [selectedReason, details, contentType, contentRefId, reportMutation]);
 
-  const close = () => {
-    setSelectedReason(null);
-    setDetails("");
-    onClose();
-  };
+  // Auto-close 1.6s after success
+  useEffect(() => {
+    if (!submitted) return;
+    const t = setTimeout(() => close(), 1600);
+    return () => clearTimeout(t);
+  }, [submitted, close]);
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
@@ -115,127 +123,203 @@ export function ReportSheet({
         >
           {/* Header */}
           <View style={styles.handle} />
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: colors.text }]}>Báo cáo nội dung</Text>
-            <Pressable onPress={close} hitSlop={8}>
-              <Ionicons name="close" size={22} color={colors.textSecondary} />
-            </Pressable>
-          </View>
+          {submitted ? (
+            <View style={{ paddingVertical: 24, alignItems: "center" }}>
+              <View
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: "#10B98122",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginBottom: 14,
+                }}
+              >
+                <Ionicons name="checkmark-circle" size={36} color="#10B981" />
+              </View>
+              <Text
+                style={{
+                  fontSize: 17,
+                  fontFamily: "Inter_700Bold",
+                  color: colors.text,
+                  marginBottom: 6,
+                }}
+              >
+                Đã gửi báo cáo
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontFamily: "Inter_400Regular",
+                  color: colors.textSecondary,
+                  textAlign: "center",
+                  paddingHorizontal: 16,
+                  lineHeight: 19,
+                }}
+              >
+                Cảm ơn bạn. Team PlanGo sẽ xem xét trong 24h và quyết định.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.header}>
+                <Text style={[styles.title, { color: colors.text }]}>Báo cáo nội dung</Text>
+                <Pressable onPress={close} hitSlop={8}>
+                  <Ionicons name="close" size={22} color={colors.textSecondary} />
+                </Pressable>
+              </View>
 
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Chọn lý do — team PlanGo sẽ xem xét trong 24h. Nội dung vẫn hiển thị cho đến khi có
-            quyết định.
-          </Text>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                Chọn lý do — team PlanGo sẽ xem xét trong 24h. Nội dung vẫn hiển thị cho đến khi có
+                quyết định.
+              </Text>
 
-          <ScrollView style={{ maxHeight: 450 }} showsVerticalScrollIndicator={false}>
-            {/* Reasons */}
-            <View style={{ gap: 8, paddingBottom: 6 }}>
-              {REASONS.map((r) => {
-                const active = selectedReason === r.key;
-                return (
-                  <Pressable
-                    key={r.key}
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      setSelectedReason(r.key);
+              {errorMsg && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    backgroundColor: "#EF444414",
+                    borderColor: "#EF444444",
+                    borderWidth: 1,
+                    borderRadius: 10,
+                    padding: 10,
+                    marginBottom: 10,
+                  }}
+                >
+                  <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                  <Text
+                    style={{
+                      flex: 1,
+                      fontSize: 12,
+                      fontFamily: "Inter_500Medium",
+                      color: "#EF4444",
                     }}
-                    style={[
-                      styles.reasonCard,
-                      {
-                        backgroundColor: active ? colors.primary + "12" : colors.card,
-                        borderColor: active ? colors.primary : colors.cardBorder,
-                      },
-                    ]}
                   >
-                    <View
+                    {errorMsg}
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
+
+          {!submitted && (
+            <ScrollView style={{ maxHeight: 450 }} showsVerticalScrollIndicator={false}>
+              {/* Reasons */}
+              <View style={{ gap: 8, paddingBottom: 6 }}>
+                {REASONS.map((r) => {
+                  const active = selectedReason === r.key;
+                  return (
+                    <Pressable
+                      key={r.key}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setSelectedReason(r.key);
+                      }}
                       style={[
-                        styles.reasonIcon,
-                        { backgroundColor: active ? colors.primary : colors.inputBg },
-                      ]}
-                    >
-                      <MaterialCommunityIcons
-                        name={r.icon}
-                        size={16}
-                        color={active ? "#fff" : colors.textSecondary}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.reasonLabel, { color: colors.text }]}>{r.label}</Text>
-                      <Text style={[styles.reasonDesc, { color: colors.textSecondary }]}>
-                        {r.desc}
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.radio,
+                        styles.reasonCard,
                         {
+                          backgroundColor: active ? colors.primary + "12" : colors.card,
                           borderColor: active ? colors.primary : colors.cardBorder,
-                          backgroundColor: active ? colors.primary : "transparent",
                         },
                       ]}
                     >
-                      {active && <Ionicons name="checkmark" size={11} color="#fff" />}
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* Details */}
-            {selectedReason && (
-              <View style={{ marginTop: 14 }}>
-                <Text style={[styles.detailsLabel, { color: colors.text }]}>
-                  Mô tả thêm{" "}
-                  <Text style={{ color: colors.textTertiary, fontFamily: "Inter_400Regular" }}>
-                    ({selectedReason === "other" ? "bắt buộc" : "không bắt buộc"})
-                  </Text>
-                </Text>
-                <TextInput
-                  value={details}
-                  onChangeText={setDetails}
-                  placeholder="Ghi rõ hơn để team xem xét nhanh..."
-                  placeholderTextColor={colors.textTertiary}
-                  style={[
-                    styles.detailsInput,
-                    {
-                      color: colors.text,
-                      backgroundColor: colors.inputBg,
-                      borderColor: colors.cardBorder,
-                    },
-                  ]}
-                  multiline
-                  maxLength={500}
-                />
+                      <View
+                        style={[
+                          styles.reasonIcon,
+                          { backgroundColor: active ? colors.primary : colors.inputBg },
+                        ]}
+                      >
+                        <MaterialCommunityIcons
+                          name={r.icon}
+                          size={16}
+                          color={active ? "#fff" : colors.textSecondary}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.reasonLabel, { color: colors.text }]}>{r.label}</Text>
+                        <Text style={[styles.reasonDesc, { color: colors.textSecondary }]}>
+                          {r.desc}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.radio,
+                          {
+                            borderColor: active ? colors.primary : colors.cardBorder,
+                            backgroundColor: active ? colors.primary : "transparent",
+                          },
+                        ]}
+                      >
+                        {active && <Ionicons name="checkmark" size={11} color="#fff" />}
+                      </View>
+                    </Pressable>
+                  );
+                })}
               </View>
-            )}
-          </ScrollView>
 
-          {/* Submit */}
-          <Pressable
-            onPress={handleSubmit}
-            disabled={!selectedReason || reportMutation.isPending}
-            style={({ pressed }) => [
-              styles.submitBtn,
-              {
-                backgroundColor:
-                  selectedReason && !reportMutation.isPending ? colors.primary : colors.inputBg,
-                opacity: pressed ? 0.85 : 1,
-              },
-            ]}
-          >
-            {reportMutation.isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text
-                style={[
-                  styles.submitText,
-                  { color: selectedReason ? "#fff" : colors.textTertiary },
-                ]}
-              >
-                Gửi báo cáo
-              </Text>
-            )}
-          </Pressable>
+              {/* Details */}
+              {selectedReason && (
+                <View style={{ marginTop: 14 }}>
+                  <Text style={[styles.detailsLabel, { color: colors.text }]}>
+                    Mô tả thêm{" "}
+                    <Text style={{ color: colors.textTertiary, fontFamily: "Inter_400Regular" }}>
+                      ({selectedReason === "other" ? "bắt buộc" : "không bắt buộc"})
+                    </Text>
+                  </Text>
+                  <TextInput
+                    value={details}
+                    onChangeText={setDetails}
+                    placeholder="Ghi rõ hơn để team xem xét nhanh..."
+                    placeholderTextColor={colors.textTertiary}
+                    style={[
+                      styles.detailsInput,
+                      {
+                        color: colors.text,
+                        backgroundColor: colors.inputBg,
+                        borderColor: colors.cardBorder,
+                      },
+                    ]}
+                    multiline
+                    maxLength={500}
+                  />
+                </View>
+              )}
+            </ScrollView>
+          )}
+
+          {/* Submit (hidden in success state) */}
+          {!submitted && (
+            <Pressable
+              onPress={handleSubmit}
+              disabled={!selectedReason || reportMutation.isPending}
+              style={({ pressed }) => [
+                styles.submitBtn,
+                {
+                  backgroundColor:
+                    selectedReason && !reportMutation.isPending ? colors.primary : colors.inputBg,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              {reportMutation.isPending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text
+                  style={[
+                    styles.submitText,
+                    { color: selectedReason ? "#fff" : colors.textTertiary },
+                  ]}
+                >
+                  Gửi báo cáo
+                </Text>
+              )}
+            </Pressable>
+          )}
+
+          {/* Wrap reasons + details in conditional to hide when submitted */}
         </Pressable>
       </Pressable>
     </Modal>

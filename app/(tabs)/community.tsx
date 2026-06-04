@@ -25,32 +25,20 @@ import { useAuth } from "@/contexts/AuthContext";
 import { FilterMenuSheet, type FilterMode } from "@/features/community/FilterMenuSheet";
 import { SearchOverlay } from "@/features/community/SearchOverlay";
 import { useTabBar } from "@/contexts/TabBarContext";
+import {
+  BLOG_CATEGORIES,
+  FORUM_CATEGORIES,
+  type CategoryMeta,
+} from "@/features/community/categories";
 
 type Tab = "blog" | "forum";
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
-const CAT_LABEL: Record<string, string> = {
-  guide: "Hướng dẫn",
-  review: "Review",
-  food: "Ẩm thực",
-  tips: "Mẹo hay",
-  experience: "Trải nghiệm",
-  question: "Câu hỏi",
-  discussion: "Thảo luận",
-  tip: "Mẹo",
-  recommendation: "Gợi ý",
-};
-const CAT_COLOR: Record<string, string> = {
-  guide: "#0891B2",
-  review: "#10B981",
-  food: "#F97316",
-  tips: "#8B5CF6",
-  experience: "#EC4899",
-  question: "#3B82F6",
-  discussion: "#A855F7",
-  tip: "#10B981",
-  recommendation: "#F59E0B",
-};
+function getCatMeta(tab: Tab, key?: string | null): CategoryMeta | null {
+  if (!key) return null;
+  const map = tab === "blog" ? BLOG_CATEGORIES : FORUM_CATEGORIES;
+  return map[key] || null;
+}
 
 function timeAgo(iso?: string | null): string {
   if (!iso) return "";
@@ -82,6 +70,7 @@ export default function CommunityScreen() {
   const [sortBlog, setSortBlog] = useState<"latest" | "popular" | "trending">("latest");
   const [sortForum, setSortForum] = useState<"latest" | "popular" | "unanswered">("latest");
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<"all" | "open" | "solved">("all");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -98,6 +87,7 @@ export default function CommunityScreen() {
     sort: sortForum,
     search: search || undefined,
     category: filterCategory || undefined,
+    status: filterStatus === "all" ? undefined : filterStatus,
     followingOnly: filterMode === "following",
   };
 
@@ -239,17 +229,20 @@ export default function CommunityScreen() {
               onPress={() => setFilterCategory(null)}
               colors={colors}
             />
-            {cats.map((c) => (
-              <FilterChip
-                key={c}
-                label={CAT_LABEL[c] || c}
-                icon="pricetag"
-                active={filterCategory === c}
-                color={CAT_COLOR[c] || colors.primary}
-                onPress={() => setFilterCategory(filterCategory === c ? null : c)}
-                colors={colors}
-              />
-            ))}
+            {cats.map((c) => {
+              const meta = getCatMeta(tab, c);
+              return (
+                <FilterChip
+                  key={c}
+                  label={meta?.label || c}
+                  icon={meta?.icon || "pricetag"}
+                  active={filterCategory === c}
+                  color={meta?.color || colors.primary}
+                  onPress={() => setFilterCategory(filterCategory === c ? null : c)}
+                  colors={colors}
+                />
+              );
+            })}
           </ScrollView>
 
           {/* Sort chips */}
@@ -258,19 +251,19 @@ export default function CommunityScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.sortRow}
           >
-            {tab === "blog"
-              ? (["latest", "popular", "trending"] as const).map((s) => (
-                  <SortChip
-                    key={s}
-                    label={
-                      s === "latest" ? "Mới nhất" : s === "popular" ? "Nhiều like" : "Trending"
-                    }
-                    active={sortBlog === s}
-                    onPress={() => setSortBlog(s)}
-                    colors={colors}
-                  />
-                ))
-              : (["latest", "popular", "unanswered"] as const).map((s) => (
+            {tab === "blog" ? (
+              (["latest", "popular", "trending"] as const).map((s) => (
+                <SortChip
+                  key={s}
+                  label={s === "latest" ? "Mới nhất" : s === "popular" ? "Nhiều like" : "Trending"}
+                  active={sortBlog === s}
+                  onPress={() => setSortBlog(s)}
+                  colors={colors}
+                />
+              ))
+            ) : (
+              <>
+                {(["latest", "popular", "unanswered"] as const).map((s) => (
                   <SortChip
                     key={s}
                     label={
@@ -281,6 +274,16 @@ export default function CommunityScreen() {
                     colors={colors}
                   />
                 ))}
+                <SortChip
+                  label="Đã giải đáp"
+                  icon="checkmark-circle"
+                  activeColor="#10B981"
+                  active={filterStatus === "solved"}
+                  onPress={() => setFilterStatus(filterStatus === "solved" ? "all" : "solved")}
+                  colors={colors}
+                />
+              </>
+            )}
           </ScrollView>
         </View>
 
@@ -338,6 +341,9 @@ export default function CommunityScreen() {
           <ForumList
             query={forumQuery}
             colors={colors}
+            filterStatus={filterStatus}
+            sortMode={sortForum}
+            isFiltered={!!filterCategory || !!search || filterMode !== "all"}
             onOpen={(t) =>
               router.push({ pathname: "/community/forum/[id]", params: { id: String(t.threadId) } })
             }
@@ -431,29 +437,36 @@ function FilterChip({
 
 function SortChip({
   label,
+  icon,
   active,
+  activeColor,
   onPress,
   colors,
 }: {
   label: string;
+  icon?: keyof typeof Ionicons.glyphMap;
   active: boolean;
+  activeColor?: string;
   onPress: () => void;
   colors: ThemeColors;
 }) {
+  const tint = activeColor || colors.primary;
   return (
     <Pressable
       onPress={onPress}
       style={[
         styles.sortChip,
         {
-          backgroundColor: active ? colors.primary + "1A" : "transparent",
-          borderColor: active ? colors.primary : colors.cardBorder,
+          backgroundColor: active ? tint + "1A" : "transparent",
+          borderColor: active ? tint : colors.cardBorder,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
         },
       ]}
     >
-      <Text
-        style={[styles.sortChipText, { color: active ? colors.primary : colors.textSecondary }]}
-      >
+      {icon && <Ionicons name={icon} size={12} color={active ? tint : colors.textSecondary} />}
+      <Text style={[styles.sortChipText, { color: active ? tint : colors.textSecondary }]}>
         {label}
       </Text>
     </Pressable>
@@ -510,7 +523,8 @@ function BlogPostCard({
   colors: ThemeColors;
   onPress: () => void;
 }) {
-  const catColor = CAT_COLOR[post.category || ""] || colors.primary;
+  const meta = getCatMeta("blog", post.category);
+  const catColor = meta?.color || colors.primary;
   return (
     <Pressable
       onPress={onPress}
@@ -527,11 +541,10 @@ function BlogPostCard({
       {post.coverImage && (
         <View>
           <Image source={{ uri: post.coverImage }} style={styles.blogCover} contentFit="cover" />
-          {post.category && (
+          {meta && (
             <View style={[styles.blogCatBadge, { backgroundColor: catColor }]}>
-              <Text style={styles.blogCatBadgeText}>
-                {CAT_LABEL[post.category] || post.category}
-              </Text>
+              <Ionicons name={meta.icon} size={10} color="#fff" />
+              <Text style={styles.blogCatBadgeText}>{meta.label}</Text>
             </View>
           )}
         </View>
@@ -624,10 +637,16 @@ function ForumList({
   query,
   colors,
   onOpen,
+  filterStatus,
+  sortMode,
+  isFiltered,
 }: {
   query: ReturnType<typeof useForumThreads>;
   colors: ThemeColors;
   onOpen: (t: ForumThread) => void;
+  filterStatus: "all" | "open" | "solved";
+  sortMode: "latest" | "popular" | "unanswered";
+  isFiltered: boolean;
 }) {
   if (query.isLoading) {
     return (
@@ -638,13 +657,24 @@ function ForumList({
   }
   const threads = query.data || [];
   if (threads.length === 0) {
+    const filterActive = isFiltered || filterStatus !== "all" || sortMode === "unanswered";
+    let title = "Chưa có câu hỏi";
+    let sub = "Hãy là người đầu tiên đặt câu hỏi cho cộng đồng";
+    if (filterStatus === "solved") {
+      title = "Chưa có câu hỏi đã giải đáp";
+      sub = "Thử bỏ bộ lọc để xem tất cả câu hỏi";
+    } else if (sortMode === "unanswered") {
+      title = "Không có câu hỏi chưa trả lời";
+      sub = "Tất cả câu hỏi hiện tại đều đã có người trả lời";
+    } else if (filterActive) {
+      title = "Không có kết quả phù hợp";
+      sub = "Thử bỏ bộ lọc hoặc đổi danh mục khác";
+    }
     return (
       <View style={styles.empty}>
         <MaterialCommunityIcons name="forum-outline" size={40} color={colors.textTertiary} />
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>Chưa có câu hỏi</Text>
-        <Text style={[styles.emptySub, { color: colors.textTertiary }]}>
-          Hãy là người đầu tiên đặt câu hỏi cho cộng đồng
-        </Text>
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
+        <Text style={[styles.emptySub, { color: colors.textTertiary }]}>{sub}</Text>
       </View>
     );
   }
@@ -666,7 +696,8 @@ function ForumThreadCard({
   colors: ThemeColors;
   onPress: () => void;
 }) {
-  const catColor = CAT_COLOR[thread.category || ""] || colors.primary;
+  const meta = getCatMeta("forum", thread.category);
+  const catColor = meta?.color || colors.primary;
   const isSolved = thread.status === "solved";
   return (
     <Pressable
@@ -681,11 +712,10 @@ function ForumThreadCard({
       ]}
     >
       <View style={styles.threadHeader}>
-        {thread.category && (
+        {meta && (
           <View style={[styles.threadCatChip, { backgroundColor: catColor + "1A" }]}>
-            <Text style={[styles.threadCatText, { color: catColor }]}>
-              {CAT_LABEL[thread.category] || thread.category}
-            </Text>
+            <Ionicons name={meta.icon} size={9} color={catColor} />
+            <Text style={[styles.threadCatText, { color: catColor }]}>{meta.label}</Text>
           </View>
         )}
         {thread.destinationName && (
@@ -894,6 +924,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 10,
     left: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 10,
