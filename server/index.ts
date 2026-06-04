@@ -33,7 +33,8 @@ function setupCors(app: express.Application) {
     }
 
     const origin = req.header("origin");
-    const isLocalhost = origin?.startsWith("http://localhost:") || origin?.startsWith("http://127.0.0.1:");
+    const isLocalhost =
+      origin?.startsWith("http://localhost:") || origin?.startsWith("http://127.0.0.1:");
     const isLanOrigin =
       origin?.startsWith("http://192.168.") ||
       origin?.startsWith("http://10.") ||
@@ -41,10 +42,16 @@ function setupCors(app: express.Application) {
     const isTunnelOrigin = origin?.includes(".ngrok") || origin?.includes(".loca.lt");
     const isRailwayOrigin = origin?.includes(".railway.app") || origin?.includes(".up.railway.app");
 
-    if (origin && (origins.has(origin) || isLocalhost || isLanOrigin || isTunnelOrigin || isRailwayOrigin)) {
+    if (
+      origin &&
+      (origins.has(origin) || isLocalhost || isLanOrigin || isTunnelOrigin || isRailwayOrigin)
+    ) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, Bypass-Tunnel-Reminder, X-Request-Id");
+      res.header(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, Bypass-Tunnel-Reminder, X-Request-Id",
+      );
       res.header("Access-Control-Allow-Credentials", "true");
       res.header("Access-Control-Expose-Headers", "X-Request-Id");
     }
@@ -96,7 +103,12 @@ function serveExpoManifest(platform: string, res: Response) {
   res.send(fs.readFileSync(manifestPath, "utf-8"));
 }
 
-function serveLandingPage(req: Request, res: Response, landingPageTemplate: string, appName: string) {
+function serveLandingPage(
+  req: Request,
+  res: Response,
+  landingPageTemplate: string,
+  appName: string,
+) {
   const forwardedProto = req.header("x-forwarded-proto");
   const protocol = forwardedProto || req.protocol || "https";
   const forwardedHost = req.header("x-forwarded-host");
@@ -162,7 +174,8 @@ function setupHealthChecks(app: express.Application) {
 
   // Readiness — confirms DB is reachable
   app.get("/api/health", async (_req, res) => {
-    const checks: Record<string, { status: "up" | "down"; latencyMs?: number; error?: string }> = {};
+    const checks: Record<string, { status: "up" | "down"; latencyMs?: number; error?: string }> =
+      {};
 
     const t0 = Date.now();
     try {

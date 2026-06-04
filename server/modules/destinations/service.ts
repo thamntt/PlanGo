@@ -1,6 +1,10 @@
 import { storage } from "../../storage";
 import { errors } from "../../lib/errors";
-import type { CreateDestinationInput, UpdateDestinationInput, ListDestinationsQuery } from "./schema";
+import type {
+  CreateDestinationInput,
+  UpdateDestinationInput,
+  ListDestinationsQuery,
+} from "./schema";
 
 async function enrichDestination(d: any) {
   const types = await storage.getDestinationTypes();

@@ -85,16 +85,20 @@ export function useDeleteTrip() {
 }
 
 export function useGenerateItinerary() {
-  return useMutation<any, Error, {
-    destination: string;
-    startDate: string;
-    endDate: string;
-    budget?: string | number;
-    totalBudget?: number;
-    numPeople?: number;
-    preferences?: string[];
-    startingPoint?: string;
-  }>({
+  return useMutation<
+    any,
+    Error,
+    {
+      destination: string;
+      startDate: string;
+      endDate: string;
+      budget?: string | number;
+      totalBudget?: number;
+      numPeople?: number;
+      preferences?: string[];
+      startingPoint?: string;
+    }
+  >({
     mutationFn: async (input) => {
       const res = await apiRequest("POST", "/api/generate-itinerary", input);
       return res.json();

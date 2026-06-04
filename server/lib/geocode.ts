@@ -16,9 +16,7 @@ export type GeocodeResult = {
  * Internal geocoder: Google → Goong → Nominatim
  * Used by generate-itinerary to get accurate coordinates and elsewhere.
  */
-export async function internalGeocode(
-  address: string,
-): Promise<GeocodeResult | null> {
+export async function internalGeocode(address: string): Promise<GeocodeResult | null> {
   const googleKey = getGoogleKey();
   if (googleKey) {
     try {
@@ -35,7 +33,7 @@ export async function internalGeocode(
           };
         }
       }
-    } catch { }
+    } catch {}
   }
 
   const goongKey = getGoongKey();
@@ -54,7 +52,7 @@ export async function internalGeocode(
           };
         }
       }
-    } catch { }
+    } catch {}
   }
 
   try {
@@ -72,7 +70,7 @@ export async function internalGeocode(
         };
       }
     }
-  } catch { }
+  } catch {}
 
   return null;
 }

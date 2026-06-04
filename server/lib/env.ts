@@ -57,10 +57,7 @@ const envSchema = z.object({
   // Email — Resend for transactional emails (reset password, verification)
   RESEND_API_KEY: z.string().optional(),
   // Accept both bare email `noreply@plango.vn` and display-name format `PlanGo <noreply@plango.vn>`
-  EMAIL_FROM: z
-    .string()
-    .min(3)
-    .default("PlanGo <noreply@plango.vn>"),
+  EMAIL_FROM: z.string().min(3).default("PlanGo <noreply@plango.vn>"),
   APP_URL: z.string().url().default("http://localhost:8081"),
 });
 

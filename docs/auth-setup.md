@@ -2,12 +2,12 @@
 
 Hệ thống PlanGo hỗ trợ 4 phương thức đăng nhập:
 
-| Phương thức | Trạng thái code | Cần config |
-|---|---|---|
-| Email + password | ✅ Sẵn dùng | Không |
-| Google OAuth | ✅ Code xong | Google Cloud Console |
-| Facebook OAuth | ✅ Code xong | Facebook for Developers |
-| Apple Sign In (iOS) | ✅ Code xong | Apple Developer ($99/năm) |
+| Phương thức         | Trạng thái code | Cần config                |
+| ------------------- | --------------- | ------------------------- |
+| Email + password    | ✅ Sẵn dùng     | Không                     |
+| Google OAuth        | ✅ Code xong    | Google Cloud Console      |
+| Facebook OAuth      | ✅ Code xong    | Facebook for Developers   |
+| Apple Sign In (iOS) | ✅ Code xong    | Apple Developer ($99/năm) |
 
 Mọi flow đều dùng JWT token từ `/api/auth/login` hoặc `/api/auth/social` để duy trì session.
 
@@ -106,11 +106,13 @@ GOOGLE_OAUTH_CLIENT_ID_ANDROID=<paste Client ID Android>
 ### 2.3. Config
 
 **Mobile FE** `.env`:
+
 ```env
 EXPO_PUBLIC_FACEBOOK_APP_ID=<App ID 16 chữ số>
 ```
 
 **Server** `.env`:
+
 ```env
 FACEBOOK_APP_ID=<App ID>
 FACEBOOK_APP_SECRET=<App Secret>
@@ -142,6 +144,7 @@ App → "Continue with Facebook" → Facebook dialog → cấp quyền `email` �
 ### 3.3. Update `app.json`
 
 Mở `app.json` thêm:
+
 ```json
 {
   "expo": {
@@ -227,21 +230,26 @@ Expo Go có sẵn redirect URI `https://auth.expo.io/@<expo-username>/<slug>` �
 ## Troubleshooting
 
 ### Google: "Error 400: invalid_request"
+
 - Authorized JavaScript origins hoặc redirect URIs chưa khớp với URL FE gọi
 - Recheck `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` đúng client (đừng nhầm với iOS/Android client)
 
 ### Facebook: "Email permission required"
+
 - User chưa cấp quyền `email` trong Facebook dialog. Hỏi lại user.
 - App bị Facebook khoá permission `email` (chưa pass review) → submit App Review
 
 ### Apple: "ERR_REQUEST_CANCELED"
+
 - User huỷ dialog Apple
 - Hoặc Bundle ID không khớp giữa Apple Developer + `app.json`
 
 ### Resend: emails không gửi được
+
 - Domain chưa verified → check Resend dashboard
 - Domain verified nhưng vào spam → setup DKIM + SPF + DMARC
 - Vẫn vào spam → request domain warmup (Resend support)
 
 ### BE: "OAUTH_NOT_CONFIGURED"
+
 - Tương ứng env var chưa set. Check `.env` server, restart `npm run dev`

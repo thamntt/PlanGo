@@ -20,7 +20,8 @@ async function shareTrip(req: Request, res: Response) {
   const token = body.shareCode || Math.random().toString(36).substring(2, 9).toUpperCase();
   const trip = await storage.updateTrip(Number(tripId), {
     invitationToken: token,
-    sharePermission: body.sharePermission || body.itinerary?.sharePermission || body.role || "viewer",
+    sharePermission:
+      body.sharePermission || body.itinerary?.sharePermission || body.role || "viewer",
   });
   sendResponse(res, 200, "Trip shared", {
     shareCode: token,
@@ -85,9 +86,33 @@ async function removeCompanion(req: Request, res: Response) {
 }
 
 export function registerShareRoutes(app: Express) {
-  app.post("/api/share", requireAuth, validate({ body: shareTripInputSchema }), asyncHandler(shareTrip));
-  app.get("/api/share/:code", validate({ params: shareCodeParamSchema }), asyncHandler(getSharedTrip));
-  app.post("/api/share/join", requireAuth, validate({ body: joinSharedTripInputSchema }), asyncHandler(joinSharedTrip));
-  app.patch("/api/share/companion", requireAuth, validate({ body: companionInputSchema }), asyncHandler(updateCompanionRole));
-  app.delete("/api/share/companion", requireAuth, validate({ body: companionInputSchema }), asyncHandler(removeCompanion));
+  app.post(
+    "/api/share",
+    requireAuth,
+    validate({ body: shareTripInputSchema }),
+    asyncHandler(shareTrip),
+  );
+  app.get(
+    "/api/share/:code",
+    validate({ params: shareCodeParamSchema }),
+    asyncHandler(getSharedTrip),
+  );
+  app.post(
+    "/api/share/join",
+    requireAuth,
+    validate({ body: joinSharedTripInputSchema }),
+    asyncHandler(joinSharedTrip),
+  );
+  app.patch(
+    "/api/share/companion",
+    requireAuth,
+    validate({ body: companionInputSchema }),
+    asyncHandler(updateCompanionRole),
+  );
+  app.delete(
+    "/api/share/companion",
+    requireAuth,
+    validate({ body: companionInputSchema }),
+    asyncHandler(removeCompanion),
+  );
 }

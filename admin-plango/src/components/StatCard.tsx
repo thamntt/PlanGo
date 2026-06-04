@@ -1,8 +1,8 @@
-import { Users, Navigation, MapPin, Star } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Users, Navigation, MapPin, Star } from "lucide-react";
+import { Link } from "react-router-dom";
 
 interface StatCardProps {
-  icon: 'users' | 'trips' | 'destinations' | 'reviews';
+  icon: "users" | "trips" | "destinations" | "reviews";
   label: string;
   value: string;
   trend?: string;
@@ -21,11 +21,17 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, trend, status, 
   const content = (
     <>
       <div className="flex justify-between items-start mb-4">
-        <div className={`p-3 rounded-xl ${
-          icon === 'users' ? 'bg-cyan-50' : 
-          icon === 'trips' ? 'bg-orange-50' : 
-          icon === 'destinations' ? 'bg-slate-50' : 'bg-amber-50'
-        }`}>
+        <div
+          className={`p-3 rounded-xl ${
+            icon === "users"
+              ? "bg-cyan-50"
+              : icon === "trips"
+                ? "bg-orange-50"
+                : icon === "destinations"
+                  ? "bg-slate-50"
+                  : "bg-amber-50"
+          }`}
+        >
           {icons[icon]}
         </div>
         {trend && (
@@ -46,8 +52,11 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, trend, status, 
     </>
   );
 
-  const containerClasses = "bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-2 transition-all duration-300";
-  const hoverClasses = to ? "hover:shadow-xl hover:shadow-slate-200/50 hover:scale-[1.02] cursor-pointer block" : "";
+  const containerClasses =
+    "bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-2 transition-all duration-300";
+  const hoverClasses = to
+    ? "hover:shadow-xl hover:shadow-slate-200/50 hover:scale-[1.02] cursor-pointer block"
+    : "";
 
   if (to) {
     return (
@@ -57,11 +66,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, trend, status, 
     );
   }
 
-  return (
-    <div className={containerClasses}>
-      {content}
-    </div>
-  );
+  return <div className={containerClasses}>{content}</div>;
 };
 
 export default StatCard;

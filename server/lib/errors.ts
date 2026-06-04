@@ -77,16 +77,26 @@ const STATUS_MAP: Record<ErrorCode, number> = {
 /** Reverse map: pick first ErrorCode for a given HTTP status (for legacy `new AppError(404, ...)` callers) */
 const codeForStatus = (status: number): ErrorCode => {
   switch (status) {
-    case 400: return "BAD_REQUEST";
-    case 401: return "UNAUTHORIZED";
-    case 403: return "FORBIDDEN";
-    case 404: return "NOT_FOUND";
-    case 409: return "CONFLICT";
-    case 429: return "RATE_LIMITED";
-    case 500: return "INTERNAL_ERROR";
-    case 501: return "NOT_IMPLEMENTED";
-    case 502: return "UPSTREAM_ERROR";
-    default: return status >= 500 ? "INTERNAL_ERROR" : "BAD_REQUEST";
+    case 400:
+      return "BAD_REQUEST";
+    case 401:
+      return "UNAUTHORIZED";
+    case 403:
+      return "FORBIDDEN";
+    case 404:
+      return "NOT_FOUND";
+    case 409:
+      return "CONFLICT";
+    case 429:
+      return "RATE_LIMITED";
+    case 500:
+      return "INTERNAL_ERROR";
+    case 501:
+      return "NOT_IMPLEMENTED";
+    case 502:
+      return "UPSTREAM_ERROR";
+    default:
+      return status >= 500 ? "INTERNAL_ERROR" : "BAD_REQUEST";
   }
 };
 

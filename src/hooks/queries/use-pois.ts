@@ -14,7 +14,8 @@ export function usePois(destinationId?: number) {
   return useQuery<POI[]>({
     queryKey: queryKeys.poiList(destinationId),
     queryFn: async () => {
-      const route = destinationId !== undefined ? `/api/pois?destinationId=${destinationId}` : "/api/pois";
+      const route =
+        destinationId !== undefined ? `/api/pois?destinationId=${destinationId}` : "/api/pois";
       const res = await apiRequest("GET", route);
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapPoi);

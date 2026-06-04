@@ -42,7 +42,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Restore session: if we have a token AND cached user with admin role, trust it.
   // (We don't currently have an /api/admin/me check; rely on the token for actual API auth.)
   useEffect(() => {
-    const unsubscribe = onUnauthorized(() => { logout(); });
+    const unsubscribe = onUnauthorized(() => {
+      logout();
+    });
     try {
       const token = getToken();
       const stored = localStorage.getItem(USER_KEY);

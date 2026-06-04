@@ -1,10 +1,10 @@
-import React from 'react';
-import { ChevronDown } from 'lucide-react';
-import { useData } from '../../contexts/DataContext';
+import React from "react";
+import { ChevronDown } from "lucide-react";
+import { useData } from "../../contexts/DataContext";
 
 const GrowthChart: React.FC = () => {
   const { adminStats } = useData();
-  
+
   if (!adminStats) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm flex-1 animate-pulse h-96 flex items-center justify-center">
@@ -32,11 +32,15 @@ const GrowthChart: React.FC = () => {
         {data.map((item: any, idx: number) => (
           <div key={idx} className="flex-1 flex flex-col items-center gap-4 h-full pt-12">
             <div className="w-full max-w-[40px] flex-1 flex items-end relative">
-              <div 
+              <div
                 className={`w-full rounded-sm relative group cursor-pointer transition-all hover:opacity-80 ${
-                  idx === data.length - 1 ? 'bg-primary shadow-[0_0_15px_rgba(8,145,178,0.3)]' : 'bg-slate-200'
+                  idx === data.length - 1
+                    ? "bg-primary shadow-[0_0_15px_rgba(8,145,178,0.3)]"
+                    : "bg-slate-200"
                 }`}
-                style={{ height: `${Math.max((item.value / Math.max(...data.map((d:any) => d.value), 1)) * 100, 5)}%` }}
+                style={{
+                  height: `${Math.max((item.value / Math.max(...data.map((d: any) => d.value), 1)) * 100, 5)}%`,
+                }}
               >
                 {/* Tooltip on hover */}
                 <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 shadow-lg">
@@ -44,7 +48,9 @@ const GrowthChart: React.FC = () => {
                 </div>
               </div>
             </div>
-            <span className="text-[10px] font-bold text-slate-400 tracking-wider font-mono">{item.month}</span>
+            <span className="text-[10px] font-bold text-slate-400 tracking-wider font-mono">
+              {item.month}
+            </span>
           </div>
         ))}
       </div>

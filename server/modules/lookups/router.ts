@@ -63,13 +63,47 @@ async function deletePreference(req: Request, res: Response) {
 
 export function registerLookupRoutes(app: Express) {
   app.get("/api/expense-types", asyncHandler(listExpenseTypes));
-  app.get("/api/expense-types/:id", validate({ params: numericIdParam }), asyncHandler(getExpenseTypeById));
-  app.post("/api/expense-types", requireAdmin, validate({ body: createTypeInputSchema }), asyncHandler(createExpenseType));
-  app.put("/api/expense-types/:id", requireAdmin, validate({ params: numericIdParam, body: updateTypeInputSchema }), asyncHandler(updateExpenseType));
-  app.delete("/api/expense-types/:id", requireAdmin, validate({ params: numericIdParam }), asyncHandler(deleteExpenseType));
+  app.get(
+    "/api/expense-types/:id",
+    validate({ params: numericIdParam }),
+    asyncHandler(getExpenseTypeById),
+  );
+  app.post(
+    "/api/expense-types",
+    requireAdmin,
+    validate({ body: createTypeInputSchema }),
+    asyncHandler(createExpenseType),
+  );
+  app.put(
+    "/api/expense-types/:id",
+    requireAdmin,
+    validate({ params: numericIdParam, body: updateTypeInputSchema }),
+    asyncHandler(updateExpenseType),
+  );
+  app.delete(
+    "/api/expense-types/:id",
+    requireAdmin,
+    validate({ params: numericIdParam }),
+    asyncHandler(deleteExpenseType),
+  );
 
   app.get("/api/preferences", asyncHandler(listPreferences));
-  app.post("/api/preferences", requireAdmin, validate({ body: createPreferenceInputSchema }), asyncHandler(createPreference));
-  app.put("/api/preferences/:id", requireAdmin, validate({ params: numericIdParam, body: updatePreferenceInputSchema }), asyncHandler(updatePreference));
-  app.delete("/api/preferences/:id", requireAdmin, validate({ params: numericIdParam }), asyncHandler(deletePreference));
+  app.post(
+    "/api/preferences",
+    requireAdmin,
+    validate({ body: createPreferenceInputSchema }),
+    asyncHandler(createPreference),
+  );
+  app.put(
+    "/api/preferences/:id",
+    requireAdmin,
+    validate({ params: numericIdParam, body: updatePreferenceInputSchema }),
+    asyncHandler(updatePreference),
+  );
+  app.delete(
+    "/api/preferences/:id",
+    requireAdmin,
+    validate({ params: numericIdParam }),
+    asyncHandler(deletePreference),
+  );
 }

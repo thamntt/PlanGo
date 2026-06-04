@@ -102,9 +102,8 @@ export const poiRepo = {
       .where(eq(itineraryItems.poiId, poiId));
 
     const count = reviews.length;
-    const avgRating = count > 0
-      ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / count
-      : 0;
+    const avgRating =
+      count > 0 ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / count : 0;
 
     await db
       .update(pois)

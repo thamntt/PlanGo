@@ -31,7 +31,7 @@ interface RouteMapProps {
 function generateLeafletHtml(
   points: MapPoint[],
   showRoute: boolean,
-  userLocation?: { lat: number; lng: number } | null
+  userLocation?: { lat: number; lng: number } | null,
 ): string {
   if (points.length === 0) return "";
 
@@ -89,8 +89,9 @@ function generateLeafletHtml(
     .join("\n");
 
   // Build OSRM routing JS — fetches real road directions between all points
-  const routeJs = showRoute && points.length > 1
-    ? `
+  const routeJs =
+    showRoute && points.length > 1
+      ? `
       // Build OSRM waypoints string: lng,lat;lng,lat;...
       var waypoints = [${points.map((p) => `[${p.lng}, ${p.lat}]`).join(",")}];
       var waypointStr = waypoints.map(function(w) { return w[0] + ',' + w[1]; }).join(';');
@@ -155,7 +156,7 @@ function generateLeafletHtml(
           }).addTo(map);
         });
     `
-    : "";
+      : "";
 
   const userMarkerJs = userLocation
     ? `
@@ -242,7 +243,7 @@ export default function RouteMap({
         }
       } catch {}
     },
-    [onMarkerPress]
+    [onMarkerPress],
   );
 
   // Web: listen to iframe postMessage

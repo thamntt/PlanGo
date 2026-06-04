@@ -2,11 +2,11 @@
 
 Dự án **Travel Planner Pro (PlanGo)** sử dụng các API sau từ Google Maps Platform:
 
-| API | Chức năng |
-|-----|-----------|
+| API                  | Chức năng                            |
+| -------------------- | ------------------------------------ |
 | **Places API (New)** | Tìm kiếm địa điểm, xem chi tiết, ảnh |
-| **Geocoding API** | Chuyển địa chỉ → tọa độ (lat/lng) |
-| **Directions API** | Tính tuyến đường giữa 2 điểm |
+| **Geocoding API**    | Chuyển địa chỉ → tọa độ (lat/lng)    |
+| **Directions API**   | Tính tuyến đường giữa 2 điểm         |
 
 ---
 
@@ -93,7 +93,7 @@ Vào **[APIs & Services → Enabled APIs](https://console.cloud.google.com/apis/
      - ✅ Places API (New)
      - ✅ Geocoding API
      - ✅ Directions API
-3. *(Tùy chọn)* Trong phần **"Application restrictions"**:
+3. _(Tùy chọn)_ Trong phần **"Application restrictions"**:
    - Nếu chỉ dùng cho server backend → chọn **"IP addresses"** và thêm IP server
    - Nếu đang phát triển local → để **"None"** tạm thời
 4. Click **"Save"**
@@ -131,6 +131,7 @@ GOOGLE_PLACES_API_KEY=YOUR_API_KEY_HERE
 Thay `YOUR_API_KEY_HERE` bằng API Key bạn đã copy ở Bước 3.
 
 **Ví dụ:**
+
 ```env
 GOOGLE_PLACES_API_KEY=AIzaSyBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
@@ -149,6 +150,7 @@ npm run dev
 ```
 
 Nếu API Key hợp lệ, khi tìm kiếm địa điểm hoặc tạo lịch trình AI, terminal sẽ hiện:
+
 ```
 [Google] Geocoding X activities...
 [Google] Geocoding complete
@@ -157,11 +159,13 @@ Nếu API Key hợp lệ, khi tìm kiếm địa điểm hoặc tạo lịch tr�
 ### Cách 2: Test trực tiếp bằng cURL
 
 **Test Geocoding API:**
+
 ```bash
 curl "https://maps.googleapis.com/maps/api/geocode/json?address=Ha+Noi&key=YOUR_API_KEY_HERE"
 ```
 
 **Test Places API (New):**
+
 ```bash
 curl -X POST "https://places.googleapis.com/v1/places:searchText" ^
   -H "Content-Type: application/json" ^
@@ -178,15 +182,15 @@ Nếu trả về kết quả JSON chứa thông tin địa điểm → **API Key
 
 Google Maps Platform tặng **$200 credit miễn phí mỗi tháng**. Bảng giá chính:
 
-| API | Giá (sau $200 free) | Số request miễn phí/tháng* |
-|-----|---------------------|---------------------------|
-| Places Text Search | $32 / 1,000 requests | ~6,250 requests |
-| Place Details | $17 / 1,000 requests | ~11,764 requests |
-| Geocoding | $5 / 1,000 requests | ~40,000 requests |
-| Directions | $5 / 1,000 requests | ~40,000 requests |
-| Place Photos | $7 / 1,000 requests | ~28,571 requests |
+| API                | Giá (sau $200 free)  | Số request miễn phí/tháng\* |
+| ------------------ | -------------------- | --------------------------- |
+| Places Text Search | $32 / 1,000 requests | ~6,250 requests             |
+| Place Details      | $17 / 1,000 requests | ~11,764 requests            |
+| Geocoding          | $5 / 1,000 requests  | ~40,000 requests            |
+| Directions         | $5 / 1,000 requests  | ~40,000 requests            |
+| Place Photos       | $7 / 1,000 requests  | ~28,571 requests            |
 
-*\*Tính toán ước tính dựa trên $200 free credit/tháng*
+_\*Tính toán ước tính dựa trên $200 free credit/tháng_
 
 > [!TIP]
 > Để kiểm soát chi phí, có thể đặt **Budget Alert** tại [Billing → Budgets & Alerts](https://console.cloud.google.com/billing/budgets).
@@ -195,14 +199,14 @@ Google Maps Platform tặng **$200 credit miễn phí mỗi tháng**. Bảng gi�
 
 ## 9. Xử Lý Lỗi Thường Gặp
 
-| Lỗi | Nguyên nhân | Cách sửa |
-|------|-------------|----------|
-| `GOOGLE_PLACES_API_KEY not configured` | Chưa thêm API Key vào `.env` | Thêm `GOOGLE_PLACES_API_KEY=...` vào `.env` |
-| `REQUEST_DENIED` | API chưa bật hoặc Key bị giới hạn | Kiểm tra lại [Bước 2](#2-bật-các-api-cần-thiết) |
-| `OVER_QUERY_LIMIT` | Vượt quá quota | Chờ ngày mai hoặc nâng quota |
-| `INVALID_REQUEST` | Tham số sai | Kiểm tra lại input (address, place ID...) |
-| `The provided API key is invalid` | API Key sai hoặc đã bị xóa | Tạo Key mới ở [Bước 3](#3-tạo-api-key) |
-| API trả về data rỗng | Key hợp lệ nhưng chưa bật Billing | Bật Billing ở [Bước 5](#5-thiết-lập-billing) |
+| Lỗi                                    | Nguyên nhân                       | Cách sửa                                        |
+| -------------------------------------- | --------------------------------- | ----------------------------------------------- |
+| `GOOGLE_PLACES_API_KEY not configured` | Chưa thêm API Key vào `.env`      | Thêm `GOOGLE_PLACES_API_KEY=...` vào `.env`     |
+| `REQUEST_DENIED`                       | API chưa bật hoặc Key bị giới hạn | Kiểm tra lại [Bước 2](#2-bật-các-api-cần-thiết) |
+| `OVER_QUERY_LIMIT`                     | Vượt quá quota                    | Chờ ngày mai hoặc nâng quota                    |
+| `INVALID_REQUEST`                      | Tham số sai                       | Kiểm tra lại input (address, place ID...)       |
+| `The provided API key is invalid`      | API Key sai hoặc đã bị xóa        | Tạo Key mới ở [Bước 3](#3-tạo-api-key)          |
+| API trả về data rỗng                   | Key hợp lệ nhưng chưa bật Billing | Bật Billing ở [Bước 5](#5-thiết-lập-billing)    |
 
 ---
 
@@ -221,6 +225,7 @@ Google Maps Platform tặng **$200 credit miễn phí mỗi tháng**. Bảng gi�
 ---
 
 > **Cần hỗ trợ thêm?** Xem tài liệu chính thức:
+>
 > - [Google Maps Platform Documentation](https://developers.google.com/maps/documentation)
 > - [Places API (New) Guide](https://developers.google.com/maps/documentation/places/web-service/op-overview)
 > - [Geocoding API Guide](https://developers.google.com/maps/documentation/geocoding/overview)

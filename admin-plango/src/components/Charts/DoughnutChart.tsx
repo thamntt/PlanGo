@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 
 interface DoughnutChartProps {
   title: string;
@@ -6,12 +6,16 @@ interface DoughnutChartProps {
   colors?: string[];
 }
 
-const DoughnutChart: React.FC<DoughnutChartProps> = ({ title, data, colors = ['#0891B2', '#F59E0B', '#10B981', '#6366F1', '#EC4899'] }) => {
+const DoughnutChart: React.FC<DoughnutChartProps> = ({
+  title,
+  data,
+  colors = ["#0891B2", "#F59E0B", "#10B981", "#6366F1", "#EC4899"],
+}) => {
   const entries = Object.entries(data);
   const total = entries.reduce((sum, [_, val]) => sum + val, 0);
-  
+
   let cumulativePercent = 0;
-  
+
   const getCoordinatesForPercent = (percent: number) => {
     const x = Math.cos(2 * Math.PI * percent);
     const y = Math.sin(2 * Math.PI * percent);
@@ -32,13 +36,13 @@ const DoughnutChart: React.FC<DoughnutChartProps> = ({ title, data, colors = ['#
               const [startX, startY] = getCoordinatesForPercent(cumulativePercent);
               cumulativePercent += percent;
               const [endX, endY] = getCoordinatesForPercent(cumulativePercent);
-              
+
               const largeArcFlag = percent > 0.5 ? 1 : 0;
               const pathData = [
                 `M ${startX} ${startY}`,
                 `A 1 1 0 ${largeArcFlag} 1 ${endX} ${endY}`,
                 `L 0 0`,
-              ].join(' ');
+              ].join(" ");
 
               return (
                 <path
@@ -53,7 +57,9 @@ const DoughnutChart: React.FC<DoughnutChartProps> = ({ title, data, colors = ['#
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
             <span className="text-2xl font-black text-slate-800">{total}</span>
-            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Tổng cộng</span>
+            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">
+              Tổng cộng
+            </span>
           </div>
         </div>
 
@@ -61,12 +67,19 @@ const DoughnutChart: React.FC<DoughnutChartProps> = ({ title, data, colors = ['#
           {entries.map(([label, value], index) => (
             <div key={label} className="flex items-center justify-between group cursor-pointer">
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
-                <span className="text-sm font-semibold text-slate-600 group-hover:text-slate-900 transition-colors">{label}</span>
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: colors[index % colors.length] }}
+                />
+                <span className="text-sm font-semibold text-slate-600 group-hover:text-slate-900 transition-colors">
+                  {label}
+                </span>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm font-bold text-slate-800">{value}</span>
-                <span className="text-xs text-slate-400 font-medium w-10 text-right">{Math.round((value / total) * 100)}%</span>
+                <span className="text-xs text-slate-400 font-medium w-10 text-right">
+                  {Math.round((value / total) * 100)}%
+                </span>
               </div>
             </div>
           ))}

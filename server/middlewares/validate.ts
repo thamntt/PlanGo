@@ -19,14 +19,18 @@ export function validate(schemas: ValidateSchemas): RequestHandler {
       if (schemas.body) {
         const result = schemas.body.safeParse(req.body);
         if (!result.success) {
-          return next(new AppError("VALIDATION_ERROR", "Invalid request body", result.error.flatten()));
+          return next(
+            new AppError("VALIDATION_ERROR", "Invalid request body", result.error.flatten()),
+          );
         }
         req.body = result.data;
       }
       if (schemas.query) {
         const result = schemas.query.safeParse(req.query);
         if (!result.success) {
-          return next(new AppError("VALIDATION_ERROR", "Invalid query params", result.error.flatten()));
+          return next(
+            new AppError("VALIDATION_ERROR", "Invalid query params", result.error.flatten()),
+          );
         }
         // Don't reassign req.query — Express 5 makes it read-only; instead stash on res.locals
         (req as any).validatedQuery = result.data;
@@ -34,7 +38,9 @@ export function validate(schemas: ValidateSchemas): RequestHandler {
       if (schemas.params) {
         const result = schemas.params.safeParse(req.params);
         if (!result.success) {
-          return next(new AppError("VALIDATION_ERROR", "Invalid path params", result.error.flatten()));
+          return next(
+            new AppError("VALIDATION_ERROR", "Invalid path params", result.error.flatten()),
+          );
         }
         (req as any).validatedParams = result.data;
       }

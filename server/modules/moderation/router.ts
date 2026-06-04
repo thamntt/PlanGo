@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
-import { asyncHandler, sendResponse, errors } from "../../lib/http";
+import { asyncHandler, sendResponse } from "../../lib/http";
+import { errors } from "../../lib/errors";
 import { requireAuth, requireAdmin } from "../../middlewares/auth";
 import { moderationRepo, type ContentType } from "./repository";
 

@@ -1,5 +1,1 @@
-export {
-  mapExpenseType,
-  mapPoiType,
-  mapPreference,
-} from "./data.mapper";
+export { mapExpenseType, mapPoiType, mapPreference } from "./data.mapper";

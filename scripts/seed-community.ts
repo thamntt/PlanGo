@@ -724,7 +724,8 @@ async function main() {
     const author = pick(allUsers);
     const slugStr = `${slug(bp.title)}-${Math.floor(Math.random() * 9000) + 1000}`;
     const cover =
-      dest?.images?.[0] || "https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=900";
+      (dest?.images as string[] | undefined)?.[0] ||
+      "https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=900";
     const [post] = await db
       .insert(blogPosts)
       .values({

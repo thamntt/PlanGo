@@ -8,7 +8,8 @@ export function parseDDMMYYYY(dateStr: string): Date | null {
   const month = parseInt(match[2], 10) - 1;
   const year = parseInt(match[3], 10);
   const date = new Date(year, month, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) return null;
+  if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day)
+    return null;
   return date;
 }
 
@@ -23,7 +24,8 @@ export function validateUsername(username: string): string | null {
   if (!username.trim()) return "Username is required";
   if (username.trim().length < 3) return "Username must be at least 3 characters";
   if (username.trim().length > 20) return "Username must be at most 20 characters";
-  if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) return "Username can only contain letters, numbers, and underscores";
+  if (!/^[a-zA-Z0-9_]+$/.test(username.trim()))
+    return "Username can only contain letters, numbers, and underscores";
   return null;
 }
 

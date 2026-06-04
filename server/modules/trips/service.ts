@@ -92,7 +92,12 @@ export async function createTrip(input: CreateTripInput) {
     }
 
     if (payload.days && Array.isArray(payload.days)) {
-      await createTripDaysAndActivities(trip.tripId, trip.startDate, payload.days, payload.destinationId);
+      await createTripDaysAndActivities(
+        trip.tripId,
+        trip.startDate,
+        payload.days,
+        payload.destinationId,
+      );
     }
 
     const finalTrip = await storage.getTrip(trip.tripId);
@@ -145,9 +150,10 @@ async function createActivityItem(
 ) {
   let estCost: string | undefined;
   if (activity.estimatedCost) {
-    estCost = typeof activity.estimatedCost === "number"
-      ? activity.estimatedCost.toString()
-      : parseCurrencyToNumeric(activity.estimatedCost)?.toString();
+    estCost =
+      typeof activity.estimatedCost === "number"
+        ? activity.estimatedCost.toString()
+        : parseCurrencyToNumeric(activity.estimatedCost)?.toString();
   }
 
   const numDuration = normalizeDuration(activity.duration) ?? 60;
@@ -167,13 +173,16 @@ async function createActivityItem(
     expenseTypeId: activity.expenseTypeId
       ? Number(activity.expenseTypeId)
       : mapActivityTypeToExpenseId(activity.activityType),
-    activityType: activity.activityType || mapExpenseIdToActivityType(
-      activity.expenseTypeId ? Number(activity.expenseTypeId) : null,
-    ),
+    activityType:
+      activity.activityType ||
+      mapExpenseIdToActivityType(activity.expenseTypeId ? Number(activity.expenseTypeId) : null),
   });
 }
 
-async function resolvePoiForActivity(activity: ActivityInput, destinationId?: number): Promise<number | undefined> {
+async function resolvePoiForActivity(
+  activity: ActivityInput,
+  destinationId?: number,
+): Promise<number | undefined> {
   if (activity.poiId) return Number(activity.poiId);
   if (!activity.description && !activity.title) return undefined;
 
@@ -200,7 +209,12 @@ async function resolvePoiForActivity(activity: ActivityInput, destinationId?: nu
     googlePlaceId: activity.googlePlaceId || undefined,
   });
 
-  await associatePreferencesToPoi(newPoi.poiId, activity.activityType, activity.title, activity.description);
+  await associatePreferencesToPoi(
+    newPoi.poiId,
+    activity.activityType,
+    activity.title,
+    activity.description,
+  );
   return newPoi.poiId;
 }
 
@@ -279,8 +293,11 @@ async function syncNestedDays(tripId: number, days: DayInput[]) {
   // Delete removed days
   for (const dbDay of dbDays) {
     if (!processedDayIds.has(dbDay.dayId)) {
-      try { await storage.deleteItineraryDay(dbDay.dayId); }
-      catch (err) { logger.warn({ err, dayId: dbDay.dayId }, "Failed to delete day"); }
+      try {
+        await storage.deleteItineraryDay(dbDay.dayId);
+      } catch (err) {
+        logger.warn({ err, dayId: dbDay.dayId }, "Failed to delete day");
+      }
     }
   }
 }
@@ -307,8 +324,11 @@ async function syncNestedActivities(tripId: number, dayId: number, activities: A
   // Delete removed activities
   for (const existing of existingItems) {
     if (!incomingIds.has(existing.itemId)) {
-      try { await storage.deleteItineraryItem(existing.itemId); }
-      catch (err) { logger.warn({ err, itemId: existing.itemId }, "Failed to delete activity"); }
+      try {
+        await storage.deleteItineraryItem(existing.itemId);
+      } catch (err) {
+        logger.warn({ err, itemId: existing.itemId }, "Failed to delete activity");
+      }
     }
   }
 }
@@ -331,9 +351,9 @@ async function updateExistingActivity(actId: number, act: ActivityInput, orderIn
     updatePayload.expenseTypeId = newExpId || mapActivityTypeToExpenseId(act.activityType);
   }
   if (act.activityType !== undefined) {
-    updatePayload.activityType = act.activityType || mapExpenseIdToActivityType(
-      act.expenseTypeId ? Number(act.expenseTypeId) : null,
-    );
+    updatePayload.activityType =
+      act.activityType ||
+      mapExpenseIdToActivityType(act.expenseTypeId ? Number(act.expenseTypeId) : null);
   }
   if (act.activityType !== undefined && act.expenseTypeId === undefined) {
     updatePayload.activityType = act.activityType || null;
@@ -363,7 +383,9 @@ async function autoSyncEndDate(tripId: number) {
   const newEnd = new Date(start);
   newEnd.setDate(start.getDate() + (maxDayIndex - 1));
   const newEndStr = newEnd.toISOString().split("T")[0];
-  const oldEndStr = currentTrip.endDate ? new Date(currentTrip.endDate).toISOString().split("T")[0] : "";
+  const oldEndStr = currentTrip.endDate
+    ? new Date(currentTrip.endDate).toISOString().split("T")[0]
+    : "";
 
   if (newEndStr !== oldEndStr) {
     logger.info({ tripId, maxDayIndex, newEndStr }, "Auto-syncing trip end date");
@@ -371,7 +393,11 @@ async function autoSyncEndDate(tripId: number) {
   }
 }
 
-async function syncNestedExpenses(tripId: number, tripOwnerId: number | null | undefined, expenses: TripExpenseInput[]) {
+async function syncNestedExpenses(
+  tripId: number,
+  tripOwnerId: number | null | undefined,
+  expenses: TripExpenseInput[],
+) {
   const processedExpenseIds = new Set<number>();
 
   // De-dup by activityId
@@ -391,7 +417,11 @@ async function syncNestedExpenses(tripId: number, tripOwnerId: number | null | u
       tripId,
       description: exp.title || exp.description,
       amount: exp.amount ? String(exp.amount) : "0",
-      paidBy: exp.paidByUserId ? Number(exp.paidByUserId) : exp.userId ? Number(exp.userId) : tripOwnerId,
+      paidBy: exp.paidByUserId
+        ? Number(exp.paidByUserId)
+        : exp.userId
+          ? Number(exp.userId)
+          : tripOwnerId,
       splitMethod: exp.splitType || "none",
       itemId: exp.activityId && !isNaN(Number(exp.activityId)) ? Number(exp.activityId) : undefined,
       expenseTypeId: await resolveExpenseTypeId(exp.type),
@@ -421,7 +451,11 @@ async function syncNestedExpenses(tripId: number, tripOwnerId: number | null | u
   }
 }
 
-async function upsertExpense(tripId: number, exp: TripExpenseInput, expData: any): Promise<number | undefined> {
+async function upsertExpense(
+  tripId: number,
+  exp: TripExpenseInput,
+  expData: any,
+): Promise<number | undefined> {
   let expIdParsed = NaN;
   if (exp.id && typeof exp.id === "string" && !exp.id.startsWith("temp-")) {
     expIdParsed = Number(exp.id);
@@ -468,6 +502,7 @@ export async function createDayItem(dayId: number, body: any) {
 export async function createTripExpense(tripId: number, body: any) {
   const trip = await storage.getTrip(tripId);
   if (!trip) throw errors.notFound("Trip");
-  if (trip.status === "completed") throw new AppError("TRIP_COMPLETED", "Cannot add expense to a completed trip");
+  if (trip.status === "completed")
+    throw new AppError("TRIP_COMPLETED", "Cannot add expense to a completed trip");
   return storage.createExpense({ ...body, tripId });
 }

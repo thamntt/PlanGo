@@ -7,7 +7,10 @@ const numericString = z
   .transform((v) => (typeof v === "number" ? v : Number(v)))
   .pipe(z.number());
 
-const positiveInt = z.union([z.string(), z.number()]).transform((v) => Number(v)).pipe(z.number().int().positive());
+const positiveInt = z
+  .union([z.string(), z.number()])
+  .transform((v) => Number(v))
+  .pipe(z.number().int().positive());
 
 const optionalNumeric = z
   .union([z.string(), z.number()])
@@ -21,11 +24,13 @@ export const activityInputSchema = z.object({
   poiId: z.union([z.string(), z.number()]).optional(),
   title: z.string().min(1),
   description: z.string().optional(),
-  time: z.string().optional(),                  // "HH:mm"
+  time: z.string().optional(), // "HH:mm"
   duration: z.union([z.string(), z.number()]).optional(),
   estimatedCost: z.union([z.string(), z.number()]).optional(),
   actualCost: z.union([z.string(), z.number(), z.null()]).optional(),
-  activityType: z.enum(["food", "sightseeing", "transport", "shopping", "hotel", "other"]).optional(),
+  activityType: z
+    .enum(["food", "sightseeing", "transport", "shopping", "hotel", "other"])
+    .optional(),
   expenseTypeId: z.union([z.string(), z.number()]).optional(),
   latitude: z.union([z.string(), z.number()]).optional(),
   longitude: z.union([z.string(), z.number()]).optional(),
@@ -34,7 +39,7 @@ export const activityInputSchema = z.object({
   destinationId: z.union([z.string(), z.number()]).optional(),
   isCompleted: z.boolean().optional(),
   note: z.string().nullable().optional(),
-  notes: z.array(z.string()).optional(),        // legacy
+  notes: z.array(z.string()).optional(), // legacy
 });
 
 export type ActivityInput = z.infer<typeof activityInputSchema>;
@@ -110,16 +115,8 @@ export type UpdateTripInput = z.infer<typeof updateTripInputSchema>;
 // ── List query ──
 
 export const listTripsQuerySchema = z.object({
-  ownerId: z
-    .string()
-    .regex(/^\d+$/)
-    .transform(Number)
-    .optional(),
-  memberId: z
-    .string()
-    .regex(/^\d+$/)
-    .transform(Number)
-    .optional(),
+  ownerId: z.string().regex(/^\d+$/).transform(Number).optional(),
+  memberId: z.string().regex(/^\d+$/).transform(Number).optional(),
 });
 
 export type ListTripsQuery = z.infer<typeof listTripsQuerySchema>;

@@ -87,10 +87,7 @@ function prepareDirectories(timestamp) {
 function clearMetroCache() {
   console.log("Clearing Metro cache...");
 
-  const cacheDirs = [
-    ...fs.globSync(".metro-cache"),
-    ...fs.globSync("node_modules/.cache/metro"),
-  ];
+  const cacheDirs = [...fs.globSync(".metro-cache"), ...fs.globSync("node_modules/.cache/metro")];
 
   for (const dir of cacheDirs) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -236,9 +233,7 @@ async function downloadManifest(platform) {
     return manifest;
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error(
-        `Manifest download timeout after 5m for platform: ${platform}`,
-      );
+      throw new Error(`Manifest download timeout after 5m for platform: ${platform}`);
     }
     throw error;
   } finally {
@@ -264,22 +259,15 @@ async function downloadBundlesAndManifests(timestamp) {
 
     if (failures.length > 0) {
       const errorMessages = failures.map(({ result, index }) => {
-        const names = [
-          "iOS bundle",
-          "Android bundle",
-          "iOS manifest",
-          "Android manifest",
-        ];
+        const names = ["iOS bundle", "Android bundle", "iOS manifest", "Android manifest"];
         return `  - ${names[index]}: ${result.reason?.message || result.reason}`;
       });
 
       exitWithError(`Download failed:\n${errorMessages.join("\n")}`);
     }
 
-    const iosManifest =
-      results[2].status === "fulfilled" ? results[2].value : null;
-    const androidManifest =
-      results[3].status === "fulfilled" ? results[3].value : null;
+    const iosManifest = results[2].status === "fulfilled" ? results[2].value : null;
+    const androidManifest = results[3].status === "fulfilled" ? results[3].value : null;
 
     console.log("All downloads completed successfully");
     return { ios: iosManifest, android: androidManifest };
@@ -291,27 +279,11 @@ async function downloadBundlesAndManifests(timestamp) {
 function extractAssets(timestamp) {
   const bundles = {
     ios: fs.readFileSync(
-      path.join(
-        "static-build",
-        timestamp,
-        "_expo",
-        "static",
-        "js",
-        "ios",
-        "bundle.js",
-      ),
+      path.join("static-build", timestamp, "_expo", "static", "js", "ios", "bundle.js"),
       "utf-8",
     ),
     android: fs.readFileSync(
-      path.join(
-        "static-build",
-        timestamp,
-        "_expo",
-        "static",
-        "js",
-        "android",
-        "bundle.js",
-      ),
+      path.join("static-build", timestamp, "_expo", "static", "js", "android", "bundle.js"),
       "utf-8",
     ),
   };
@@ -411,9 +383,7 @@ async function downloadAssets(assets, timestamp) {
   if (failures.length > 0) {
     const errorMsg =
       `Failed to download ${failures.length} asset(s):\n` +
-      failures
-        .map((f) => `  - ${f.filename}: ${f.error} (${f.url})`)
-        .join("\n");
+      failures.map((f) => `  - ${f.filename}: ${f.error} (${f.url})`).join("\n");
     exitWithError(errorMsg);
   }
 
@@ -434,22 +404,17 @@ function updateBundleUrls(timestamp, baseUrl) {
     );
     let bundle = fs.readFileSync(bundlePath, "utf-8");
 
-    bundle = bundle.replace(
-      /httpServerLocation:"(\/[^"]+)"/g,
-      (_match, capturedPath) => {
-        const tempUrl = new URL(`http://localhost:8081${capturedPath}`);
-        const unstablePath = tempUrl.searchParams.get("unstable_path");
+    bundle = bundle.replace(/httpServerLocation:"(\/[^"]+)"/g, (_match, capturedPath) => {
+      const tempUrl = new URL(`http://localhost:8081${capturedPath}`);
+      const unstablePath = tempUrl.searchParams.get("unstable_path");
 
-        if (!unstablePath) {
-          throw new Error(
-            `Asset missing unstable_path in bundle: ${capturedPath}`,
-          );
-        }
+      if (!unstablePath) {
+        throw new Error(`Asset missing unstable_path in bundle: ${capturedPath}`);
+      }
 
-        const decodedPath = decodeURIComponent(unstablePath);
-        return `httpServerLocation:"${baseUrl}/${timestamp}/_expo/static/js/${decodedPath}"`;
-      },
-    );
+      const decodedPath = decodeURIComponent(unstablePath);
+      return `httpServerLocation:"${baseUrl}/${timestamp}/_expo/static/js/${decodedPath}"`;
+    });
 
     fs.writeFileSync(bundlePath, bundle);
   };
@@ -467,13 +432,9 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
 
     manifest.launchAsset.url = `${baseUrl}/${timestamp}/_expo/static/js/${platform}/bundle.js`;
     manifest.launchAsset.key = `bundle-${timestamp}`;
-    manifest.createdAt = new Date(
-      Number(timestamp.split("-")[0]),
-    ).toISOString();
-    manifest.extra.expoClient.hostUri =
-      baseUrl.replace("https://", "") + "/" + platform;
-    manifest.extra.expoGo.debuggerHost =
-      baseUrl.replace("https://", "") + "/" + platform;
+    manifest.createdAt = new Date(Number(timestamp.split("-")[0])).toISOString();
+    manifest.extra.expoClient.hostUri = baseUrl.replace("https://", "") + "/" + platform;
+    manifest.extra.expoGo.debuggerHost = baseUrl.replace("https://", "") + "/" + platform;
     manifest.extra.expoGo.packagerOpts.dev = false;
 
     if (manifest.assets && manifest.assets.length > 0) {

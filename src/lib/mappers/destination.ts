@@ -1,4 +1,1 @@
-export {
-  mapDestination,
-  mapDestinationType,
-} from "./data.mapper";
+export { mapDestination, mapDestinationType } from "./data.mapper";

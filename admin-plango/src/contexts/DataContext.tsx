@@ -1,12 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
 import type { ReactNode } from "react";
-import type {
-  Destination,
-  Itinerary,
-  Review,
-  POI,
-  UserData
-} from "../lib/types";
+import type { Destination, Itinerary, Review, POI, UserData } from "../lib/types";
 import { apiRequest } from "../lib/api";
 
 interface DataContextValue {
@@ -19,14 +13,19 @@ interface DataContextValue {
   pois: POI[];
   isLoading: boolean;
   refreshData: () => Promise<void>;
-  
+
   // Users
   updateUser: (id: string, data: Partial<UserData>) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
   fetchUsers: (search?: string) => Promise<void>;
 
   // Destinations
-  addDestination: (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive"> & { rating?: number; reviewCount?: number }) => Promise<Destination>;
+  addDestination: (
+    dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive"> & {
+      rating?: number;
+      reviewCount?: number;
+    },
+  ) => Promise<Destination>;
   updateDestination: (id: string, data: Partial<Destination>) => Promise<void>;
   deleteDestination: (id: string) => Promise<void>;
 
@@ -116,8 +115,8 @@ function mapItinerary(i: any): Itinerary {
 }
 
 function mapReview(r: any): Review {
-  const reviewType: 'trip' | 'item' = r.type === 'item' ? 'item' : 'trip';
-  const rawId = r.reviewId || r.id || '';
+  const reviewType: "trip" | "item" = r.type === "item" ? "item" : "trip";
+  const rawId = r.reviewId || r.id || "";
   // uniqueId dùng cho React key, rawId dùng để gọi API DELETE
   const uniqueId = `${reviewType}-${r.userId}-${rawId}`;
   return {
@@ -186,24 +185,28 @@ export function DataProvider({ children }: { children: ReactNode }) {
         apiRequest("GET", "/api/pois"),
         apiRequest("GET", "/api/poi-types"),
       ]);
-      
+
       const [usersRes, destsRes, typesRes, itinsRes, poisRes, poiTypesRes] = results;
 
       if (usersRes.status === "fulfilled") setUsers(usersRes.value.map(mapUser));
       if (destsRes.status === "fulfilled") setDestinations(destsRes.value.map(mapDestination));
       if (typesRes.status === "fulfilled") {
-        setDestinationTypes(typesRes.value.map((t: any) => ({
-          id: t.destinationtypeId,
-          name: t.typeName
-        })));
+        setDestinationTypes(
+          typesRes.value.map((t: any) => ({
+            id: t.destinationtypeId,
+            name: t.typeName,
+          })),
+        );
       }
       if (itinsRes.status === "fulfilled") setItineraries(itinsRes.value.map(mapItinerary));
       if (poisRes.status === "fulfilled") setPois(poisRes.value.map(mapPoi));
       if (poiTypesRes.status === "fulfilled") {
-        setPoiTypes(poiTypesRes.value.map((t: any) => ({
-          id: t.poitypeId,
-          name: t.typeName
-        })));
+        setPoiTypes(
+          poiTypesRes.value.map((t: any) => ({
+            id: t.poitypeId,
+            name: t.typeName,
+          })),
+        );
       }
 
       try {
@@ -212,7 +215,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.log("Admin stats fetch failed");
       }
-      
+
       try {
         const revsData = await apiRequest("GET", "/api/reviews");
         setReviews((revsData as any[]).map(mapReview));
@@ -228,7 +231,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
 
   const updateUser = useCallback(async (id: string, data: Partial<UserData>) => {
     const res = await apiRequest("PUT", `/api/users/${id}`, data);
@@ -251,13 +253,28 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const addDestination = useCallback(async (dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive" | "tags"> & { rating?: number; reviewCount?: number; tags?: string[] }) => {
-    const payload = { ...dest, rating: dest.rating || 0, reviewCount: dest.reviewCount || 0, isActive: true, tags: dest.tags || [] };
-    const res = await apiRequest("POST", "/api/destinations", payload);
-    const created = mapDestination(res);
-    setDestinations((prev) => [...prev, created]);
-    return created;
-  }, []);
+  const addDestination = useCallback(
+    async (
+      dest: Omit<Destination, "id" | "rating" | "reviewCount" | "isActive" | "tags"> & {
+        rating?: number;
+        reviewCount?: number;
+        tags?: string[];
+      },
+    ) => {
+      const payload = {
+        ...dest,
+        rating: dest.rating || 0,
+        reviewCount: dest.reviewCount || 0,
+        isActive: true,
+        tags: dest.tags || [],
+      };
+      const res = await apiRequest("POST", "/api/destinations", payload);
+      const created = mapDestination(res);
+      setDestinations((prev) => [...prev, created]);
+      return created;
+    },
+    [],
+  );
 
   const updateDestination = useCallback(async (id: string, data: Partial<Destination>) => {
     const res = await apiRequest("PUT", `/api/destinations/${id}`, data);
@@ -298,7 +315,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     // Tìm review để lấy rawId thực cho API
     setReviews((prev) => {
       const review = prev.find((r) => r.id === id);
-      const apiId = (review as any)?.rawId || id.split('-').pop() || id;
+      const apiId = (review as any)?.rawId || id.split("-").pop() || id;
       apiRequest("DELETE", `/api/reviews/${apiId}`).catch(console.error);
       return prev.filter((r) => r.id !== id);
     });
@@ -330,9 +347,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
       deleteReview,
       adminStats,
       destinationTypes,
-      poiTypes
+      poiTypes,
     }),
-    [users, destinations, itineraries, reviews, pois, isLoading, refreshData, updateUser, deleteUser, fetchUsers, addDestination, updateDestination, deleteDestination, addPOI, updatePOI, deletePOI, deleteItinerary, deleteReview, adminStats, destinationTypes, poiTypes]
+    [
+      users,
+      destinations,
+      itineraries,
+      reviews,
+      pois,
+      isLoading,
+      refreshData,
+      updateUser,
+      deleteUser,
+      fetchUsers,
+      addDestination,
+      updateDestination,
+      deleteDestination,
+      addPOI,
+      updatePOI,
+      deletePOI,
+      deleteItinerary,
+      deleteReview,
+      adminStats,
+      destinationTypes,
+      poiTypes,
+    ],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

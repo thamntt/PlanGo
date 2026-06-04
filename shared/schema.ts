@@ -317,6 +317,7 @@ export const communityTags = pgTable("community_tags", {
   name: varchar("name", { length: 50 }).notNull().unique(),
   slug: varchar("slug", { length: 60 }).notNull().unique(),
   color: varchar("color", { length: 20 }), // hex
+  description: text("description"),
   usageCount: integer("usage_count").default(0),
 });
 

@@ -1,22 +1,22 @@
-import React, { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { MapPin, Lock, Mail, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useState } from "react";
+import { useAuth } from "../contexts/AuthContext";
+import { MapPin, Lock, Mail, AlertCircle, Loader2 } from "lucide-react";
 
 const Login: React.FC = () => {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
-      setError('Vui lòng nhập đầy đủ thông tin');
+      setError("Vui lòng nhập đầy đủ thông tin");
       return;
     }
 
-    setError('');
+    setError("");
     setIsSubmitting(true);
 
     try {
@@ -25,7 +25,7 @@ const Login: React.FC = () => {
       if (err instanceof Error) {
         setError(err.message);
       } else {
-        setError('Email hoặc mật khẩu không chính xác');
+        setError("Email hoặc mật khẩu không chính xác");
       }
     } finally {
       setIsSubmitting(false);
@@ -56,7 +56,9 @@ const Login: React.FC = () => {
         <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 p-8 shadow-2xl">
           <div className="mb-6">
             <h2 className="text-xl font-bold text-white">Đăng nhập</h2>
-            <p className="text-slate-400 text-sm mt-1">Nhập thông tin tài khoản quản trị để tiếp tục</p>
+            <p className="text-slate-400 text-sm mt-1">
+              Nhập thông tin tài khoản quản trị để tiếp tục
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -66,11 +68,14 @@ const Login: React.FC = () => {
                 Email
               </label>
               <div className="relative">
-                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Mail
+                  size={18}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                />
                 <input
                   type="text"
                   value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  onChange={(e) => setEmail(e.target.value)}
                   placeholder="admin@plango.vn"
                   autoComplete="email"
                   className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-all"
@@ -84,11 +89,14 @@ const Login: React.FC = () => {
                 Mật khẩu
               </label>
               <div className="relative">
-                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Lock
+                  size={18}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                />
                 <input
                   type="password"
                   value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete="current-password"
                   className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-all"
@@ -116,7 +124,7 @@ const Login: React.FC = () => {
                   Đang xác thực...
                 </>
               ) : (
-                'Đăng nhập'
+                "Đăng nhập"
               )}
             </button>
           </form>

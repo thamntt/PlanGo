@@ -38,29 +38,40 @@ async function enrichPoi(poi: any, allPoiTypes?: any[], allHours?: any[]) {
         enriched.openHours = `${startDay} - ${endDay} | ${openT} - ${closeT}`;
       } else {
         enriched.openHours = sorted
-          .map((h: any) =>
-            `${dayNamesShort[h.dayOfWeek] || h.dayOfWeek}: ${(h.openTime || "?").slice(0, 5)}-${(h.closeTime || "?").slice(0, 5)}`)
+          .map(
+            (h: any) =>
+              `${dayNamesShort[h.dayOfWeek] || h.dayOfWeek}: ${(h.openTime || "?").slice(0, 5)}-${(h.closeTime || "?").slice(0, 5)}`,
+          )
           .join(" | ");
       }
     }
-  } catch { }
+  } catch {}
 
   return enriched;
 }
 
 async function saveOpeningHours(poiId: number, openHoursStr: string | undefined) {
   if (!openHoursStr || !openHoursStr.trim()) return;
-  try { await storage.deletePoiOpeningHours(poiId); } catch { }
+  try {
+    await storage.deletePoiOpeningHours(poiId);
+  } catch {}
 
   const trimmed = openHoursStr.trim();
   const dayMap: Record<string, number> = {
-    CN: 0, "CHỦ NHẬT": 0,
-    T2: 1, "THỨ 2": 1,
-    T3: 2, "THỨ 3": 2,
-    T4: 3, "THỨ 4": 3,
-    T5: 4, "THỨ 5": 4,
-    T6: 5, "THỨ 6": 5,
-    T7: 6, "THỨ 7": 6,
+    CN: 0,
+    "CHỦ NHẬT": 0,
+    T2: 1,
+    "THỨ 2": 1,
+    T3: 2,
+    "THỨ 3": 2,
+    T4: 3,
+    "THỨ 4": 3,
+    T5: 4,
+    "THỨ 5": 4,
+    T6: 5,
+    "THỨ 6": 5,
+    T7: 6,
+    "THỨ 7": 6,
   };
 
   if (trimmed.includes("|")) {
@@ -85,7 +96,9 @@ async function saveOpeningHours(poiId: number, openHoursStr: string | undefined)
           safety++;
         }
         for (const d of daysToSave) {
-          try { await storage.createPoiOpeningHours({ poiId, dayOfWeek: d, openTime, closeTime }); } catch { }
+          try {
+            await storage.createPoiOpeningHours({ poiId, dayOfWeek: d, openTime, closeTime });
+          } catch {}
         }
         return;
       }
@@ -99,13 +112,18 @@ async function saveOpeningHours(poiId: number, openHoursStr: string | undefined)
       const match = seg.match(/^(CN|T[2-7])\s*:\s*(.+)$/i);
       if (match) {
         const dayIndex = dayMap[match[1].toUpperCase()] ?? 0;
-        const times = match[2].trim().split("-").map((t) => t.trim());
+        const times = match[2]
+          .trim()
+          .split("-")
+          .map((t) => t.trim());
         try {
           await storage.createPoiOpeningHours({
-            poiId, dayOfWeek: dayIndex,
-            openTime: times[0] || null, closeTime: times[1] || null,
+            poiId,
+            dayOfWeek: dayIndex,
+            openTime: times[0] || null,
+            closeTime: times[1] || null,
           });
-        } catch { }
+        } catch {}
       }
     }
   } else {
@@ -113,7 +131,9 @@ async function saveOpeningHours(poiId: number, openHoursStr: string | undefined)
     const openTime = times[0] || null;
     const closeTime = times[1] || null;
     for (let day = 0; day < 7; day++) {
-      try { await storage.createPoiOpeningHours({ poiId, dayOfWeek: day, openTime, closeTime }); } catch { }
+      try {
+        await storage.createPoiOpeningHours({ poiId, dayOfWeek: day, openTime, closeTime });
+      } catch {}
     }
   }
 }

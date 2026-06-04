@@ -70,11 +70,7 @@ async function handleResponseStatus(res: Response): Promise<void> {
   }
 }
 
-export async function apiRequest(
-  method: string,
-  route: string,
-  data?: unknown,
-): Promise<Response> {
+export async function apiRequest(method: string, route: string, data?: unknown): Promise<Response> {
   activeRequests++;
   notifyListeners();
 
@@ -123,7 +119,13 @@ export const getQueryFn: <T>(options: { on401: UnauthorizedBehavior }) => QueryF
 
       await handleResponseStatus(res);
       const json = await res.json();
-      if (json && typeof json === "object" && "status" in json && "message" in json && "data" in json) {
+      if (
+        json &&
+        typeof json === "object" &&
+        "status" in json &&
+        "message" in json &&
+        "data" in json
+      ) {
         return json.data;
       }
       return json;

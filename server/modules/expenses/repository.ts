@@ -44,7 +44,10 @@ export const expenseRepo = {
   },
 
   async deleteExpenseSplits(expenseId: number) {
-    const r = await db.delete(expenseSplits).where(eq(expenseSplits.expenseId, expenseId)).returning();
+    const r = await db
+      .delete(expenseSplits)
+      .where(eq(expenseSplits.expenseId, expenseId))
+      .returning();
     return r.length > 0;
   },
 };

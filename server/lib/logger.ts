@@ -9,14 +9,14 @@ export const logger = pino({
   // Pretty-print only in dev for human readability
   transport: isDev
     ? {
-      target: "pino-pretty",
-      options: {
-        colorize: true,
-        translateTime: "HH:MM:ss.l",
-        ignore: "pid,hostname,service,env",
-        singleLine: false,
-      },
-    }
+        target: "pino-pretty",
+        options: {
+          colorize: true,
+          translateTime: "HH:MM:ss.l",
+          ignore: "pid,hostname,service,env",
+          singleLine: false,
+        },
+      }
     : undefined,
 });
 
@@ -28,9 +28,7 @@ export const httpLogger = pinoHttp({
   logger,
   genReqId: (req) => {
     const headerId = req.headers["x-request-id"];
-    return typeof headerId === "string" && headerId.length > 0
-      ? headerId
-      : randomUUID();
+    return typeof headerId === "string" && headerId.length > 0 ? headerId : randomUUID();
   },
   customLogLevel: (_req, res, err) => {
     if (err || res.statusCode >= 500) return "error";
@@ -38,7 +36,8 @@ export const httpLogger = pinoHttp({
     return "info";
   },
   customSuccessMessage: (req, res) => `${req.method} ${req.url} → ${res.statusCode}`,
-  customErrorMessage: (req, res, err) => `${req.method} ${req.url} → ${res.statusCode} (${err.message})`,
+  customErrorMessage: (req, res, err) =>
+    `${req.method} ${req.url} → ${res.statusCode} (${err.message})`,
   serializers: {
     req: (req) => ({ id: req.id, method: req.method, url: req.url }),
     res: (res) => ({ statusCode: res.statusCode }),

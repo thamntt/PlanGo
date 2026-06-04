@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { subscribeToLoading } from '../lib/api';
+import React, { useState, useEffect } from "react";
+import { subscribeToLoading } from "../lib/api";
 
 const GlobalLoading: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);

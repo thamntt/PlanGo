@@ -14,7 +14,8 @@ export function useNotifications(userId?: number | string) {
   return useQuery<Notification[]>({
     queryKey: queryKeys.notificationList(userId !== undefined ? Number(userId) : undefined),
     queryFn: async () => {
-      const route = userId !== undefined ? `/api/notifications?userId=${userId}` : "/api/notifications";
+      const route =
+        userId !== undefined ? `/api/notifications?userId=${userId}` : "/api/notifications";
       const res = await apiRequest("GET", route);
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapNotification);
@@ -24,7 +25,11 @@ export function useNotifications(userId?: number | string) {
 
 export function useCreateNotification() {
   const qc = useQueryClient();
-  return useMutation<Notification, Error, Omit<Notification, "id" | "createdAt" | "isRead"> & { isRead?: boolean }>({
+  return useMutation<
+    Notification,
+    Error,
+    Omit<Notification, "id" | "createdAt" | "isRead"> & { isRead?: boolean }
+  >({
     mutationFn: async (input) => {
       const res = await apiRequest("POST", "/api/notifications", input);
       const data = await unwrap<any>(res);

@@ -55,14 +55,52 @@ async function deleteDestinationType(req: Request, res: Response) {
 }
 
 export function registerDestinationRoutes(app: Express) {
-  app.get("/api/destinations", validate({ query: listDestinationsQuerySchema }), asyncHandler(listDestinations));
-  app.get("/api/destinations/:id", validate({ params: numericIdParam }), asyncHandler(getDestinationById));
-  app.post("/api/destinations", requireAdmin, validate({ body: createDestinationInputSchema }), asyncHandler(createDestination));
-  app.put("/api/destinations/:id", requireAdmin, validate({ params: numericIdParam, body: updateDestinationInputSchema }), asyncHandler(updateDestination));
-  app.delete("/api/destinations/:id", requireAdmin, validate({ params: numericIdParam }), asyncHandler(deleteDestination));
+  app.get(
+    "/api/destinations",
+    validate({ query: listDestinationsQuerySchema }),
+    asyncHandler(listDestinations),
+  );
+  app.get(
+    "/api/destinations/:id",
+    validate({ params: numericIdParam }),
+    asyncHandler(getDestinationById),
+  );
+  app.post(
+    "/api/destinations",
+    requireAdmin,
+    validate({ body: createDestinationInputSchema }),
+    asyncHandler(createDestination),
+  );
+  app.put(
+    "/api/destinations/:id",
+    requireAdmin,
+    validate({ params: numericIdParam, body: updateDestinationInputSchema }),
+    asyncHandler(updateDestination),
+  );
+  app.delete(
+    "/api/destinations/:id",
+    requireAdmin,
+    validate({ params: numericIdParam }),
+    asyncHandler(deleteDestination),
+  );
 
   app.get("/api/destination-types", asyncHandler(listDestinationTypes));
-  app.post("/api/destination-types", requireAdmin, validate({ body: createDestinationTypeInputSchema }), asyncHandler(createDestinationType));
-  app.put("/api/destination-types/:id", requireAdmin, validate({ params: numericIdParam, body: updateDestinationTypeInputSchema }), asyncHandler(updateDestinationType));
-  app.delete("/api/destination-types/:id", requireAdmin, validate({ params: numericIdParam }), asyncHandler(deleteDestinationType));
+  app.post(
+    "/api/destination-types",
+    requireAdmin,
+    validate({ body: createDestinationTypeInputSchema }),
+    asyncHandler(createDestinationType),
+  );
+  app.put(
+    "/api/destination-types/:id",
+    requireAdmin,
+    validate({ params: numericIdParam, body: updateDestinationTypeInputSchema }),
+    asyncHandler(updateDestinationType),
+  );
+  app.delete(
+    "/api/destination-types/:id",
+    requireAdmin,
+    validate({ params: numericIdParam }),
+    asyncHandler(deleteDestinationType),
+  );
 }

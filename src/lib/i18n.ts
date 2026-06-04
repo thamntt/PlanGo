@@ -59,7 +59,8 @@ const vi = {
     forgotSubtitle: "Nhập email của bạn, chúng tôi sẽ gửi liên kết đặt lại mật khẩu",
     sendResetLink: "Gửi liên kết đặt lại",
     resetLinkSent: "Đã gửi! Vui lòng kiểm tra email",
-    resetLinkSentSubtitle: "Nếu email tồn tại trong hệ thống, bạn sẽ nhận được hướng dẫn trong vài phút",
+    resetLinkSentSubtitle:
+      "Nếu email tồn tại trong hệ thống, bạn sẽ nhận được hướng dẫn trong vài phút",
     backToLogin: "Quay lại đăng nhập",
     // Social
     orContinueWith: "hoặc tiếp tục với",
@@ -315,9 +316,11 @@ const vi = {
     reviewActivity: "Đánh giá",
     editReview: "Sửa đánh giá",
     deleteReview: "Xóa đánh giá",
-    deleteReviewConfirm: "Bạn có muốn xóa đánh giá này? Sau khi xóa, bạn có thể bỏ tick hoàn thành hoạt động.",
+    deleteReviewConfirm:
+      "Bạn có muốn xóa đánh giá này? Sau khi xóa, bạn có thể bỏ tick hoàn thành hoạt động.",
     cannotUncheckHasReview: "Không thể bỏ tick vì đã có đánh giá. Hãy xóa đánh giá trước.",
-    resetConfirm: "Đặt lại chuyến đi? Tick hoàn thành, chi phí thực tế và chi phí phát sinh sẽ bị xóa. Danh sách địa điểm, thời gian và ghi chú sẽ được giữ lại.",
+    resetConfirm:
+      "Đặt lại chuyến đi? Tick hoàn thành, chi phí thực tế và chi phí phát sinh sẽ bị xóa. Danh sách địa điểm, thời gian và ghi chú sẽ được giữ lại.",
     activityCosts: "Chi phí hoạt động",
     splitType: "Kiểu chia",
     splitNone: "Không chia",
@@ -442,7 +445,8 @@ const vi = {
     addDestination: "Thêm điểm đến",
     editDestination: "Sửa điểm đến",
     deleteDestination: "Xóa điểm đến",
-    deleteDestMsg: (name: string) => `Bạn có chắc chắn muốn xóa "${name}"? Hành động này không thể hoàn tác.`,
+    deleteDestMsg: (name: string) =>
+      `Bạn có chắc chắn muốn xóa "${name}"? Hành động này không thể hoàn tác.`,
     deleteReview: "Xóa đánh giá",
     deleteReviewMsg: "Bạn có chắc chắn muốn xóa đánh giá này? Hành động này không thể hoàn tác.",
     destName: "Tên điểm đến *",
@@ -466,7 +470,8 @@ const vi = {
     userReviews: "Đánh giá",
     editUser: "Sửa thông tin",
     deleteUser: "Xóa tài khoản",
-    deleteUserMsg: (name: string) => `Bạn có chắc chắn muốn xóa tài khoản "${name}"? Hành động này không thể hoàn tác.`,
+    deleteUserMsg: (name: string) =>
+      `Bạn có chắc chắn muốn xóa tài khoản "${name}"? Hành động này không thể hoàn tác.`,
     lockAccount: "Khóa tài khoản",
     unlockAccount: "Mở khóa tài khoản",
     noTrips: "Chưa có chuyến đi",

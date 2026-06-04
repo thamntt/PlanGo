@@ -36,7 +36,14 @@ export interface Destination {
   bestTimeToVisit?: string;
   estimatedCostPerPerson?: number;
   sampleReviews?: { author: string; rating: number; comment: string; source: string }[];
-  nearbyFood?: { name: string; address: string; latitude: number; longitude: number; costPerPerson: number; cuisine: string }[];
+  nearbyFood?: {
+    name: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+    costPerPerson: number;
+    cuisine: string;
+  }[];
   // Google Places fields
   googlePlaceId?: string;
   googlePhotos?: { name: string; attributions: string[] }[];
@@ -166,7 +173,7 @@ export interface Review {
   activityId?: string;
   activityTitle?: string;
   itineraryId?: string;
-  reviewType: 'trip' | 'item';
+  reviewType: "trip" | "item";
   rating: number;
   comment: string;
   createdAt: string;

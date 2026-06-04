@@ -58,11 +58,35 @@ export function registerPoiRoutes(app: Express) {
   app.get("/api/pois", validate({ query: listPoisQuerySchema }), asyncHandler(listPois));
   app.get("/api/pois/:id", validate({ params: numericIdParam }), asyncHandler(getPoiById));
   app.post("/api/pois", validate({ body: createPoiInputSchema }), asyncHandler(createPoi));
-  app.put("/api/pois/:id", validate({ params: numericIdParam, body: updatePoiInputSchema }), asyncHandler(updatePoi));
-  app.delete("/api/pois/:id", requireAdmin, validate({ params: numericIdParam }), asyncHandler(deletePoi));
+  app.put(
+    "/api/pois/:id",
+    validate({ params: numericIdParam, body: updatePoiInputSchema }),
+    asyncHandler(updatePoi),
+  );
+  app.delete(
+    "/api/pois/:id",
+    requireAdmin,
+    validate({ params: numericIdParam }),
+    asyncHandler(deletePoi),
+  );
 
   app.get("/api/poi-types", asyncHandler(listPoiTypes));
-  app.post("/api/poi-types", requireAdmin, validate({ body: createPoiTypeInputSchema }), asyncHandler(createPoiType));
-  app.put("/api/poi-types/:id", requireAdmin, validate({ params: numericIdParam, body: updatePoiTypeInputSchema }), asyncHandler(updatePoiType));
-  app.delete("/api/poi-types/:id", requireAdmin, validate({ params: numericIdParam }), asyncHandler(deletePoiType));
+  app.post(
+    "/api/poi-types",
+    requireAdmin,
+    validate({ body: createPoiTypeInputSchema }),
+    asyncHandler(createPoiType),
+  );
+  app.put(
+    "/api/poi-types/:id",
+    requireAdmin,
+    validate({ params: numericIdParam, body: updatePoiTypeInputSchema }),
+    asyncHandler(updatePoiType),
+  );
+  app.delete(
+    "/api/poi-types/:id",
+    requireAdmin,
+    validate({ params: numericIdParam }),
+    asyncHandler(deletePoiType),
+  );
 }

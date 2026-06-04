@@ -15,7 +15,8 @@ export const queryKeys = {
     ["trips", "list", filters ?? {}] as const,
   tripDetail: (id: string | number) => ["trips", "detail", String(id)] as const,
   tripDays: (tripId: string | number) => ["trips", "detail", String(tripId), "days"] as const,
-  tripExpenses: (tripId: string | number) => ["trips", "detail", String(tripId), "expenses"] as const,
+  tripExpenses: (tripId: string | number) =>
+    ["trips", "detail", String(tripId), "expenses"] as const,
 
   // ── Destinations ──
   destinations: () => ["destinations"] as const,

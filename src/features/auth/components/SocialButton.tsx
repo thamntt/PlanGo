@@ -13,10 +13,7 @@ interface Props {
   disabled?: boolean;
 }
 
-const PROVIDER_CONFIG: Record<
-  Provider,
-  { icon: keyof typeof Ionicons.glyphMap; tint: string }
-> = {
+const PROVIDER_CONFIG: Record<Provider, { icon: keyof typeof Ionicons.glyphMap; tint: string }> = {
   google: { icon: "logo-google", tint: "#DB4437" },
   facebook: { icon: "logo-facebook", tint: "#1877F2" },
   apple: { icon: "logo-apple", tint: "#000000" },

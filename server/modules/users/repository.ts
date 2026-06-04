@@ -1,10 +1,6 @@
 import { eq, ilike } from "drizzle-orm";
 import { db } from "../../db";
-import {
-  users,
-  type User,
-  type InsertUser,
-} from "../../../shared/schema";
+import { users, type User, type InsertUser } from "../../../shared/schema";
 
 export const userRepo = {
   async getUser(id: number): Promise<User | undefined> {
@@ -24,7 +20,10 @@ export const userRepo = {
 
   async getUsers(search?: string): Promise<User[]> {
     if (search) {
-      return db.select().from(users).where(ilike(users.userName, `%${search}%`));
+      return db
+        .select()
+        .from(users)
+        .where(ilike(users.userName, `%${search}%`));
     }
     return db.select().from(users);
   },
@@ -33,10 +32,7 @@ export const userRepo = {
     provider: string,
     providerUserId: string,
   ): Promise<User | undefined> {
-    const [row] = await db
-      .select()
-      .from(users)
-      .where(eq(users.providerUserId, providerUserId));
+    const [row] = await db.select().from(users).where(eq(users.providerUserId, providerUserId));
     if (!row) return undefined;
     return row.provider === provider ? row : undefined;
   },

@@ -34,8 +34,7 @@ export async function socialLogin(input: SocialLoginInput) {
       profile = await verifyGoogleIdToken(input.idToken);
       break;
     case "facebook":
-      if (!input.accessToken)
-        throw new AppError("BAD_REQUEST", "Facebook accessToken required");
+      if (!input.accessToken) throw new AppError("BAD_REQUEST", "Facebook accessToken required");
       profile = await verifyFacebookAccessToken(input.accessToken);
       break;
     case "apple":

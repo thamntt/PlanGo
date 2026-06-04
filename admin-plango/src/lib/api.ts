@@ -34,7 +34,9 @@ type UnauthorizedListener = () => void;
 const unauthorizedListeners = new Set<UnauthorizedListener>();
 export function onUnauthorized(listener: UnauthorizedListener): () => void {
   unauthorizedListeners.add(listener);
-  return () => { unauthorizedListeners.delete(listener); };
+  return () => {
+    unauthorizedListeners.delete(listener);
+  };
 }
 
 // ── Axios instance ──
@@ -76,7 +78,13 @@ api.interceptors.response.use(
     activeRequests = Math.max(0, activeRequests - 1);
     notifyListeners();
     if (error?.response?.status === 401) {
-      unauthorizedListeners.forEach((l) => { try { l(); } catch { /* ignore */ } });
+      unauthorizedListeners.forEach((l) => {
+        try {
+          l();
+        } catch {
+          /* ignore */
+        }
+      });
     }
     return Promise.reject(error);
   },

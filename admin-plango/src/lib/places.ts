@@ -50,23 +50,23 @@ const TYPE_MAP: Record<string, string> = {
   monument: "attraction",
   national_park: "attraction",
   viewpoint: "attraction",
-  
+
   restaurant: "restaurant",
   food: "restaurant",
   fast_food: "restaurant",
   meal_delivery: "restaurant",
   meal_takeaway: "restaurant",
   bakery: "restaurant",
-  
+
   cafe: "cafe",
   coffee_shop: "cafe",
   coffee: "cafe",
-  
+
   lodging: "hotel",
   hotel: "hotel",
   hostel: "hotel",
   guest_house: "hotel",
-  
+
   shopping_mall: "shopping",
   clothing_store: "shopping",
   department_store: "shopping",
@@ -81,7 +81,10 @@ const TYPE_MAP: Record<string, string> = {
   shop: "shopping",
 };
 
-export function mapGoogleTypeToPOIType(types: string[], primaryType?: string): "attraction" | "restaurant" | "cafe" | "hotel" | "shopping" | "other" {
+export function mapGoogleTypeToPOIType(
+  types: string[],
+  primaryType?: string,
+): "attraction" | "restaurant" | "cafe" | "hotel" | "shopping" | "other" {
   if (primaryType && TYPE_MAP[primaryType]) {
     return TYPE_MAP[primaryType] as any;
   }
@@ -93,7 +96,10 @@ export function mapGoogleTypeToPOIType(types: string[], primaryType?: string): "
   return "other";
 }
 
-export async function searchPlaces(query: string, language: string = "vi"): Promise<PlaceSearchResult[]> {
+export async function searchPlaces(
+  query: string,
+  language: string = "vi",
+): Promise<PlaceSearchResult[]> {
   try {
     const url = `/api/places/search?query=${encodeURIComponent(query)}&language=${language}`;
     const data = await apiRequest("GET", url);
@@ -104,7 +110,10 @@ export async function searchPlaces(query: string, language: string = "vi"): Prom
   }
 }
 
-export async function getPlaceDetails(placeId: string, language: string = "vi"): Promise<PlaceDetails | null> {
+export async function getPlaceDetails(
+  placeId: string,
+  language: string = "vi",
+): Promise<PlaceDetails | null> {
   try {
     const url = `/api/places/details/${placeId}?language=${language}`;
     const data = await apiRequest("GET", url);

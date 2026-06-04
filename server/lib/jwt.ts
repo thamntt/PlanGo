@@ -3,7 +3,7 @@ import { env } from "./env";
 import { errors } from "./errors";
 
 export interface JwtUserPayload extends JwtPayload {
-  sub: string;        // user id (stringified)
+  sub: string; // user id (stringified)
   email: string;
   role: "user" | "admin";
 }
@@ -14,7 +14,10 @@ function getSecret(): string {
   return secret;
 }
 
-export function signJwt(payload: Omit<JwtUserPayload, "iat" | "exp">, opts: SignOptions = {}): string {
+export function signJwt(
+  payload: Omit<JwtUserPayload, "iat" | "exp">,
+  opts: SignOptions = {},
+): string {
   return jwt.sign(payload, getSecret(), {
     expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"],
     ...opts,

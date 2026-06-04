@@ -37,7 +37,20 @@ export const adminRepo = {
     }, {});
 
     // Monthly trip growth (last 6 months)
-    const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+    const months = [
+      "JAN",
+      "FEB",
+      "MAR",
+      "APR",
+      "MAY",
+      "JUN",
+      "JUL",
+      "AUG",
+      "SEP",
+      "OCT",
+      "NOV",
+      "DEC",
+    ];
     const now = new Date();
     const tripGrowth: { month: string; value: number }[] = [];
 

@@ -3,6 +3,11 @@ import { env } from "./env";
 import { logger } from "./logger";
 import { AppError } from "./errors";
 
+// ─── Apple ───
+// Apple ID token is a signed JWT. We verify using Apple's JWKS.
+
+import jwt, { type JwtHeader } from "jsonwebtoken";
+
 /**
  * Verify an OAuth provider's ID token and return canonical user profile.
  * Each provider has its own verification path: Google uses signed JWT against
@@ -123,11 +128,6 @@ export async function verifyFacebookAccessToken(accessToken: string): Promise<OA
   };
 }
 
-// ─── Apple ───
-// Apple ID token is a signed JWT. We verify using Apple's JWKS.
-
-import jwt, { type JwtHeader } from "jsonwebtoken";
-
 interface AppleKey {
   kty: string;
   kid: string;
@@ -190,7 +190,10 @@ function jwkToPem(jwk: AppleKey): string {
   ]);
   const pem =
     "-----BEGIN PUBLIC KEY-----\n" +
-    spki.toString("base64").match(/.{1,64}/g)!.join("\n") +
+    spki
+      .toString("base64")
+      .match(/.{1,64}/g)!
+      .join("\n") +
     "\n-----END PUBLIC KEY-----";
   return pem;
 }

@@ -65,10 +65,10 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
 // Email templates
 // ══════════════════════════════════════════════════════════════
 
-export function resetPasswordEmail(opts: {
-  fullName: string;
-  resetLink: string;
-}): { subject: string; html: string } {
+export function resetPasswordEmail(opts: { fullName: string; resetLink: string }): {
+  subject: string;
+  html: string;
+} {
   const { fullName, resetLink } = opts;
   return {
     subject: "Đặt lại mật khẩu PlanGo",

@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet, Text, Modal, useColorScheme } from 'react-native';
-import { subscribeToLoading } from '@/lib/api/query-client';
-import Colors from '@/constants/colors';
+import React, { useState, useEffect } from "react";
+import { View, ActivityIndicator, StyleSheet, Text, Modal, useColorScheme } from "react-native";
+import { subscribeToLoading } from "@/lib/api/query-client";
+import Colors from "@/constants/colors";
 
 const GlobalLoading: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
+  const isDark = colorScheme === "dark";
   const colors = isDark ? Colors.dark : Colors.light;
 
   useEffect(() => {
@@ -22,14 +22,14 @@ const GlobalLoading: React.FC = () => {
   if (!isLoading) return null;
 
   return (
-    <Modal
-      transparent
-      animationType="fade"
-      visible={isLoading}
-      onRequestClose={() => {}}
-    >
+    <Modal transparent animationType="fade" visible={isLoading} onRequestClose={() => {}}>
       <View style={[styles.overlay, { backgroundColor: colors.overlay }]}>
-        <View style={[styles.container, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+        <View
+          style={[
+            styles.container,
+            { backgroundColor: colors.card, borderColor: colors.cardBorder },
+          ]}
+        >
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={[styles.text, { color: colors.text }]}>Đang tải...</Text>
         </View>
@@ -41,16 +41,16 @@ const GlobalLoading: React.FC = () => {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   container: {
     padding: 24,
     borderRadius: 20,
     borderWidth: 1,
-    alignItems: 'center',
+    alignItems: "center",
     gap: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 12,
@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 15,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: "Inter_600SemiBold",
     marginTop: 8,
   },
 });

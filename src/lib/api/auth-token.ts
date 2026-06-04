@@ -55,6 +55,10 @@ export function onUnauthorized(listener: UnauthorizedListener): () => void {
 
 export function notifyUnauthorized(): void {
   listeners.forEach((l) => {
-    try { l(); } catch { /* listener errors shouldn't break request flow */ }
+    try {
+      l();
+    } catch {
+      /* listener errors shouldn't break request flow */
+    }
   });
 }

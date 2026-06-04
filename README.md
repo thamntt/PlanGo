@@ -49,22 +49,27 @@ EXPO_PUBLIC_DOMAIN=192.168.x.x:5001
 Mở **3 terminal riêng biệt**:
 
 **Terminal 1 — Server backend:**
+
 ```bash
 npm run dev
 ```
 
 **Terminal 2 — Tunnel cho backend server:**
+
 ```bash
 npm run tunnel
 ```
+
 > Chờ đến khi hiện URL, ví dụ: `https://abc123.ngrok.io`
 >
 > Copy dòng `EXPO_PUBLIC_DOMAIN=abc123.ngrok.io` mà script in ra, dán vào file `.env`
 
 **Terminal 3 — Expo app:**
+
 ```bash
 npx expo start --tunnel
 ```
+
 > Quét QR code trên điện thoại bằng **Expo Go** app
 
 ⚠️ **Lưu ý**: URL ngrok thay đổi mỗi lần chạy → cần cập nhật `.env` lại mỗi lần.
@@ -81,6 +86,7 @@ npx expo start --tunnel
 ```bash
 ipconfig
 ```
+
 Tìm dòng **IPv4 Address** (thường dạng `192.168.x.x`)
 
 #### Bước 2: Cập nhật `.env`
@@ -109,13 +115,13 @@ netsh advfirewall firewall add rule name="Expo Metro Bundler 8081" dir=in action
 
 ### ❌ Khắc phục lỗi kết nối
 
-| Vấn đề | Giải pháp |
-|--------|-----------|
-| `Network request failed` | Kiểm tra IP/URL trong `.env` đã đúng chưa |
-| CORS error | Khởi động lại server (`npm run dev`) |
-| Tường lửa chặn (LAN) | Chạy lệnh `netsh` với quyền Admin |
-| Bundle load chậm/lỗi | Thử `npx expo start --tunnel --clear` |
-| Tunnel URL hết hạn | Chạy lại `npm run tunnel` và cập nhật `.env` |
+| Vấn đề                   | Giải pháp                                    |
+| ------------------------ | -------------------------------------------- |
+| `Network request failed` | Kiểm tra IP/URL trong `.env` đã đúng chưa    |
+| CORS error               | Khởi động lại server (`npm run dev`)         |
+| Tường lửa chặn (LAN)     | Chạy lệnh `netsh` với quyền Admin            |
+| Bundle load chậm/lỗi     | Thử `npx expo start --tunnel --clear`        |
+| Tunnel URL hết hạn       | Chạy lại `npm run tunnel` và cập nhật `.env` |
 
 ---
 
@@ -124,11 +130,13 @@ netsh advfirewall firewall add rule name="Expo Metro Bundler 8081" dir=in action
 Mở **2 terminal**:
 
 **Terminal 1 — Server:**
+
 ```bash
 npm run dev
 ```
 
 **Terminal 2 — Expo web:**
+
 ```bash
 npm run expo:dev
 ```
@@ -139,17 +147,17 @@ npm run expo:dev
 
 ## Các lệnh hữu ích
 
-| Lệnh | Mô tả |
-|-------|-------|
-| `npm run dev` | Chạy server Express (port 5001) |
-| `npm run expo:dev` | Chạy Expo web dev (localhost, port 8081) |
-| `npx expo start --lan` | Chạy Expo trên LAN (cho điện thoại) |
+| Lệnh                      | Mô tả                                      |
+| ------------------------- | ------------------------------------------ |
+| `npm run dev`             | Chạy server Express (port 5001)            |
+| `npm run expo:dev`        | Chạy Expo web dev (localhost, port 8081)   |
+| `npx expo start --lan`    | Chạy Expo trên LAN (cho điện thoại)        |
 | `npx expo start --tunnel` | Chạy Expo qua tunnel (không cần cùng WiFi) |
-| `npm run db:push` | Push schema database (Drizzle) |
-| `npm run lint` | Kiểm tra lint |
-| `npm run lint:fix` | Tự động sửa lint |
-| `npm run server:build` | Build server production |
-| `npm run server:prod` | Chạy server production |
+| `npm run db:push`         | Push schema database (Drizzle)             |
+| `npm run lint`            | Kiểm tra lint                              |
+| `npm run lint:fix`        | Tự động sửa lint                           |
+| `npm run server:build`    | Build server production                    |
+| `npm run server:prod`     | Chạy server production                     |
 
 ## Cấu trúc dự án
 

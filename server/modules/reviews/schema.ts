@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-const numericId = z.union([z.string(), z.number()]).transform((v) => Number(v)).pipe(z.number().int().positive());
+const numericId = z
+  .union([z.string(), z.number()])
+  .transform((v) => Number(v))
+  .pipe(z.number().int().positive());
 
 export const listReviewsQuerySchema = z.object({
   tripId: z.string().regex(/^\d+$/).transform(Number).optional(),

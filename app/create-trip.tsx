@@ -26,7 +26,8 @@ import {
   validateDate,
   validateDateRange,
   validateNumPeople,
- parseDDMMYYYY } from "@/lib/validation";
+  parseDDMMYYYY,
+} from "@/lib/validation";
 import { formatVND } from "@/lib/format";
 import type { ItineraryDay } from "@/types";
 import { t } from "@/lib/i18n";
@@ -460,6 +461,7 @@ export default function CreateTripScreen() {
             day: i + 1,
             date: formatDateDDMMYYYY(d),
             location: dayDestLabel[i] || destination,
+            title: dayDestLabel[i] || destination || `Ngày ${i + 1}`,
             activities: [],
           } as ItineraryDay);
         }

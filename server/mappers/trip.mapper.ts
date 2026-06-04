@@ -25,9 +25,7 @@ export function mapTripToFrontend(trip: any) {
       amount: Number(e.amount || 0),
       date: e.expenseDate || e.date || "",
       category: e.expenseType ? e.expenseType.name : "Khác",
-      payer: e.paidByInfo
-        ? e.paidByInfo.fullName || e.paidByInfo.userName
-        : "Không rõ",
+      payer: e.paidByInfo ? e.paidByInfo.fullName || e.paidByInfo.userName : "Không rõ",
       paidByUserId: e.paidByInfo ? e.paidByInfo.userId.toString() : undefined,
       splitType: e.splitMethod || "none",
       activityId: e.itemId ? e.itemId.toString() : undefined,
@@ -50,9 +48,7 @@ export function mapTripToFrontend(trip: any) {
 
     if (mapped.owner) {
       const ownerIdStr = mapped.owner.userId.toString();
-      const isOwnerInCompanions = mapped.companions.some(
-        (c: any) => c.userId === ownerIdStr,
-      );
+      const isOwnerInCompanions = mapped.companions.some((c: any) => c.userId === ownerIdStr);
       if (!isOwnerInCompanions) {
         mapped.companions.unshift({
           userId: ownerIdStr,
@@ -67,12 +63,14 @@ export function mapTripToFrontend(trip: any) {
       }
     }
   } else if (mapped.owner) {
-    mapped.companions = [{
-      userId: mapped.owner.userId.toString(),
-      userName: mapped.owner.fullName || mapped.owner.userName,
-      role: "owner",
-      isOwner: true,
-    }];
+    mapped.companions = [
+      {
+        userId: mapped.owner.userId.toString(),
+        userName: mapped.owner.fullName || mapped.owner.userName,
+        role: "owner",
+        isOwner: true,
+      },
+    ];
   }
 
   if (mapped.expenses && Array.isArray(mapped.expenses)) {
@@ -81,7 +79,7 @@ export function mapTripToFrontend(trip: any) {
       "Mua sắm": "shopping",
       "Ăn uống": "food",
       "Tham quan": "sightseeing",
-      "Khác": "other",
+      Khác: "other",
     };
 
     mapped.expenses = mapped.expenses.map((e: any) => {
@@ -98,18 +96,14 @@ export function mapTripToFrontend(trip: any) {
         type: typeInverseMap[rawType] || "other",
         payer: payerName,
         paidBy: payerName,
-        paidByUserId: e.paidByInfo
-          ? e.paidByInfo.userId.toString()
-          : e.paidBy?.toString(),
+        paidByUserId: e.paidByInfo ? e.paidByInfo.userId.toString() : e.paidBy?.toString(),
         splitType: e.splitMethod || "none",
         activityId: e.itemId ? e.itemId.toString() : undefined,
         splits: e.splits
           ? e.splits.map((s: any) => {
               let uName = s.user ? s.user.fullName || s.user.userName : "";
               if (!uName && mapped.companions) {
-                const comp = mapped.companions.find(
-                  (c: any) => c.userId === s.userId?.toString(),
-                );
+                const comp = mapped.companions.find((c: any) => c.userId === s.userId?.toString());
                 if (comp) uName = comp.userName;
               }
               return {
@@ -134,9 +128,7 @@ export function mapTripToFrontend(trip: any) {
 
   let totalActivityCost = 0;
   if (mapped.days && Array.isArray(mapped.days)) {
-    const sortedDays = [...mapped.days].sort(
-      (a, b) => (a.dayIndex || 0) - (b.dayIndex || 0),
-    );
+    const sortedDays = [...mapped.days].sort((a, b) => (a.dayIndex || 0) - (b.dayIndex || 0));
 
     mapped.days = sortedDays.map((day: any) => ({
       ...day,
@@ -188,8 +180,7 @@ export function mapTripToFrontend(trip: any) {
                     ? Number(poi.rating)
                     : undefined,
                 reviewCount: item.reviewCount || poi?.reviewCounts,
-                googlePlaceId:
-                  item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
+                googlePlaceId: item.googlePlaceId || (poi ? poi.googlePlaceId : undefined),
                 poiId: item.poiId,
               };
             })

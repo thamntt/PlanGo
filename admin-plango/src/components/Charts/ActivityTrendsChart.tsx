@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 
 const ActivityTrendsChart: React.FC = () => {
   return (
@@ -17,18 +17,18 @@ const ActivityTrendsChart: React.FC = () => {
               <stop offset="100%" stopColor="#0891B2" stopOpacity="0" />
             </linearGradient>
           </defs>
-          
+
           {/* Area under curve */}
-          <path 
-            d="M0,120 Q50,110 80,130 T150,110 T220,130 T300,80 T400,100 L400,150 L0,150 Z" 
-            fill="url(#gradient)" 
+          <path
+            d="M0,120 Q50,110 80,130 T150,110 T220,130 T300,80 T400,100 L400,150 L0,150 Z"
+            fill="url(#gradient)"
           />
-          
+
           {/* Main Line */}
-          <path 
-            d="M0,120 Q50,110 80,130 T150,110 T220,130 T300,80 T400,100" 
-            fill="none" 
-            stroke="#0891B2" 
+          <path
+            d="M0,120 Q50,110 80,130 T150,110 T220,130 T300,80 T400,100"
+            fill="none"
+            stroke="#0891B2"
             strokeWidth="2.5"
             strokeLinecap="round"
           />

@@ -1,6 +1,11 @@
 import { storage } from "../../storage";
 import { errors, AppError } from "../../lib/errors";
-import type { ListReviewsQuery, CreateReviewInput, UpdateReviewInput, DeleteReviewQuery } from "./schema";
+import type {
+  ListReviewsQuery,
+  CreateReviewInput,
+  UpdateReviewInput,
+  DeleteReviewQuery,
+} from "./schema";
 
 export async function listReviews(query: ListReviewsQuery) {
   return storage.getReviews(query);
@@ -24,9 +29,10 @@ export async function updateReview(id: number, body: UpdateReviewInput) {
   if (isNaN(userId)) throw new AppError("BAD_REQUEST", "Invalid User ID");
 
   const type = body.type || (body.poiId || body.activityId ? "item" : "trip");
-  const updated = type === "item"
-    ? await storage.updateItemReview(id, userId, body as any)
-    : await storage.updateTripReview(id, userId, body as any);
+  const updated =
+    type === "item"
+      ? await storage.updateItemReview(id, userId, body as any)
+      : await storage.updateTripReview(id, userId, body as any);
   if (!updated) throw errors.notFound("Review");
   return updated;
 }

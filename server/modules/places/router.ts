@@ -64,9 +64,7 @@ async function searchPlacesGoogle(query: string, language: string) {
       editorialSummary: place.editorialSummary?.text || "",
       photos: (place.photos || []).slice(0, 3).map((p: any) => ({
         name: p.name || "",
-        attributions: (p.authorAttributions || []).map(
-          (a: any) => a.displayName || "Google",
-        ),
+        attributions: (p.authorAttributions || []).map((a: any) => a.displayName || "Google"),
       })),
     }));
 
@@ -110,7 +108,7 @@ async function searchPlacesGoong(query: string, language: string) {
                 longitude = loc.lng || 0;
               }
             }
-          } catch { }
+          } catch {}
         }
 
         return {
@@ -250,9 +248,11 @@ async function searchPlacesSerpApi(query: string) {
               const imgUrl = p.image || p.thumbnail;
               if (imgUrl) photos.push({ name: imgUrl, attributions: ["Google Maps"] });
             });
-            console.log(`[SerpAPI] 📸 Got ${photos.length} photos for city "${r.title}" via google_maps_photos`);
+            console.log(
+              `[SerpAPI] 📸 Got ${photos.length} photos for city "${r.title}" via google_maps_photos`,
+            );
           }
-        } catch { }
+        } catch {}
       }
 
       if (photos.length === 0) {
@@ -268,12 +268,16 @@ async function searchPlacesSerpApi(query: string) {
           if (imgRes.ok) {
             const imgData = await imgRes.json();
             (imgData.images_results || []).slice(0, 5).forEach((img: any) => {
-              if (img.original) photos.push({ name: img.original, attributions: ["Google Images"] });
-              else if (img.thumbnail) photos.push({ name: img.thumbnail, attributions: ["Google Images"] });
+              if (img.original)
+                photos.push({ name: img.original, attributions: ["Google Images"] });
+              else if (img.thumbnail)
+                photos.push({ name: img.thumbnail, attributions: ["Google Images"] });
             });
-            console.log(`[SerpAPI] 🖼️ Got ${photos.length} photos for "${r.title}" via google_images`);
+            console.log(
+              `[SerpAPI] 🖼️ Got ${photos.length} photos for "${r.title}" via google_images`,
+            );
           }
-        } catch { }
+        } catch {}
       }
 
       places.push({
@@ -286,7 +290,8 @@ async function searchPlacesSerpApi(query: string) {
         rating: r.rating || 0,
         reviewCount: r.reviews || 0,
         types: typeof r.type === "string" ? [r.type.toLowerCase().replace(/\s+/g, "_")] : [],
-        primaryType: typeof r.type === "string" ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
+        primaryType:
+          typeof r.type === "string" ? r.type.toLowerCase().replace(/\s+/g, "_") : "other",
         primaryTypeDisplay: (typeof r.type === "string" ? r.type : null) || "Địa điểm",
         editorialSummary: r.description || r.extensions?.join(", ") || "",
         photos,
@@ -294,7 +299,9 @@ async function searchPlacesSerpApi(query: string) {
         phone: r.phone || "",
         openNow: null,
       });
-      console.log(`[SerpAPI] ✅ Search "${query}" → found city/region result from place_results (${photos.length} photos)`);
+      console.log(
+        `[SerpAPI] ✅ Search "${query}" → found city/region result from place_results (${photos.length} photos)`,
+      );
     } else {
       console.log(`[SerpAPI] ✅ Search "${query}" → ${places.length} results`);
     }
@@ -364,7 +371,7 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
           });
           console.log(`[SerpAPI] 📸 Got ${hdPhotos.length} HD photos for "${r.title}"`);
         }
-      } catch { }
+      } catch {}
     }
 
     if (photos.length === 0) {
@@ -381,11 +388,14 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
           const imgData = await imgRes.json();
           (imgData.images_results || []).slice(0, 5).forEach((img: any) => {
             if (img.original) photos.push({ name: img.original, attributions: ["Google Images"] });
-            else if (img.thumbnail) photos.push({ name: img.thumbnail, attributions: ["Google Images"] });
+            else if (img.thumbnail)
+              photos.push({ name: img.thumbnail, attributions: ["Google Images"] });
           });
-          console.log(`[SerpAPI] 🖼️ Got ${photos.length} fallback photos for "${r.title}" via google_images`);
+          console.log(
+            `[SerpAPI] 🖼️ Got ${photos.length} fallback photos for "${r.title}" via google_images`,
+          );
         }
-      } catch { }
+      } catch {}
     }
 
     let reviews: any[] = [];
@@ -408,7 +418,7 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
           profilePhoto: rv.user?.thumbnail || "",
         }));
       }
-    } catch { }
+    } catch {}
 
     const openingHours: string[] = [];
     if (r.hours && Array.isArray(r.hours)) {
@@ -450,7 +460,9 @@ async function getPlaceDetailsSerpApi(placeId: string, language: string) {
       openNow: r.open_state === "Open" ? true : r.open_state === "Closed" ? false : null,
     };
 
-    console.log(`[SerpAPI] ✅ Place details for "${result.name}" — ★${result.rating} (${result.reviewCount} reviews), ${photos.length} photos`);
+    console.log(
+      `[SerpAPI] ✅ Place details for "${result.name}" — ★${result.rating} (${result.reviewCount} reviews), ${photos.length} photos`,
+    );
     return result;
   } catch (error) {
     console.warn(`[SerpAPI] Place details error:`, error);
@@ -507,7 +519,8 @@ async function searchPlaces(req: Request, res: Response) {
   if (googleResult) return res.json(googleResult);
 
   const goongResult = await searchPlacesGoong(query, language);
-  if (goongResult && goongResult.places && goongResult.places.length > 0) return res.json(goongResult);
+  if (goongResult && goongResult.places && goongResult.places.length > 0)
+    return res.json(goongResult);
 
   const nominatimResult = await searchPlacesNominatim(query, language);
   return res.json(nominatimResult);
@@ -981,7 +994,9 @@ async function getPlacePhoto(req: Request, res: Response) {
             }
           }
         } catch {
-          console.warn(`[SerpAPI] HD photo fetch failed for data_id=${dataId}, trying fallbacks...`);
+          console.warn(
+            `[SerpAPI] HD photo fetch failed for data_id=${dataId}, trying fallbacks...`,
+          );
         }
       }
     }
@@ -1035,7 +1050,9 @@ function getProviderStatus(_req: Request, res: Response) {
       free: { available: true, name: "OpenStreetMap + OSRM (miễn phí)" },
     },
     fallbackChain: [
-      hasSerpApi ? "✅ SerpAPI (PRIMARY — search, details, photos, reviews)" : "❌ SerpAPI (no key)",
+      hasSerpApi
+        ? "✅ SerpAPI (PRIMARY — search, details, photos, reviews)"
+        : "❌ SerpAPI (no key)",
       hasGoogle ? "✅ Google Maps (fallback)" : "❌ Google Maps (no key)",
       hasGoong ? "✅ Goong Maps (fallback)" : "❌ Goong Maps (no key)",
       "✅ Nominatim + OSRM (always available)",
@@ -1105,8 +1122,15 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
     }
 
     if (!data) {
-      console.warn(`[SerpAPI] No reviews found for place_id="${placeId}" or query="${q || fallbackQ}"`);
-      return res.json({ placeInfo: null, reviews: [], nextPageToken: null, message: "No reviews found for this location" });
+      console.warn(
+        `[SerpAPI] No reviews found for place_id="${placeId}" or query="${q || fallbackQ}"`,
+      );
+      return res.json({
+        placeInfo: null,
+        reviews: [],
+        nextPageToken: null,
+        message: "No reviews found for this location",
+      });
     }
 
     if (data.error && data.error.includes("run out of searches")) {
@@ -1115,12 +1139,12 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
 
     const placeInfo = data.place_info
       ? {
-        title: data.place_info.title || "",
-        address: data.place_info.address || "",
-        rating: data.place_info.rating || 0,
-        totalReviews: data.place_info.reviews || 0,
-        type: data.place_info.type || "",
-      }
+          title: data.place_info.title || "",
+          address: data.place_info.address || "",
+          rating: data.place_info.rating || 0,
+          totalReviews: data.place_info.reviews || 0,
+          type: data.place_info.type || "",
+        }
       : null;
 
     const reviews = (data.reviews || []).map((r: any) => ({
@@ -1136,7 +1160,10 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
       likes: r.likes || 0,
       images: r.images || [],
       response: r.response
-        ? { snippet: r.response.snippet || r.response.extracted_snippet?.original || "", date: r.response.date || "" }
+        ? {
+            snippet: r.response.snippet || r.response.extracted_snippet?.original || "",
+            date: r.response.date || "",
+          }
         : null,
     }));
 
@@ -1201,8 +1228,12 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
       googlePlaceId: r.place_id || "",
       thumbnail: r.thumbnail || "",
       openHours: r.operating_hours
-        ? Object.entries(r.operating_hours).map(([day, hours]) => `${day}: ${hours}`).join(" | ")
-        : typeof r.hours === "string" ? r.hours : "",
+        ? Object.entries(r.operating_hours)
+            .map(([day, hours]) => `${day}: ${hours}`)
+            .join(" | ")
+        : typeof r.hours === "string"
+          ? r.hours
+          : "",
     });
 
     let restaurants: any[] = [];
@@ -1227,7 +1258,9 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
     restaurants.sort((a: any, b: any) => (b.rating || 0) - (a.rating || 0));
     attractions.sort((a: any, b: any) => (b.rating || 0) - (a.rating || 0));
 
-    console.log(`[AutoDiscover] Found ${restaurants.length} restaurants, ${attractions.length} attractions near "${query}"`);
+    console.log(
+      `[AutoDiscover] Found ${restaurants.length} restaurants, ${attractions.length} attractions near "${query}"`,
+    );
     return res.json({ restaurants, attractions });
   } catch (error) {
     console.warn("[AutoDiscover] Error:", error);

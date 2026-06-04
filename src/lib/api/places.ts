@@ -53,23 +53,23 @@ const TYPE_MAP: Record<string, string> = {
   monument: "attraction",
   national_park: "attraction",
   viewpoint: "attraction",
-  
+
   restaurant: "restaurant",
   food: "restaurant",
   fast_food: "restaurant",
   meal_delivery: "restaurant",
   meal_takeaway: "restaurant",
   bakery: "restaurant",
-  
+
   cafe: "cafe",
   coffee_shop: "cafe",
   coffee: "cafe",
-  
+
   lodging: "hotel",
   hotel: "hotel",
   hostel: "hotel",
   guest_house: "hotel",
-  
+
   shopping_mall: "shopping",
   clothing_store: "shopping",
   department_store: "shopping",
@@ -84,7 +84,10 @@ const TYPE_MAP: Record<string, string> = {
   shop: "shopping",
 };
 
-export function mapGoogleTypeToPOIType(types: string[], primaryType?: string): "attraction" | "restaurant" | "cafe" | "hotel" | "shopping" | "other" {
+export function mapGoogleTypeToPOIType(
+  types: string[],
+  primaryType?: string,
+): "attraction" | "restaurant" | "cafe" | "hotel" | "shopping" | "other" {
   // Check primary type first
   if (primaryType && TYPE_MAP[primaryType]) {
     return TYPE_MAP[primaryType] as any;
@@ -122,17 +125,20 @@ export function getPOITypeIcon(type: string): string {
   return icons[type] || "ellipse-outline";
 }
 
-export async function searchPlaces(query: string, language: string = "vi"): Promise<PlaceSearchResult[]> {
+export async function searchPlaces(
+  query: string,
+  language: string = "vi",
+): Promise<PlaceSearchResult[]> {
   try {
     const url = `${SERVER_URL}/api/places/search?query=${encodeURIComponent(query)}&language=${language}`;
     const response = await fetch(url, { headers: getApiHeaders() });
-    
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       console.error("Search places error:", error);
       return [];
     }
-    
+
     const data = await response.json();
     return data.places || [];
   } catch (error) {
@@ -141,17 +147,20 @@ export async function searchPlaces(query: string, language: string = "vi"): Prom
   }
 }
 
-export async function getPlaceDetails(placeId: string, language: string = "vi"): Promise<PlaceDetails | null> {
+export async function getPlaceDetails(
+  placeId: string,
+  language: string = "vi",
+): Promise<PlaceDetails | null> {
   try {
     const url = `${SERVER_URL}/api/places/details/${placeId}?language=${language}`;
     const response = await fetch(url, { headers: getApiHeaders() });
-    
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       console.error("Place details error:", error);
       return null;
     }
-    
+
     return await response.json();
   } catch (error) {
     console.error("Place details error:", error);
@@ -197,7 +206,7 @@ export interface DirectionRoute {
 export async function getDirections(
   origin: string,
   destination: string,
-  vehicle: string = "car"
+  vehicle: string = "car",
 ): Promise<DirectionRoute | null> {
   try {
     const url = `${SERVER_URL}/api/places/directions?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&vehicle=${vehicle}`;

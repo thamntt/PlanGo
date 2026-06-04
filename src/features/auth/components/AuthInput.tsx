@@ -20,11 +20,7 @@ export const AuthInput = forwardRef<TextInput, AuthInputProps>(
     const [show, setShow] = useState(false);
     const [focused, setFocused] = useState(false);
 
-    const borderColor = error
-      ? colors.error
-      : focused
-        ? colors.primary
-        : colors.inputBorder;
+    const borderColor = error ? colors.error : focused ? colors.primary : colors.inputBorder;
 
     return (
       <View style={styles.wrapper}>

@@ -17,7 +17,8 @@ export function TravelConnector({ from, to, colors: c }: Props) {
   const txt = t().itinerary;
   if (!travel) return null;
 
-  const defaultTime = travel.defaultMode === "walking" ? travel.walkingMinutes : travel.drivingMinutes;
+  const defaultTime =
+    travel.defaultMode === "walking" ? travel.walkingMinutes : travel.drivingMinutes;
   const defaultIcon = travel.defaultMode === "walking" ? "walk-outline" : "car-outline";
 
   return (
@@ -31,9 +32,15 @@ export function TravelConnector({ from, to, colors: c }: Props) {
       >
         <Ionicons name={defaultIcon as any} size={14} color={c.textSecondary} />
         <Text style={[styles.badgeText, { color: c.textSecondary }]}>
-          {defaultTime} {txt.travelMinutes} {txt.toDestination} {to.title.length > 20 ? to.title.substring(0, 20) + "..." : to.title} • {travel.distanceKm} {txt.travelKm}
+          {defaultTime} {txt.travelMinutes} {txt.toDestination}{" "}
+          {to.title.length > 20 ? to.title.substring(0, 20) + "..." : to.title} •{" "}
+          {travel.distanceKm} {txt.travelKm}
         </Text>
-        <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={12} color={c.textTertiary} />
+        <Ionicons
+          name={expanded ? "chevron-up" : "chevron-down"}
+          size={12}
+          color={c.textTertiary}
+        />
       </Pressable>
       {expanded && (
         <View style={[styles.modeList, { backgroundColor: c.card, borderColor: c.cardBorder }]}>
@@ -67,7 +74,14 @@ export function TravelConnector({ from, to, colors: c }: Props) {
 
 const styles = StyleSheet.create({
   container: { alignItems: "center", paddingVertical: 2 },
-  lineWrapper: { position: "absolute", top: 0, bottom: 0, left: 20, width: 2, alignItems: "center" },
+  lineWrapper: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 20,
+    width: 2,
+    alignItems: "center",
+  },
   line: { width: 2, height: "100%", borderRadius: 1 },
   badge: {
     flexDirection: "row",

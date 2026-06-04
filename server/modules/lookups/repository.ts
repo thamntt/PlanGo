@@ -18,7 +18,10 @@ import {
 // ─── Destination Types ───
 export const destinationTypeRepo = {
   async getDestinationType(id: number) {
-    const [r] = await db.select().from(destinationType).where(eq(destinationType.destinationtypeId, id));
+    const [r] = await db
+      .select()
+      .from(destinationType)
+      .where(eq(destinationType.destinationtypeId, id));
     return r;
   },
 
@@ -131,7 +134,11 @@ export const expenseTypeRepo = {
   },
 
   async updateExpenseType(id: number, data: Partial<ExpenseType>) {
-    const [r] = await db.update(expenseType).set(data).where(eq(expenseType.expenseTypeId, id)).returning();
+    const [r] = await db
+      .update(expenseType)
+      .set(data)
+      .where(eq(expenseType.expenseTypeId, id))
+      .returning();
     return r;
   },
 
@@ -163,7 +170,11 @@ export const preferenceRepo = {
   },
 
   async updatePreference(id: number, data: Partial<Preference>) {
-    const [r] = await db.update(preferences).set(data).where(eq(preferences.preferenceId, id)).returning();
+    const [r] = await db
+      .update(preferences)
+      .set(data)
+      .where(eq(preferences.preferenceId, id))
+      .returning();
     return r;
   },
 

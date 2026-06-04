@@ -4,7 +4,11 @@
  * openapi generator can't represent. The schemas below describe the wire
  * format documented for API consumers; the runtime validators normalize input.
  */
-import { OpenAPIRegistry, OpenApiGeneratorV31, extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import {
+  OpenAPIRegistry,
+  OpenApiGeneratorV31,
+  extendZodWithOpenApi,
+} from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
 extendZodWithOpenApi(z);
@@ -12,13 +16,15 @@ extendZodWithOpenApi(z);
 export const registry = new OpenAPIRegistry();
 
 // ── Common ──
-const errorResponseSchema = z.object({
-  status: z.number(),
-  code: z.string(),
-  message: z.string(),
-  details: z.unknown().optional(),
-  requestId: z.string().optional(),
-}).openapi("ErrorResponse");
+const errorResponseSchema = z
+  .object({
+    status: z.number(),
+    code: z.string(),
+    message: z.string(),
+    details: z.unknown().optional(),
+    requestId: z.string().optional(),
+  })
+  .openapi("ErrorResponse");
 
 function ok(description = "OK") {
   return { description };
@@ -53,7 +59,10 @@ registry.registerPath({
   request: { body: { content: { "application/json": { schema: loginSchema } } } },
   responses: {
     200: ok(),
-    401: { description: "Invalid credentials", content: { "application/json": { schema: errorResponseSchema } } },
+    401: {
+      description: "Invalid credentials",
+      content: { "application/json": { schema: errorResponseSchema } },
+    },
   },
 });
 
@@ -124,7 +133,10 @@ registry.registerPath({
   path: "/api/trips/{id}",
   tags: ["trips"],
   summary: "Update trip + nested days/items/expenses (transactional).",
-  request: { params: idParam, body: { content: { "application/json": { schema: tripUpdateSchema } } } },
+  request: {
+    params: idParam,
+    body: { content: { "application/json": { schema: tripUpdateSchema } } },
+  },
   responses: { 200: ok() },
 });
 
@@ -137,32 +149,44 @@ registry.registerPath({
 });
 
 registry.registerPath({
-  method: "get", path: "/api/trips/{tripId}/days", tags: ["trips"],
+  method: "get",
+  path: "/api/trips/{tripId}/days",
+  tags: ["trips"],
   request: { params: z.object({ tripId: z.string() }) },
   responses: { 200: ok() },
 });
 registry.registerPath({
-  method: "post", path: "/api/trips/{tripId}/days", tags: ["trips"],
+  method: "post",
+  path: "/api/trips/{tripId}/days",
+  tags: ["trips"],
   request: { params: z.object({ tripId: z.string() }) },
   responses: { 201: ok("Created") },
 });
 registry.registerPath({
-  method: "get", path: "/api/days/{dayId}/items", tags: ["trips"],
+  method: "get",
+  path: "/api/days/{dayId}/items",
+  tags: ["trips"],
   request: { params: z.object({ dayId: z.string() }) },
   responses: { 200: ok() },
 });
 registry.registerPath({
-  method: "post", path: "/api/days/{dayId}/items", tags: ["trips"],
+  method: "post",
+  path: "/api/days/{dayId}/items",
+  tags: ["trips"],
   request: { params: z.object({ dayId: z.string() }) },
   responses: { 201: ok("Created") },
 });
 registry.registerPath({
-  method: "get", path: "/api/trips/{tripId}/expenses", tags: ["trips"],
+  method: "get",
+  path: "/api/trips/{tripId}/expenses",
+  tags: ["trips"],
   request: { params: z.object({ tripId: z.string() }) },
   responses: { 200: ok() },
 });
 registry.registerPath({
-  method: "post", path: "/api/trips/{tripId}/expenses", tags: ["trips"],
+  method: "post",
+  path: "/api/trips/{tripId}/expenses",
+  tags: ["trips"],
   request: { params: z.object({ tripId: z.string() }) },
   responses: { 201: ok("Created") },
 });
@@ -182,7 +206,8 @@ registry.registerPath({
   method: "post",
   path: "/api/generate-itinerary",
   tags: ["itinerary"],
-  summary: "Generate a Vietnam travel itinerary via Gemini → OpenAI fallback + SerpAPI enrichment. Rate-limited.",
+  summary:
+    "Generate a Vietnam travel itinerary via Gemini → OpenAI fallback + SerpAPI enrichment. Rate-limited.",
   request: { body: { content: { "application/json": { schema: generateInputSchema } } } },
   responses: {
     200: ok("Returns { days, provider }"),
@@ -204,13 +229,54 @@ const destinationCreateSchema = z.object({
   googlePlaceId: z.string().optional(),
 });
 
-registry.registerPath({ method: "get", path: "/api/destinations", tags: ["destinations"], request: { query: z.object({ typeId: z.string().optional() }) }, responses: { 200: ok() } });
-registry.registerPath({ method: "get", path: "/api/destinations/{id}", tags: ["destinations"], request: { params: idParam }, responses: { 200: ok() } });
-registry.registerPath({ method: "post", path: "/api/destinations", tags: ["destinations"], security: [{ bearerAuth: [] }], request: { body: { content: { "application/json": { schema: destinationCreateSchema } } } }, responses: { 201: ok("Created") } });
-registry.registerPath({ method: "put", path: "/api/destinations/{id}", tags: ["destinations"], security: [{ bearerAuth: [] }], request: { params: idParam, body: { content: { "application/json": { schema: destinationCreateSchema.partial() } } } }, responses: { 200: ok() } });
-registry.registerPath({ method: "delete", path: "/api/destinations/{id}", tags: ["destinations"], security: [{ bearerAuth: [] }], request: { params: idParam }, responses: { 200: ok() } });
+registry.registerPath({
+  method: "get",
+  path: "/api/destinations",
+  tags: ["destinations"],
+  request: { query: z.object({ typeId: z.string().optional() }) },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/destinations/{id}",
+  tags: ["destinations"],
+  request: { params: idParam },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/destinations",
+  tags: ["destinations"],
+  security: [{ bearerAuth: [] }],
+  request: { body: { content: { "application/json": { schema: destinationCreateSchema } } } },
+  responses: { 201: ok("Created") },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/destinations/{id}",
+  tags: ["destinations"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: idParam,
+    body: { content: { "application/json": { schema: destinationCreateSchema.partial() } } },
+  },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/destinations/{id}",
+  tags: ["destinations"],
+  security: [{ bearerAuth: [] }],
+  request: { params: idParam },
+  responses: { 200: ok() },
+});
 
-registry.registerPath({ method: "get", path: "/api/destination-types", tags: ["destinations"], responses: { 200: ok() } });
+registry.registerPath({
+  method: "get",
+  path: "/api/destination-types",
+  tags: ["destinations"],
+  responses: { 200: ok() },
+});
 
 // ── POIs ──
 const poiCreateSchema = z.object({
@@ -224,11 +290,45 @@ const poiCreateSchema = z.object({
   googlePlaceId: z.string().optional(),
   openHours: z.string().optional(),
 });
-registry.registerPath({ method: "get", path: "/api/pois", tags: ["pois"], request: { query: z.object({ destinationId: z.string().optional() }) }, responses: { 200: ok() } });
-registry.registerPath({ method: "get", path: "/api/pois/{id}", tags: ["pois"], request: { params: idParam }, responses: { 200: ok() } });
-registry.registerPath({ method: "post", path: "/api/pois", tags: ["pois"], request: { body: { content: { "application/json": { schema: poiCreateSchema } } } }, responses: { 201: ok("Created") } });
-registry.registerPath({ method: "put", path: "/api/pois/{id}", tags: ["pois"], request: { params: idParam, body: { content: { "application/json": { schema: poiCreateSchema.partial() } } } }, responses: { 200: ok() } });
-registry.registerPath({ method: "delete", path: "/api/pois/{id}", tags: ["pois"], security: [{ bearerAuth: [] }], request: { params: idParam }, responses: { 200: ok() } });
+registry.registerPath({
+  method: "get",
+  path: "/api/pois",
+  tags: ["pois"],
+  request: { query: z.object({ destinationId: z.string().optional() }) },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/pois/{id}",
+  tags: ["pois"],
+  request: { params: idParam },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/pois",
+  tags: ["pois"],
+  request: { body: { content: { "application/json": { schema: poiCreateSchema } } } },
+  responses: { 201: ok("Created") },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/pois/{id}",
+  tags: ["pois"],
+  request: {
+    params: idParam,
+    body: { content: { "application/json": { schema: poiCreateSchema.partial() } } },
+  },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/pois/{id}",
+  tags: ["pois"],
+  security: [{ bearerAuth: [] }],
+  request: { params: idParam },
+  responses: { 200: ok() },
+});
 
 // ── Reviews ──
 const reviewCreateSchema = z.object({
@@ -238,10 +338,49 @@ const reviewCreateSchema = z.object({
   rating: z.number().min(0).max(5),
   comment: z.string().nullable().optional(),
 });
-registry.registerPath({ method: "get", path: "/api/reviews", tags: ["reviews"], request: { query: z.object({ tripId: z.string().optional(), itemId: z.string().optional(), destinationId: z.string().optional() }) }, responses: { 200: ok() } });
-registry.registerPath({ method: "post", path: "/api/reviews", tags: ["reviews"], security: [{ bearerAuth: [] }], request: { body: { content: { "application/json": { schema: reviewCreateSchema } } } }, responses: { 201: ok("Created") } });
-registry.registerPath({ method: "put", path: "/api/reviews/{id}", tags: ["reviews"], security: [{ bearerAuth: [] }], request: { params: idParam, body: { content: { "application/json": { schema: reviewCreateSchema.partial() } } } }, responses: { 200: ok() } });
-registry.registerPath({ method: "delete", path: "/api/reviews/{id}", tags: ["reviews"], security: [{ bearerAuth: [] }], request: { params: idParam, query: z.object({ userId: z.string(), type: z.enum(["trip", "item"]).optional() }) }, responses: { 200: ok() } });
+registry.registerPath({
+  method: "get",
+  path: "/api/reviews",
+  tags: ["reviews"],
+  request: {
+    query: z.object({
+      tripId: z.string().optional(),
+      itemId: z.string().optional(),
+      destinationId: z.string().optional(),
+    }),
+  },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/reviews",
+  tags: ["reviews"],
+  security: [{ bearerAuth: [] }],
+  request: { body: { content: { "application/json": { schema: reviewCreateSchema } } } },
+  responses: { 201: ok("Created") },
+});
+registry.registerPath({
+  method: "put",
+  path: "/api/reviews/{id}",
+  tags: ["reviews"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: idParam,
+    body: { content: { "application/json": { schema: reviewCreateSchema.partial() } } },
+  },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/reviews/{id}",
+  tags: ["reviews"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    params: idParam,
+    query: z.object({ userId: z.string(), type: z.enum(["trip", "item"]).optional() }),
+  },
+  responses: { 200: ok() },
+});
 
 // ── Share ──
 const shareSchema = z.object({
@@ -250,42 +389,178 @@ const shareSchema = z.object({
   role: z.enum(["viewer", "editor"]).optional(),
   sharePermission: z.enum(["viewer", "editor"]).optional(),
 });
-registry.registerPath({ method: "post", path: "/api/share", tags: ["share"], security: [{ bearerAuth: [] }], request: { body: { content: { "application/json": { schema: shareSchema } } } }, responses: { 200: ok() } });
-registry.registerPath({ method: "get", path: "/api/share/{code}", tags: ["share"], request: { params: z.object({ code: z.string() }) }, responses: { 200: ok(), 404: { description: "Share code not found" } } });
 registry.registerPath({
-  method: "post", path: "/api/share/join", tags: ["share"], security: [{ bearerAuth: [] }],
-  request: { body: { content: { "application/json": { schema: z.object({ shareCode: z.string(), userId: z.number().int().positive(), role: z.enum(["viewer", "editor"]).optional() }) } } } },
+  method: "post",
+  path: "/api/share",
+  tags: ["share"],
+  security: [{ bearerAuth: [] }],
+  request: { body: { content: { "application/json": { schema: shareSchema } } } },
   responses: { 200: ok() },
 });
 registry.registerPath({
-  method: "patch", path: "/api/share/companion", tags: ["share"], security: [{ bearerAuth: [] }],
-  request: { body: { content: { "application/json": { schema: z.object({ shareCode: z.string(), userId: z.number().int().positive(), role: z.enum(["viewer", "editor"]) }) } } } },
+  method: "get",
+  path: "/api/share/{code}",
+  tags: ["share"],
+  request: { params: z.object({ code: z.string() }) },
+  responses: { 200: ok(), 404: { description: "Share code not found" } },
+});
+registry.registerPath({
+  method: "post",
+  path: "/api/share/join",
+  tags: ["share"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            shareCode: z.string(),
+            userId: z.number().int().positive(),
+            role: z.enum(["viewer", "editor"]).optional(),
+          }),
+        },
+      },
+    },
+  },
   responses: { 200: ok() },
 });
 registry.registerPath({
-  method: "delete", path: "/api/share/companion", tags: ["share"], security: [{ bearerAuth: [] }],
-  request: { body: { content: { "application/json": { schema: z.object({ shareCode: z.string(), userId: z.number().int().positive() }) } } } },
+  method: "patch",
+  path: "/api/share/companion",
+  tags: ["share"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            shareCode: z.string(),
+            userId: z.number().int().positive(),
+            role: z.enum(["viewer", "editor"]),
+          }),
+        },
+      },
+    },
+  },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "delete",
+  path: "/api/share/companion",
+  tags: ["share"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ shareCode: z.string(), userId: z.number().int().positive() }),
+        },
+      },
+    },
+  },
   responses: { 200: ok() },
 });
 
 // ── Notifications ──
-registry.registerPath({ method: "get", path: "/api/notifications", tags: ["notifications"], request: { query: z.object({ userId: z.string().optional() }) }, responses: { 200: ok() } });
-registry.registerPath({ method: "patch", path: "/api/notifications/mark-read", tags: ["notifications"], security: [{ bearerAuth: [] }], request: { body: { content: { "application/json": { schema: z.object({ userId: z.number().int().positive() }) } } } }, responses: { 200: ok() } });
+registry.registerPath({
+  method: "get",
+  path: "/api/notifications",
+  tags: ["notifications"],
+  request: { query: z.object({ userId: z.string().optional() }) },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "patch",
+  path: "/api/notifications/mark-read",
+  tags: ["notifications"],
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": { schema: z.object({ userId: z.number().int().positive() }) },
+      },
+    },
+  },
+  responses: { 200: ok() },
+});
 
 // ── Lookups ──
-registry.registerPath({ method: "get", path: "/api/expense-types", tags: ["lookups"], responses: { 200: ok() } });
-registry.registerPath({ method: "get", path: "/api/preferences", tags: ["lookups"], responses: { 200: ok() } });
+registry.registerPath({
+  method: "get",
+  path: "/api/expense-types",
+  tags: ["lookups"],
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/preferences",
+  tags: ["lookups"],
+  responses: { 200: ok() },
+});
 
 // ── Places (external proxy, rate-limited) ──
-registry.registerPath({ method: "get", path: "/api/places/search", tags: ["places"], request: { query: z.object({ query: z.string(), language: z.string().optional() }) }, responses: { 200: ok() } });
-registry.registerPath({ method: "get", path: "/api/places/details/{placeId}", tags: ["places"], request: { params: z.object({ placeId: z.string() }) }, responses: { 200: ok() } });
-registry.registerPath({ method: "get", path: "/api/places/geocode", tags: ["places"], request: { query: z.object({ address: z.string() }) }, responses: { 200: ok() } });
-registry.registerPath({ method: "get", path: "/api/places/directions", tags: ["places"], request: { query: z.object({ origin: z.string(), destination: z.string(), vehicle: z.string().optional() }) }, responses: { 200: ok() } });
+registry.registerPath({
+  method: "get",
+  path: "/api/places/search",
+  tags: ["places"],
+  request: { query: z.object({ query: z.string(), language: z.string().optional() }) },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/places/details/{placeId}",
+  tags: ["places"],
+  request: { params: z.object({ placeId: z.string() }) },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/places/geocode",
+  tags: ["places"],
+  request: { query: z.object({ address: z.string() }) },
+  responses: { 200: ok() },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/places/directions",
+  tags: ["places"],
+  request: {
+    query: z.object({
+      origin: z.string(),
+      destination: z.string(),
+      vehicle: z.string().optional(),
+    }),
+  },
+  responses: { 200: ok() },
+});
 
 // ── Admin / Health ──
-registry.registerPath({ method: "get", path: "/api/admin/stats", tags: ["admin"], security: [{ bearerAuth: [] }], summary: "Admin dashboard stats.", responses: { 200: ok(), 401: { description: "Unauthorized" }, 403: { description: "Admin only" } } });
-registry.registerPath({ method: "get", path: "/api/health", tags: ["health"], summary: "Readiness — pings the DB.", responses: { 200: ok("Healthy"), 503: { description: "Degraded" } } });
-registry.registerPath({ method: "get", path: "/api/status", tags: ["health"], summary: "Liveness.", responses: { 200: ok() } });
+registry.registerPath({
+  method: "get",
+  path: "/api/admin/stats",
+  tags: ["admin"],
+  security: [{ bearerAuth: [] }],
+  summary: "Admin dashboard stats.",
+  responses: {
+    200: ok(),
+    401: { description: "Unauthorized" },
+    403: { description: "Admin only" },
+  },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/health",
+  tags: ["health"],
+  summary: "Readiness — pings the DB.",
+  responses: { 200: ok("Healthy"), 503: { description: "Degraded" } },
+});
+registry.registerPath({
+  method: "get",
+  path: "/api/status",
+  tags: ["health"],
+  summary: "Liveness.",
+  responses: { 200: ok() },
+});
 
 export function getOpenApiDocument() {
   const generator = new OpenApiGeneratorV31(registry.definitions);

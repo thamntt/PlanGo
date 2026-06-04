@@ -9,7 +9,9 @@ export async function resolvePoiTypeId(typeName: string | undefined): Promise<nu
 }
 
 /** Resolve an expense type name (Vi or En) to its DB id */
-export async function resolveExpenseTypeId(typeName: string | undefined): Promise<number | undefined> {
+export async function resolveExpenseTypeId(
+  typeName: string | undefined,
+): Promise<number | undefined> {
   if (!typeName) return undefined;
   const types = await storage.getExpenseTypes();
   const typeMap: Record<string, string> = {

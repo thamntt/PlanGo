@@ -1,10 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "../../db";
-import {
-  notifications,
-  type Notification,
-  type InsertNotification,
-} from "../../../shared/schema";
+import { notifications, type Notification, type InsertNotification } from "../../../shared/schema";
 
 export const notificationRepo = {
   async getNotification(id: number) {
@@ -35,7 +31,10 @@ export const notificationRepo = {
   },
 
   async deleteNotification(id: number) {
-    const r = await db.delete(notifications).where(eq(notifications.notificationId, id)).returning();
+    const r = await db
+      .delete(notifications)
+      .where(eq(notifications.notificationId, id))
+      .returning();
     return r.length > 0;
   },
 
