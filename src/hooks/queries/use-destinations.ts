@@ -10,28 +10,45 @@ async function unwrap<T>(res: Response): Promise<T> {
   return json as T;
 }
 
+// Destinations are reference-data — change rarely. Keep them fresh for 5 min,
+// in-memory for 30 min so navigation between Explore ↔ Detail is instant.
+const REF_DATA_OPTIONS = {
+  staleTime: 5 * 60 * 1000,
+  gcTime: 30 * 60 * 1000,
+  refetchOnWindowFocus: false,
+  refetchOnMount: false,
+} as const;
+
 export function useDestinations(typeId?: number) {
   return useQuery<Destination[]>({
     queryKey: queryKeys.destinationList(typeId),
     queryFn: async () => {
-      const route = typeId !== undefined ? `/api/destinations?typeId=${typeId}` : "/api/destinations";
+      const route =
+        typeId !== undefined ? `/api/destinations?typeId=${typeId}` : "/api/destinations";
       const res = await apiRequest("GET", route);
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapDestination);
     },
+    ...REF_DATA_OPTIONS,
   });
 }
 
 export function useDestination(id: string | number | undefined) {
+  // Reject obviously invalid ids (router can yield the literal string "undefined")
+  const validId =
+    id !== undefined && id !== null && id !== "" && id !== "undefined" && id !== "null";
   return useQuery<Destination | null>({
     queryKey: queryKeys.destinationDetail(id ?? ""),
     queryFn: async () => {
-      if (!id) return null;
+      if (!validId) return null;
       const res = await apiRequest("GET", `/api/destinations/${id}`);
       const data = await unwrap<any>(res);
       return data ? mapDestination(data) : null;
     },
-    enabled: id !== undefined && id !== null && id !== "",
+    enabled: validId,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 8000),
+    ...REF_DATA_OPTIONS,
   });
 }
 
@@ -43,6 +60,7 @@ export function useDestinationTypes() {
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapDestinationType);
     },
+    ...REF_DATA_OPTIONS,
   });
 }
 

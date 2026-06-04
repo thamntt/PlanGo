@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,8 @@ import * as Haptics from "expo-haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
+import { useTabBar } from "@/contexts/TabBarContext";
+import { useScrollToTop } from "@react-navigation/native";
 import { useTrips, useUpdateTrip, useDeleteTrip } from "@/hooks/queries/use-trips";
 import { useDestinations } from "@/hooks/queries/use-destinations";
 import { useReviews, useCreateReview } from "@/hooks/queries/use-reviews";
@@ -252,6 +254,9 @@ function TripCard({
 // ──────────────────────────────────────────────────────────────
 
 export default function TripsScreen() {
+  const tabBar = useTabBar();
+  const listRef = useRef<FlatList>(null);
+  useScrollToTop(listRef as any);
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
@@ -371,6 +376,9 @@ export default function TripsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <FlatList
+        ref={listRef}
+        onScroll={tabBar.onScroll}
+        scrollEventThrottle={16}
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {

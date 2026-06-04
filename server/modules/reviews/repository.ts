@@ -20,7 +20,9 @@ import { poiRepo } from "../pois/repository";
 
 export const reviewRepo = {
   async getReviews(filters?: { tripId?: number; itemId?: number; destinationId?: number }) {
-    // Trip reviews
+    // Trip reviews — JOIN trip context (title, dates, people) so the FE can
+    // display each review with the visit-context label (TripAdvisor pattern:
+    // every visit = a separate review with its own context).
     const tripRevQuery = db
       .select({
         id: tripReviews.tripId,
@@ -28,9 +30,17 @@ export const reviewRepo = {
         tripId: tripReviews.tripId,
         rating: tripReviews.rating,
         comment: tripReviews.comment,
+        photos: tripReviews.photos,
         userName: users.userName,
+        userAvatarUrl: users.avatarUrl,
+        userReviewerLevel: users.reviewerLevel,
+        userReviewCount: users.reviewCount,
         destinationId: trips.destinationId,
         destinationName: destinations.name,
+        tripTitle: trips.title,
+        tripStartDate: trips.startDate,
+        tripEndDate: trips.endDate,
+        tripNumPeople: trips.numPeople,
         createdAt: tripReviews.createdAt,
       })
       .from(tripReviews)
@@ -39,7 +49,8 @@ export const reviewRepo = {
       .leftJoin(destinations, eq(trips.destinationId, destinations.destinationId));
 
     if (filters?.tripId) tripRevQuery.where(eq(tripReviews.tripId, filters.tripId));
-    else if (filters?.destinationId) tripRevQuery.where(eq(trips.destinationId, filters.destinationId));
+    else if (filters?.destinationId)
+      tripRevQuery.where(eq(trips.destinationId, filters.destinationId));
 
     // Item reviews
     const itemRevQuery = db
@@ -68,7 +79,8 @@ export const reviewRepo = {
 
     if (filters?.itemId) itemRevQuery.where(eq(itemReviews.itemId, filters.itemId));
     else if (filters?.tripId) itemRevQuery.where(eq(itineraryDay.tripId, filters.tripId));
-    else if (filters?.destinationId) itemRevQuery.where(eq(trips.destinationId, filters.destinationId));
+    else if (filters?.destinationId)
+      itemRevQuery.where(eq(trips.destinationId, filters.destinationId));
 
     const [tripResults, itemResults] = await Promise.all([tripRevQuery, itemRevQuery]);
 
@@ -80,7 +92,16 @@ export const reviewRepo = {
     if (filters?.itemId) all = all.filter((r) => (r as any).itemId === filters.itemId);
     if (filters?.destinationId) all = all.filter((r) => r.destinationId === filters.destinationId);
 
-    return all.sort((a, b) => (b as any).id - (a as any).id);
+    // Newest first. We DO NOT dedup by user — each visit (trip) is a separate
+    // review with its own context (date, num people, trip title), per the
+    // TripAdvisor pattern. The FE groups visually by user when rendering.
+    all.sort(
+      (a, b) =>
+        new Date((b as any).createdAt ?? 0).getTime() -
+        new Date((a as any).createdAt ?? 0).getTime(),
+    );
+
+    return all;
   },
 
   // ─── Trip reviews ───

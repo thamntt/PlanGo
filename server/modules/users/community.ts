@@ -93,9 +93,9 @@ export const userCommunityRepo = {
     return { following: true };
   },
 
-  /** List followers of a user */
-  async listFollowers(userId: number) {
-    return db
+  /** List followers of a user (with viewer-aware isFollowingByViewer flag) */
+  async listFollowers(userId: number, viewerId?: number) {
+    const rows = await db
       .select({
         userId: users.userId,
         userName: users.userName,
@@ -107,11 +107,25 @@ export const userCommunityRepo = {
       .innerJoin(users, eq(userFollows.followerId, users.userId))
       .where(eq(userFollows.followedId, userId))
       .orderBy(desc(userFollows.createdAt));
+
+    if (!viewerId) return rows.map((r) => ({ ...r, isFollowingByViewer: false, isSelf: false }));
+
+    const myFollowing = await db
+      .select({ followedId: userFollows.followedId })
+      .from(userFollows)
+      .where(eq(userFollows.followerId, viewerId));
+    const followedSet = new Set(myFollowing.map((m) => m.followedId));
+
+    return rows.map((r) => ({
+      ...r,
+      isFollowingByViewer: followedSet.has(r.userId),
+      isSelf: r.userId === viewerId,
+    }));
   },
 
-  /** List who a user is following */
-  async listFollowing(userId: number) {
-    return db
+  /** List who a user is following (with viewer-aware flags) */
+  async listFollowing(userId: number, viewerId?: number) {
+    const rows = await db
       .select({
         userId: users.userId,
         userName: users.userName,
@@ -123,5 +137,19 @@ export const userCommunityRepo = {
       .innerJoin(users, eq(userFollows.followedId, users.userId))
       .where(eq(userFollows.followerId, userId))
       .orderBy(desc(userFollows.createdAt));
+
+    if (!viewerId) return rows.map((r) => ({ ...r, isFollowingByViewer: false, isSelf: false }));
+
+    const myFollowing = await db
+      .select({ followedId: userFollows.followedId })
+      .from(userFollows)
+      .where(eq(userFollows.followerId, viewerId));
+    const followedSet = new Set(myFollowing.map((m) => m.followedId));
+
+    return rows.map((r) => ({
+      ...r,
+      isFollowingByViewer: followedSet.has(r.userId),
+      isSelf: r.userId === viewerId,
+    }));
   },
 };

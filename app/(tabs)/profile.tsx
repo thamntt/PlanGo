@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback , useRef } from "react";
 import {
   View,
   Text,
@@ -33,8 +33,13 @@ import { useThemeColors } from "@/constants/colors";
 import { useTrips } from "@/hooks/queries/use-trips";
 import { useReviews } from "@/hooks/queries/use-reviews";
 import { useDestinations } from "@/hooks/queries/use-destinations";
-import { useBlogPosts } from "@/hooks/queries/use-blog";
-import { useForumThreads } from "@/hooks/queries/use-forum";
+import { useBlogPosts, type BlogPost } from "@/hooks/queries/use-blog";
+import { useForumThreads, type ForumThread } from "@/hooks/queries/use-forum";
+import { useUserProfile } from "@/hooks/queries/use-user-community";
+import { ProfileMenuDrawer } from "@/features/profile/ProfileMenuDrawer";
+import { BlogPostRow, ForumThreadRow, EmptyContentBlock } from "@/features/community/ContentRows";
+import { useTabBar } from "@/contexts/TabBarContext";
+import { useScrollToTop } from "@react-navigation/native";
 import { useFavorites } from "@/hooks/useFavorites";
 import { queryKeys } from "@/hooks/queries/keys";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,6 +56,9 @@ type ThemeColors = ReturnType<typeof useThemeColors>;
 // ──────────────────────────────────────────────────────────────
 
 export default function ProfileScreen() {
+  const tabBar = useTabBar();
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
   const insets = useSafeAreaInsets();
   const { isDark, themeMode, setThemeMode } = useSettings();
   const colors = useThemeColors(isDark);
@@ -72,6 +80,7 @@ export default function ProfileScreen() {
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [joinCodeOpen, setJoinCodeOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
@@ -114,16 +123,19 @@ export default function ProfileScreen() {
     [reviews, user],
   );
 
-  // Community contributions
+  // Community contributions + follow stats
   const userIdNum = user ? Number(user.id) : undefined;
   const myBlogQuery = useBlogPosts(userIdNum ? { authorId: userIdNum, limit: 50 } : {});
-  const myForumQuery = useForumThreads(userIdNum ? { limit: 50 } : {});
-  const myBlogCount = (myBlogQuery.data || []).length;
-  const myThreadCount = useMemo(
-    () => (myForumQuery.data || []).filter((t) => t.authorId === userIdNum).length,
-    [myForumQuery.data, userIdNum],
-  );
+  const myForumQuery = useForumThreads(userIdNum ? { authorId: userIdNum, limit: 50 } : {});
+  const profileSummaryQuery = useUserProfile(userIdNum);
+  const myBlogPosts = myBlogQuery.data || [];
+  const myThreads = myForumQuery.data || [];
+  const myBlogCount = myBlogPosts.length;
+  const myThreadCount = myThreads.length;
   const myCommunityCount = myBlogCount + myThreadCount;
+  const followerCount = profileSummaryQuery.data?.followerCount ?? 0;
+  const followingCount = profileSummaryQuery.data?.followingCount ?? 0;
+  const [communityTab, setCommunityTab] = useState<"blog" | "forum">("blog");
   const memberSince = user?.createdAt
     ? new Date(user.createdAt).toLocaleDateString("vi-VN", { month: "short", year: "numeric" })
     : "—";
@@ -322,6 +334,9 @@ export default function ProfileScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
+        ref={scrollRef}
+        onScroll={tabBar.onScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -372,93 +387,70 @@ export default function ProfileScreen() {
           <View style={styles.heroTopBar}>
             <View />
             <Pressable
-              onPress={() => setSettingsOpen(true)}
+              onPress={() => setMenuOpen(true)}
               style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.7 : 1 }]}
+              hitSlop={6}
             >
-              <Ionicons name="settings-outline" size={20} color="#fff" />
+              <Ionicons name="menu" size={22} color="#fff" />
             </Pressable>
           </View>
 
-          {/* Horizontal profile row: avatar (left) + name/email/meta (right) + edit */}
-          <View style={styles.heroProfile}>
-            <Pressable onPress={handlePickAvatar} style={styles.avatarWrap}>
+          {/* Centered Threads-style: avatar large + name + level badge */}
+          <View style={styles.heroCentered}>
+            <Pressable onPress={handlePickAvatar} style={styles.avatarWrapCentered}>
               {user?.avatar ? (
-                <Image source={{ uri: user.avatar }} style={styles.avatar} contentFit="cover" />
+                <Image
+                  source={{ uri: user.avatar }}
+                  style={styles.avatarCentered}
+                  contentFit="cover"
+                />
               ) : (
-                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <View style={[styles.avatarCentered, styles.avatarPlaceholder]}>
                   <Text style={styles.avatarInitial}>{avatarInitial}</Text>
                 </View>
               )}
-              <View style={styles.avatarEditBadge}>
+              <View style={styles.avatarEditBadgeCentered}>
                 {uploadingAvatar ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Ionicons name="camera" size={12} color="#fff" />
+                  <Ionicons name="camera" size={11} color="#fff" />
                 )}
               </View>
             </Pressable>
 
-            <View style={styles.heroInfo}>
-              <Text style={styles.heroName} numberOfLines={1}>
-                {user?.fullName || firstName}
-              </Text>
-              <Text style={styles.heroEmail} numberOfLines={1}>
-                {user?.email}
-              </Text>
-              <View style={styles.heroMetaRow}>
-                <Ionicons name="calendar-outline" size={11} color="rgba(255,255,255,0.85)" />
-                <Text style={styles.heroMetaText}>Thành viên từ {memberSince}</Text>
-                {isAdmin && (
-                  <View style={styles.adminBadge}>
-                    <MaterialCommunityIcons name="shield-crown" size={10} color="#FBBF24" />
-                    <Text style={styles.adminBadgeText}>Admin</Text>
-                  </View>
-                )}
-              </View>
-            </View>
+            <Text style={styles.heroNameCentered} numberOfLines={1}>
+              {user?.fullName || firstName}
+            </Text>
 
-            <View style={{ alignItems: "flex-end", gap: 8 }}>
+            {isAdmin && (
+              <View style={styles.adminBadgeCentered}>
+                <MaterialCommunityIcons name="shield-crown" size={11} color="#FBBF24" />
+                <Text style={styles.adminBadgeText}>Admin</Text>
+              </View>
+            )}
+
+            {/* Action buttons row — Threads style */}
+            <View style={styles.actionRowCentered}>
               <Pressable
-                onPress={() => {
-                  setFullName(user?.fullName || "");
-                  setEmail(user?.email || "");
-                  setEditProfileOpen(true);
-                }}
-                style={({ pressed }) => [styles.heroEditIcon, { opacity: pressed ? 0.7 : 1 }]}
-                hitSlop={6}
+                onPress={() => router.push("/profile/edit")}
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  {
+                    backgroundColor: "#fff",
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
               >
-                <Ionicons name="create-outline" size={18} color="#fff" />
+                <Ionicons name="create-outline" size={14} color={colors.primary} />
+                <Text style={[styles.actionBtnText, { color: colors.primary }]}>
+                  Chỉnh sửa profile
+                </Text>
               </Pressable>
-              {user && (
-                <Pressable
-                  onPress={() =>
-                    router.push({ pathname: "/user/[id]", params: { id: String(user.id) } })
-                  }
-                  style={({ pressed }) => [
-                    {
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                      paddingHorizontal: 8,
-                      paddingVertical: 5,
-                      borderRadius: 10,
-                      backgroundColor: "rgba(255,255,255,0.18)",
-                      opacity: pressed ? 0.7 : 1,
-                    },
-                  ]}
-                  hitSlop={6}
-                >
-                  <Ionicons name="eye-outline" size={11} color="#fff" />
-                  <Text style={{ color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" }}>
-                    Trang công khai
-                  </Text>
-                </Pressable>
-              )}
             </View>
           </View>
         </View>
 
-        {/* ═══════ STATS CARD (overlap) ═══════ */}
+        {/* ═══════ COMMUNITY STATS (matches /user/[id]) ═══════ */}
         <View
           style={[
             styles.statsCard,
@@ -466,199 +458,181 @@ export default function ProfileScreen() {
           ]}
         >
           <StatTile
-            icon="briefcase"
-            value={myTripsCount}
-            label="Chuyến đi"
-            color={colors.primary}
-            colors={colors}
-            onPress={() => router.push("/(tabs)/trips")}
-          />
-          <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />
-          <StatTile
-            icon="star"
-            value={myReviewsCount}
-            label="Đánh giá"
-            color="#F59E0B"
+            icon="newspaper-outline"
+            value={myBlogCount}
+            label="Bài viết"
+            color="#0891B2"
             colors={colors}
           />
           <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />
           <StatTile
-            icon="heart"
-            value={favoritesCount}
-            label="Đã lưu"
-            color="#EF4444"
-            colors={colors}
-          />
-          <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />
-          <StatTile
-            icon="newspaper"
-            value={myCommunityCount}
-            label="Cộng đồng"
+            icon="chatbubbles-outline"
+            value={myThreadCount}
+            label="Hỏi đáp"
             color="#8B5CF6"
             colors={colors}
-            onPress={() => router.push("/(tabs)/community")}
           />
-        </View>
-
-        {/* ═══════ WISHLIST ═══════ */}
-        <SectionHeader
-          icon="heart"
-          iconColor="#EF4444"
-          title="Điểm đến đã lưu"
-          subtitle={
-            wishlistDestinations.length > 0
-              ? `${wishlistDestinations.length} điểm đã lưu`
-              : "Chưa lưu điểm đến nào"
-          }
-          colors={colors}
-        />
-        {wishlistDestinations.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
-          >
-            {wishlistDestinations.map((dest) => (
-              <WishlistCard
-                key={dest.id}
-                destination={dest}
-                colors={colors}
-                onPress={() =>
-                  router.push({ pathname: "/destination/[id]", params: { id: dest.id } })
-                }
-                onRemove={() => toggleFavorite(dest.id)}
-              />
-            ))}
-          </ScrollView>
-        ) : (
-          <Pressable
-            onPress={() => router.push("/(tabs)")}
-            style={({ pressed }) => [
-              styles.emptyWishlist,
-              {
-                backgroundColor: colors.card,
-                borderColor: colors.cardBorder,
-                opacity: pressed ? 0.9 : 1,
-              },
-            ]}
-          >
-            <View style={[styles.emptyWishlistIcon, { backgroundColor: "#EF4444" + "15" }]}>
-              <Ionicons name="heart-outline" size={24} color="#EF4444" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.emptyWishlistTitle, { color: colors.text }]}>
-                Chưa có điểm đến yêu thích
-              </Text>
-              <Text style={[styles.emptyWishlistDesc, { color: colors.textTertiary }]}>
-                Khám phá và tap ❤️ trên điểm đến để lưu lại
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
-          </Pressable>
-        )}
-
-        {/* ═══════ QUICK ACTIONS ═══════ */}
-        <SectionHeader
-          icon="flash"
-          iconColor={colors.accent}
-          title="Hành động nhanh"
-          colors={colors}
-        />
-        <View style={styles.actionsCard}>
-          <ActionRow
-            icon="key-outline"
-            label="Tham gia chuyến đi"
-            desc="Nhập mã mời để gia nhập trip của bạn bè"
-            iconBg="#10B981"
+          <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />
+          <StatTile
+            icon="people-outline"
+            value={followerCount}
+            label="Theo dõi"
+            color="#A855F7"
             colors={colors}
-            onPress={() => {
-              setJoinCode("");
-              setJoinCodeStatus("idle");
-              setJoinCodeError("");
-              setJoinCodeOpen(true);
-            }}
-          />
-          <ActionRow
-            icon="heart-outline"
-            label="Sở thích du lịch"
-            desc={
-              selectedPrefs.length > 0
-                ? `${selectedPrefs.length} sở thích đã chọn`
-                : "Chưa chọn sở thích"
+            onPress={() =>
+              user &&
+              router.push({
+                pathname: "/connections",
+                params: { userId: String(user.id), tab: "followers" },
+              })
             }
-            iconBg="#F97316"
-            colors={colors}
-            onPress={() => {
-              setSelectedPrefs(user?.preferences || []);
-              setPrefsOpen(true);
-            }}
           />
-          <ActionRow
-            icon="lock-closed-outline"
-            label="Đổi mật khẩu"
-            desc="Cập nhật mật khẩu tài khoản"
-            iconBg="#8B5CF6"
+          <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />
+          <StatTile
+            icon="person-add-outline"
+            value={followingCount}
+            label="Đang theo"
+            color="#10B981"
             colors={colors}
-            onPress={() => {
-              setCurrentPwd("");
-              setNewPwd("");
-              setConfirmPwd("");
-              setPwdError("");
-              setPasswordOpen(true);
-            }}
-            isLast
+            onPress={() =>
+              user &&
+              router.push({
+                pathname: "/connections",
+                params: { userId: String(user.id), tab: "following" },
+              })
+            }
           />
         </View>
 
-        {/* Admin panel link — desktop Vite at admin-plango/, not in mobile routes */}
-
-        {/* ═══════ HELP & INFO ═══════ */}
-        <SectionHeader
-          icon="information-outline"
-          iconColor={colors.textSecondary}
-          title="Trợ giúp & thông tin"
-          colors={colors}
-        />
-        <View style={styles.actionsCard}>
-          <ActionRow
-            icon="help-circle-outline"
-            label="Câu hỏi thường gặp"
-            desc="Hướng dẫn sử dụng PlanGo"
-            iconBg={colors.primary}
-            colors={colors}
-          />
-          <ActionRow
-            icon="document-text-outline"
-            label="Điều khoản & chính sách"
-            desc="Điều khoản dịch vụ, bảo mật"
-            iconBg={colors.textSecondary}
-            colors={colors}
-          />
-          <ActionRow
-            icon="information-circle-outline"
-            label="Về PlanGo"
-            desc="Phiên bản 1.0.0"
-            iconBg={colors.success}
-            colors={colors}
-            isLast
-          />
-        </View>
-
-        {/* ═══════ LOGOUT ═══════ */}
-        <Pressable
-          onPress={() => setShowLogoutModal(true)}
-          style={({ pressed }) => [
-            styles.logoutBtn,
-            {
+        {/* ═══════ MY POSTS + QUESTIONS ═══════ */}
+        <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              gap: 4,
               backgroundColor: colors.card,
-              borderColor: "#EF4444" + "40",
-              opacity: pressed ? 0.85 : 1,
-            },
-          ]}
-        >
-          <Ionicons name="log-out-outline" size={20} color="#EF4444" />
-          <Text style={styles.logoutText}>Đăng xuất</Text>
-        </Pressable>
+              borderColor: colors.cardBorder,
+              borderWidth: 1,
+              borderRadius: 12,
+              padding: 4,
+            }}
+          >
+            <Pressable
+              onPress={() => setCommunityTab("blog")}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                paddingVertical: 9,
+                borderRadius: 9,
+                backgroundColor: communityTab === "blog" ? colors.primary + "1A" : "transparent",
+              }}
+            >
+              <Ionicons
+                name="newspaper"
+                size={14}
+                color={communityTab === "blog" ? colors.primary : colors.textSecondary}
+              />
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontFamily: "Inter_700Bold",
+                  color: communityTab === "blog" ? colors.primary : colors.textSecondary,
+                }}
+              >
+                Bài viết ({myBlogCount})
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setCommunityTab("forum")}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                paddingVertical: 9,
+                borderRadius: 9,
+                backgroundColor: communityTab === "forum" ? colors.primary + "1A" : "transparent",
+              }}
+            >
+              <Ionicons
+                name="chatbubbles"
+                size={14}
+                color={communityTab === "forum" ? colors.primary : colors.textSecondary}
+              />
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontFamily: "Inter_700Bold",
+                  color: communityTab === "forum" ? colors.primary : colors.textSecondary,
+                }}
+              >
+                Hỏi đáp ({myThreadCount})
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={{ marginTop: 12 }}>
+            {communityTab === "blog" ? (
+              myBlogPosts.length === 0 ? (
+                <EmptyContentBlock
+                  icon="newspaper-variant-outline"
+                  title="Chưa có bài viết nào"
+                  cta="Đăng bài đầu tiên"
+                  onPress={() => router.push("/community/blog/create")}
+                  colors={colors}
+                />
+              ) : (
+                <View style={{ gap: 10 }}>
+                  {myBlogPosts.slice(0, 5).map((p) => (
+                    <BlogPostRow key={p.postId} post={p} colors={colors} />
+                  ))}
+                  {myBlogPosts.length > 5 && (
+                    <Pressable
+                      onPress={() => router.push("/(tabs)/community")}
+                      style={{ alignItems: "center", padding: 10 }}
+                    >
+                      <Text
+                        style={{ color: colors.primary, fontFamily: "Inter_700Bold", fontSize: 12 }}
+                      >
+                        Xem tất cả {myBlogCount} bài
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              )
+            ) : myThreads.length === 0 ? (
+              <EmptyContentBlock
+                icon="forum-outline"
+                title="Chưa có câu hỏi nào"
+                cta="Đặt câu hỏi đầu tiên"
+                onPress={() => router.push("/community/forum/create")}
+                colors={colors}
+              />
+            ) : (
+              <View style={{ gap: 8 }}>
+                {myThreads.slice(0, 5).map((t) => (
+                  <ForumThreadRow key={t.threadId} thread={t} colors={colors} />
+                ))}
+                {myThreads.length > 5 && (
+                  <Pressable
+                    onPress={() => router.push("/(tabs)/community")}
+                    style={{ alignItems: "center", padding: 10 }}
+                  >
+                    <Text
+                      style={{ color: colors.primary, fontFamily: "Inter_700Bold", fontSize: 12 }}
+                    >
+                      Xem tất cả {myThreadCount} câu hỏi
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+          </View>
+        </View>
       </ScrollView>
 
       {/* ═══════ MODALS ═══════ */}
@@ -703,6 +677,16 @@ export default function ProfileScreen() {
         setThemeMode={setThemeMode}
         colors={colors}
         txt={txt}
+      />
+      <ProfileMenuDrawer
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenEdit={() => {
+          setFullName(user?.fullName || "");
+          setEmail(user?.email || "");
+          setEditProfileOpen(true);
+        }}
       />
       <JoinCodeModal
         visible={joinCodeOpen}
@@ -1683,6 +1667,48 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.18)",
   },
   heroProfile: { flexDirection: "row", alignItems: "center", gap: 14 },
+  heroCentered: { alignItems: "center", gap: 8 },
+  avatarWrapCentered: { width: 88, height: 88, position: "relative" },
+  avatarCentered: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.5)",
+  },
+  avatarEditBadgeCentered: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderWidth: 2,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroNameCentered: { fontSize: 20, fontFamily: "Inter_700Bold", color: "#fff", marginTop: 8 },
+  adminBadgeCentered: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  actionRowCentered: { flexDirection: "row", gap: 8, marginTop: 12 },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 22,
+  },
+  actionBtnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   avatarWrap: { width: 64, height: 64, position: "relative" },
   avatar: {
     width: 64,
@@ -1742,6 +1768,29 @@ const styles = StyleSheet.create({
   },
 
   // Stats card (overlapping hero)
+  quickActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 20,
+    marginTop: 18,
+  },
+  quickCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    alignItems: "center",
+    gap: 6,
+  },
+  quickIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  quickValue: { fontSize: 13, fontFamily: "Inter_700Bold" },
   statsCard: {
     marginHorizontal: 20,
     marginTop: -32,

@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  ReactNode,
+} from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest } from "@/lib/api/query-client";
 import { setToken, clearToken, loadToken, onUnauthorized, getToken } from "@/lib/api/auth-token";
@@ -23,10 +31,18 @@ interface AuthContextValue {
   isLoading: boolean;
   isAdmin: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  register: (data: { username: string; password: string; email: string; fullName: string }) => Promise<{ success: boolean; error?: string }>;
+  register: (data: {
+    username: string;
+    password: string;
+    email: string;
+    fullName: string;
+  }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateProfile: (data: Partial<UserData>) => Promise<void>;
-  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   refreshUser: () => Promise<void>;
   /** Apply a JWT obtained externally (social login flows). Loads /me after. */
   applySession: (token: string, userData?: any) => Promise<{ success: boolean; error?: string }>;
@@ -47,7 +63,7 @@ function mapUser(u: any): UserData {
     username: u.userName || u.username || "",
     email: u.email || "",
     fullName: u.fullName || u.full_name || u.userName || "",
-    avatar: u.avatar || "",
+    avatar: u.avatar || u.avatarUrl || u.avatar_url || "",
     role: u.role || "user",
     isLocked: u.status === "locked" || u.status === "banned" || u.isLocked || u.is_locked || false,
     preferences: u.preferences || [],
@@ -64,7 +80,9 @@ function extractErrorMessage(err: any): { code?: string; message: string } {
     try {
       const body = JSON.parse(match[1]);
       return { code: body.code, message: body.message || msg };
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   return { message: msg };
 }
@@ -108,7 +126,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const cached = await AsyncStorage.getItem(CACHED_USER_KEY);
       if (cached) {
-        try { setUser(JSON.parse(cached) as UserData); } catch { /* ignore */ }
+        try {
+          setUser(JSON.parse(cached) as UserData);
+        } catch {
+          /* ignore */
+        }
       }
     }
   }, [logout, persistUser]);
@@ -118,7 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onUnauthorized(() => {
       // Server says token is invalid — force logout. Wrap in microtask to avoid
       // calling React state setters synchronously during a request response.
-      Promise.resolve().then(() => { void logout(); });
+      Promise.resolve().then(() => {
+        void logout();
+      });
     });
 
     (async () => {
@@ -130,101 +154,112 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, [loadCurrentUser, logout]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    try {
-      const res = await apiRequest("POST", "/api/auth/login", { username, password });
-      const data = await unwrapResponse(res);
-      if (!data?.token) return { success: false, error: "Server không trả về token" };
+  const login = useCallback(
+    async (username: string, password: string) => {
+      try {
+        const res = await apiRequest("POST", "/api/auth/login", { username, password });
+        const data = await unwrapResponse(res);
+        if (!data?.token) return { success: false, error: "Server không trả về token" };
 
-      await setToken(data.token);
-      const found = mapUser(data);
-      if (found.role === "admin") {
-        await logout();
-        return { success: false, error: "Tài khoản hoặc mật khẩu không đúng" };
-      }
-      await persistUser(found);
-      return { success: true };
-    } catch (err: any) {
-      const { code, message } = extractErrorMessage(err);
-      if (code === "INVALID_CREDENTIALS" || message.includes("401")) {
-        return { success: false, error: "Sai tên đăng nhập hoặc mật khẩu" };
-      }
-      if (code === "ACCOUNT_LOCKED" || message.includes("403")) {
-        return { success: false, error: "Tài khoản đã bị khóa" };
-      }
-      if (code === "RATE_LIMITED" || message.includes("429")) {
-        return { success: false, error: "Đăng nhập quá nhiều lần. Thử lại sau ít phút." };
-      }
-      return { success: false, error: message };
-    }
-  }, [logout, persistUser]);
-
-  const register = useCallback(async (data: { username: string; password: string; email: string; fullName: string }) => {
-    try {
-      const res = await apiRequest("POST", "/api/auth/register", data);
-      const respData = await unwrapResponse(res);
-      if (!respData?.token) return { success: false, error: "Server không trả về token" };
-
-      await setToken(respData.token);
-      await persistUser(mapUser(respData));
-      return { success: true };
-    } catch (err: any) {
-      const { code, message } = extractErrorMessage(err);
-      if (code === "EMAIL_ALREADY_EXISTS" || message.includes("409")) {
-        return { success: false, error: "Email đã được sử dụng" };
-      }
-      return { success: false, error: message };
-    }
-  }, [persistUser]);
-
-  const applySession = useCallback(async (token: string, userData?: any) => {
-    try {
-      // Only set token if caller provided one. Some flows (social login) set
-      // the token directly inside the hook before calling applySession.
-      if (token) await setToken(token);
-      if (userData) {
-        const mapped = mapUser(userData);
-        if (mapped.role === "admin") {
+        await setToken(data.token);
+        const found = mapUser(data);
+        if (found.role === "admin") {
           await logout();
-          return { success: false, error: "Admin phải đăng nhập qua admin portal" };
+          return { success: false, error: "Tài khoản hoặc mật khẩu không đúng" };
         }
-        await persistUser(mapped);
-      } else {
-        await loadCurrentUser();
+        await persistUser(found);
+        return { success: true };
+      } catch (err: any) {
+        const { code, message } = extractErrorMessage(err);
+        if (code === "INVALID_CREDENTIALS" || message.includes("401")) {
+          return { success: false, error: "Sai tên đăng nhập hoặc mật khẩu" };
+        }
+        if (code === "ACCOUNT_LOCKED" || message.includes("403")) {
+          return { success: false, error: "Tài khoản đã bị khóa" };
+        }
+        if (code === "RATE_LIMITED" || message.includes("429")) {
+          return { success: false, error: "Đăng nhập quá nhiều lần. Thử lại sau ít phút." };
+        }
+        return { success: false, error: message };
       }
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err?.message || "Apply session failed" };
-    }
-  }, [logout, persistUser, loadCurrentUser]);
+    },
+    [logout, persistUser],
+  );
 
-  const updateProfile = useCallback(async (data: Partial<UserData>) => {
-    if (!user) return;
-    try {
+  const register = useCallback(
+    async (data: { username: string; password: string; email: string; fullName: string }) => {
+      try {
+        const res = await apiRequest("POST", "/api/auth/register", data);
+        const respData = await unwrapResponse(res);
+        if (!respData?.token) return { success: false, error: "Server không trả về token" };
+
+        await setToken(respData.token);
+        await persistUser(mapUser(respData));
+        return { success: true };
+      } catch (err: any) {
+        const { code, message } = extractErrorMessage(err);
+        if (code === "EMAIL_ALREADY_EXISTS" || message.includes("409")) {
+          return { success: false, error: "Email đã được sử dụng" };
+        }
+        return { success: false, error: message };
+      }
+    },
+    [persistUser],
+  );
+
+  const applySession = useCallback(
+    async (token: string, userData?: any) => {
+      try {
+        // Only set token if caller provided one. Some flows (social login) set
+        // the token directly inside the hook before calling applySession.
+        if (token) await setToken(token);
+        if (userData) {
+          const mapped = mapUser(userData);
+          if (mapped.role === "admin") {
+            await logout();
+            return { success: false, error: "Admin phải đăng nhập qua admin portal" };
+          }
+          await persistUser(mapped);
+        } else {
+          await loadCurrentUser();
+        }
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err?.message || "Apply session failed" };
+      }
+    },
+    [logout, persistUser, loadCurrentUser],
+  );
+
+  const updateProfile = useCallback(
+    async (data: Partial<UserData>) => {
+      if (!user) throw new Error("Chưa đăng nhập");
       const res = await apiRequest("PUT", `/api/users/${user.id}`, data);
       const respData = await unwrapResponse(res);
       await persistUser(mapUser(respData));
-    } catch {
-      /* swallow — leave previous user state */
-    }
-  }, [user, persistUser]);
+    },
+    [user, persistUser],
+  );
 
-  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
-    if (!user) return { success: false, error: "Chưa đăng nhập" };
-    try {
-      await apiRequest("POST", "/api/auth/change-password", { currentPassword, newPassword });
-      return { success: true };
-    } catch (err: any) {
-      const { code, message } = extractErrorMessage(err);
-      if (code === "INVALID_CREDENTIALS") {
-        return { success: false, error: "Mật khẩu hiện tại không đúng" };
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      if (!user) return { success: false, error: "Chưa đăng nhập" };
+      try {
+        await apiRequest("POST", "/api/auth/change-password", { currentPassword, newPassword });
+        return { success: true };
+      } catch (err: any) {
+        const { code, message } = extractErrorMessage(err);
+        if (code === "INVALID_CREDENTIALS") {
+          return { success: false, error: "Mật khẩu hiện tại không đúng" };
+        }
+        if (code === "VALIDATION_ERROR") {
+          return { success: false, error: "Mật khẩu mới phải có ít nhất 6 ký tự" };
+        }
+        return { success: false, error: message };
       }
-      if (code === "VALIDATION_ERROR") {
-        return { success: false, error: "Mật khẩu mới phải có ít nhất 6 ký tự" };
-      }
-      return { success: false, error: message };
-    }
-  }, [user]);
+    },
+    [user],
+  );
 
   const refreshUser = useCallback(async () => {
     await loadCurrentUser();
@@ -243,7 +278,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshUser,
       applySession,
     }),
-    [user, isLoading, login, register, logout, updateProfile, changePassword, refreshUser, applySession],
+    [
+      user,
+      isLoading,
+      login,
+      register,
+      logout,
+      updateProfile,
+      changePassword,
+      refreshUser,
+      applySession,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

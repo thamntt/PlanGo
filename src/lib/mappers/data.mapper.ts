@@ -13,7 +13,6 @@ import type {
 } from "@/types";
 import { generateId } from "@/lib/format";
 
-
 export function mapDestination(d: any): Destination {
   return {
     id: (d.destinationId || d.id)?.toString() || "",
@@ -33,7 +32,11 @@ export function mapDestination(d: any): Destination {
     highlights: d.highlights || [],
     tips: d.tips || [],
     bestTimeToVisit: d.bestTimeToVisit ?? d.best_time_to_visit,
-    estimatedCostPerPerson: d.estimatedCostPerPerson ? Number(d.estimatedCostPerPerson) : d.estimated_cost_per_person ? Number(d.estimated_cost_per_person) : undefined,
+    estimatedCostPerPerson: d.estimatedCostPerPerson
+      ? Number(d.estimatedCostPerPerson)
+      : d.estimated_cost_per_person
+        ? Number(d.estimated_cost_per_person)
+        : undefined,
     sampleReviews: d.sampleReviews ?? d.sample_reviews ?? [],
     nearbyFood: d.nearbyFood ?? d.nearby_food ?? [],
     googlePlaceId: d.googlePlaceId ?? d.google_place_id,
@@ -109,7 +112,16 @@ export function mapReview(r: any): Review {
   const userId = r.userId ?? r.user_id;
 
   const review: any = {
-    id: (r.id || r.reviewId || r.itemId || r.activity_id || r.activityId || r.tripId || r.itineraryId)?.toString() || `${r.userId || userId}-${r.tripId || itineraryId}`,
+    id:
+      (
+        r.id ||
+        r.reviewId ||
+        r.itemId ||
+        r.activity_id ||
+        r.activityId ||
+        r.tripId ||
+        r.itineraryId
+      )?.toString() || `${r.userId || userId}-${r.tripId || itineraryId}`,
     rating: r.rating !== undefined ? Number(r.rating) : 0,
     comment: r.comment ?? "",
     createdAt: r.createdAt ?? r.created_at ?? new Date().toISOString(),
@@ -117,12 +129,29 @@ export function mapReview(r: any): Review {
 
   if (userId !== undefined) review.userId = userId.toString();
   if (r.userName || r.user_name) review.userName = r.userName ?? r.user_name;
+  if (r.userAvatarUrl || r.user_avatar_url)
+    review.userAvatarUrl = r.userAvatarUrl ?? r.user_avatar_url;
   if (destinationId !== undefined) review.destinationId = destinationId.toString();
   if (poiId !== undefined) review.poiId = poiId.toString();
   if (r.poiName || r.poi_name) review.poiName = r.poiName ?? r.poi_name;
-  if (r.activityTitle || r.activity_title) review.activityTitle = r.activityTitle ?? r.activity_title;
+  if (r.activityTitle || r.activity_title)
+    review.activityTitle = r.activityTitle ?? r.activity_title;
   if (activityId !== undefined) review.activityId = activityId.toString();
   if (itineraryId !== undefined) review.itineraryId = itineraryId.toString();
+  // Trip visit context (TripAdvisor-style review label)
+  if (r.tripTitle || r.trip_title) review.tripTitle = r.tripTitle ?? r.trip_title;
+  if (r.tripStartDate || r.trip_start_date)
+    review.tripStartDate = r.tripStartDate ?? r.trip_start_date;
+  if (r.tripEndDate || r.trip_end_date) review.tripEndDate = r.tripEndDate ?? r.trip_end_date;
+  const np = r.tripNumPeople ?? r.trip_num_people;
+  if (np !== undefined && np !== null) review.tripNumPeople = Number(np);
+  // Phase 1.5 engagement
+  const photos = r.photos ?? r.photo_urls;
+  if (Array.isArray(photos)) review.photos = photos.map(String).filter(Boolean);
+  const lvl = r.userReviewerLevel ?? r.user_reviewer_level ?? r.reviewerLevel;
+  if (lvl) review.userReviewerLevel = lvl;
+  const rc = r.userReviewCount ?? r.user_review_count;
+  if (rc !== undefined && rc !== null) review.userReviewCount = Number(rc);
 
   return review as Review;
 }
@@ -193,7 +222,7 @@ const STARTING_POINT_COORDS: Record<string, { lat: number; lng: number }> = {
   "tp hcm": { lat: 10.8231, lng: 106.6297 },
   "hồ chí minh": { lat: 10.8231, lng: 106.6297 },
   "đà nẵng": { lat: 16.0544, lng: 108.2022 },
-  "huế": { lat: 16.4698, lng: 107.5792 },
+  huế: { lat: 16.4698, lng: 107.5792 },
   "hải phòng": { lat: 20.8449, lng: 106.6881 },
   "cần thơ": { lat: 10.0452, lng: 105.7469 },
   "nha trang": { lat: 12.2388, lng: 109.1967 },
@@ -267,37 +296,21 @@ export function generateDays(
   const startCoords = getStartingCoords(startingPoint);
   if (startCoords) {
     relevantDests = [...relevantDests].sort((a, b) => {
-      const distA = haversineDistance(
-        startCoords.lat,
-        startCoords.lng,
-        a.latitude,
-        a.longitude,
-      );
-      const distB = haversineDistance(
-        startCoords.lat,
-        startCoords.lng,
-        b.latitude,
-        b.longitude,
-      );
+      const distA = haversineDistance(startCoords.lat, startCoords.lng, a.latitude, a.longitude);
+      const distB = haversineDistance(startCoords.lat, startCoords.lng, b.latitude, b.longitude);
       return distA - distB;
     });
   }
 
   const destIds = new Set(relevantDests.map((d) => d.id));
-  const destPOIs = (allPOIs || []).filter(
-    (p) => p.isActive && destIds.has(p.destinationId),
-  );
+  const destPOIs = (allPOIs || []).filter((p) => p.isActive && destIds.has(p.destinationId));
   const foodPOIs = destPOIs
     .filter((p) => p.type === "restaurant" || p.type === "cafe")
     .sort((a, b) => (b.rating || 0) - (a.rating || 0));
   const attractionPOIs = destPOIs
-    .filter(
-      (p) => p.type === "attraction" || p.type === "shopping" || p.type === "other",
-    )
+    .filter((p) => p.type === "attraction" || p.type === "shopping" || p.type === "other")
     .sort((a, b) => (b.rating || 0) - (a.rating || 0));
-  const allSortedPOIs = [...destPOIs].sort(
-    (a, b) => (b.rating || 0) - (a.rating || 0),
-  );
+  const allSortedPOIs = [...destPOIs].sort((a, b) => (b.rating || 0) - (a.rating || 0));
 
   const morningActivities = [
     `Khám phá chợ địa phương tại ${destination}`,
@@ -342,9 +355,7 @@ export function generateDays(
     const dinnerPOI = pickFoodPOI();
     const eveningPOI = pickAttractionPOI();
     const breakfastSpot =
-      !breakfastPOI && nearbyFoodList.length > 0
-        ? nearbyFoodList[i % nearbyFoodList.length]
-        : null;
+      !breakfastPOI && nearbyFoodList.length > 0 ? nearbyFoodList[i % nearbyFoodList.length] : null;
     const lunchSpot =
       !lunchPOI && nearbyFoodList.length > 1
         ? nearbyFoodList[(i + 1) % nearbyFoodList.length]
@@ -357,9 +368,7 @@ export function generateDays(
     const morningHighlight =
       destHighlights.length > 0 ? destHighlights[(i * 2) % destHighlights.length] : null;
     const afternoonHighlight =
-      destHighlights.length > 1
-        ? destHighlights[(i * 2 + 1) % destHighlights.length]
-        : null;
+      destHighlights.length > 1 ? destHighlights[(i * 2 + 1) % destHighlights.length] : null;
 
     const activities: ItineraryActivity[] = [
       {
@@ -373,11 +382,10 @@ export function generateDays(
           : breakfastSpot
             ? `Ăn sáng tại ${breakfastSpot.name}`
             : "Ăn sáng tại địa phương",
-        description: breakfastPOI
-          ? `★ ${breakfastPOI.rating}/5`
-          : `Bữa sáng tại ${destName}`,
+        description: breakfastPOI ? `★ ${breakfastPOI.rating}/5` : `Bữa sáng tại ${destName}`,
         destinationId: dest?.id,
-        estimatedCost: (breakfastPOI?.estimatedCost || breakfastSpot?.costPerPerson || 50000) * numPeople,
+        estimatedCost:
+          (breakfastPOI?.estimatedCost || breakfastSpot?.costPerPerson || 50000) * numPeople,
         address: breakfastPOI?.address || breakfastSpot?.address || dest?.address,
         latitude: breakfastPOI?.latitude || breakfastSpot?.latitude || dest?.latitude,
         longitude: breakfastPOI?.longitude || breakfastSpot?.longitude || dest?.longitude,
@@ -388,7 +396,9 @@ export function generateDays(
         activityType: "sightseeing" as const,
         isCompleted: false,
         duration: "2.5 giờ",
-        title: morningPOI ? `Tham quan ${morningPOI.name}` : morningHighlight || morningActivities[i % morningActivities.length],
+        title: morningPOI
+          ? `Tham quan ${morningPOI.name}`
+          : morningHighlight || morningActivities[i % morningActivities.length],
         description: morningPOI ? `★ ${morningPOI.rating}/5` : `Tham quan ${destName}`,
         destinationId: dest?.id,
         estimatedCost: (morningPOI?.estimatedCost || Math.round(destCost * 0.4)) * numPeople,
@@ -420,7 +430,9 @@ export function generateDays(
         activityType: "sightseeing" as const,
         isCompleted: false,
         duration: "3 giờ",
-        title: afternoonPOI ? `Tham quan ${afternoonPOI.name}` : afternoonHighlight || afternoonActivities[i % afternoonActivities.length],
+        title: afternoonPOI
+          ? `Tham quan ${afternoonPOI.name}`
+          : afternoonHighlight || afternoonActivities[i % afternoonActivities.length],
         description: afternoonPOI ? `★ ${afternoonPOI.rating}/5` : `Tham quan ${destName}`,
         destinationId: dest?.id,
         estimatedCost: (afternoonPOI?.estimatedCost || Math.round(destCost * 0.35)) * numPeople,
@@ -441,7 +453,8 @@ export function generateDays(
             : "Ăn tối tại nhà hàng địa phương",
         description: dinnerPOI ? `★ ${dinnerPOI.rating}/5` : `Bữa tối tại ${destName}`,
         destinationId: dest?.id,
-        estimatedCost: (dinnerPOI?.estimatedCost || dinnerSpot?.costPerPerson || 100000) * numPeople,
+        estimatedCost:
+          (dinnerPOI?.estimatedCost || dinnerSpot?.costPerPerson || 100000) * numPeople,
         address: dinnerPOI?.address || dinnerSpot?.address || dest?.address,
         latitude: dinnerPOI?.latitude || dinnerSpot?.latitude || dest?.latitude,
         longitude: dinnerPOI?.longitude || dinnerSpot?.longitude || dest?.longitude,
@@ -452,7 +465,9 @@ export function generateDays(
         activityType: "other" as const,
         isCompleted: false,
         duration: "2 giờ",
-        title: eveningPOI ? `Khám phá ${eveningPOI.name}` : eveningActivities[i % eveningActivities.length],
+        title: eveningPOI
+          ? `Khám phá ${eveningPOI.name}`
+          : eveningActivities[i % eveningActivities.length],
         description: eveningPOI ? `★ ${eveningPOI.rating}/5` : `Buổi tối tại ${destName}`,
         destinationId: dest?.id,
         estimatedCost: (eveningPOI?.estimatedCost || Math.round(destCost * 0.15)) * numPeople,

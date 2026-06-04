@@ -55,15 +55,28 @@ export const tripRepo = {
   },
 
   async getTripsByMember(userId: number) {
-    const mem = await db.select().from(tripMembers).where(eq(tripMembers.userId, userId));
-    if (!mem.length) return [];
+    // "Trips of this user" = trips they own + trips they're invited to as a
+    // member. trip_members only stores companions added via share/invite, so
+    // the owner's own trips would be missed if we only queried trip_members.
+    const [memberRows, ownerTrips] = await Promise.all([
+      db
+        .select({ tripId: tripMembers.tripId })
+        .from(tripMembers)
+        .where(eq(tripMembers.userId, userId)),
+      db.select({ tripId: trips.tripId }).from(trips).where(eq(trips.ownerId, userId)),
+    ]);
 
-    const tripIds = mem.map((m) => m.tripId);
+    const visibleTripIds = new Set<number>([
+      ...memberRows.map((m) => m.tripId),
+      ...ownerTrips.map((t) => t.tripId),
+    ]);
+    if (visibleTripIds.size === 0) return [];
+
     const allTrips = await db.query.trips.findMany({
       with: tripWith as any,
       orderBy: (trips, { desc }) => [desc(trips.createdAt)],
     });
-    return allTrips.filter((t) => tripIds.includes(t.tripId));
+    return allTrips.filter((t) => visibleTripIds.has(t.tripId));
   },
 
   async getTripByInvitationToken(token: string) {
@@ -183,7 +196,11 @@ export const tripRepo = {
   },
 
   async updateItineraryDay(id: number, data: Partial<ItineraryDay>) {
-    const [r] = await db.update(itineraryDay).set(data).where(eq(itineraryDay.dayId, id)).returning();
+    const [r] = await db
+      .update(itineraryDay)
+      .set(data)
+      .where(eq(itineraryDay.dayId, id))
+      .returning();
     return r;
   },
 
@@ -208,7 +225,11 @@ export const tripRepo = {
   },
 
   async updateItineraryItem(id: number, data: Partial<ItineraryItem>) {
-    const [r] = await db.update(itineraryItems).set(data).where(eq(itineraryItems.itemId, id)).returning();
+    const [r] = await db
+      .update(itineraryItems)
+      .set(data)
+      .where(eq(itineraryItems.itemId, id))
+      .returning();
     return r;
   },
 

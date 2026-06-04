@@ -31,13 +31,6 @@ interface MenuItem {
 
 const ITEMS: MenuItem[] = [
   {
-    key: "all",
-    label: "Tất cả",
-    desc: "Bài viết & câu hỏi mới nhất",
-    icon: "earth",
-    color: "#0EA5E9",
-  },
-  {
     key: "following",
     label: "Đang theo dõi",
     desc: "Chỉ từ tác giả bạn theo dõi",
@@ -109,8 +102,13 @@ export function FilterMenuSheet({
       return;
     }
     Haptics.selectionAsync();
-    onSelect(item.key);
     onClose();
+    // "all" stays inline (resets filter), others navigate to dedicated screen
+    if (item.key === "all") {
+      onSelect("all");
+      return;
+    }
+    router.push({ pathname: "/community/feed", params: { mode: item.key } });
   };
 
   const goToProfile = () => {
@@ -146,7 +144,9 @@ export function FilterMenuSheet({
           ]}
         >
           {/* Header with profile snapshot */}
-          <View style={[styles.header, { paddingTop: insets.top + webTopInset + 14 }]}>
+          <View
+            style={[styles.header, { paddingTop: Math.max(insets.top, 24) + webTopInset + 18 }]}
+          >
             <Pressable onPress={goToProfile} style={styles.profileRow}>
               {user?.avatar ? (
                 <Image source={{ uri: user.avatar }} style={styles.avatar} contentFit="cover" />
@@ -171,7 +171,7 @@ export function FilterMenuSheet({
                   {user?.fullName || "Khách"}
                 </Text>
                 <Text style={[styles.userSub, { color: colors.textSecondary }]}>
-                  {user ? "Xem trang công khai" : "Đăng nhập để xem"}
+                  {user ? "Xem trang cá nhân" : "Đăng nhập để xem"}
                 </Text>
               </View>
               {user && <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />}

@@ -81,7 +81,10 @@ function RootLayoutNav() {
         <Stack.Screen name="community/forum/create" options={{ headerShown: false }} />
         <Stack.Screen name="community/bookmarks" options={{ headerShown: false }} />
         <Stack.Screen name="community/rules" options={{ headerShown: false }} />
+        <Stack.Screen name="community/feed" options={{ headerShown: false }} />
+        <Stack.Screen name="connections" options={{ headerShown: false }} />
         <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
     </AuthGate>

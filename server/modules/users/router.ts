@@ -207,13 +207,13 @@ async function toggleFollow(req: Request, res: Response) {
 
 async function listFollowers(req: Request, res: Response) {
   const id = Number(req.params.id);
-  const data = await userCommunityRepo.listFollowers(id);
+  const data = await userCommunityRepo.listFollowers(id, req.auth?.id);
   sendResponse(res, 200, "Followers retrieved", data);
 }
 
 async function listFollowing(req: Request, res: Response) {
   const id = Number(req.params.id);
-  const data = await userCommunityRepo.listFollowing(id);
+  const data = await userCommunityRepo.listFollowing(id, req.auth?.id);
   sendResponse(res, 200, "Following retrieved", data);
 }
 
@@ -248,8 +248,8 @@ export function registerUserRoutes(app: Express) {
   app.get("/api/users", requireAdmin, asyncHandler(listUsers));
   app.get("/api/users/me", requireAuth, asyncHandler(getCurrentUser));
   app.get("/api/users/:id/profile", optionalAuth, asyncHandler(getUserProfile));
-  app.get("/api/users/:id/followers", asyncHandler(listFollowers));
-  app.get("/api/users/:id/following", asyncHandler(listFollowing));
+  app.get("/api/users/:id/followers", optionalAuth, asyncHandler(listFollowers));
+  app.get("/api/users/:id/following", optionalAuth, asyncHandler(listFollowing));
   app.post("/api/users/:id/follow", requireAuth, asyncHandler(toggleFollow));
   app.get("/api/users/:id", requireAuth, asyncHandler(getUserById));
   app.post("/api/users", requireAdmin, asyncHandler(createUser));

@@ -29,6 +29,10 @@ export function useReviews(filters?: ReviewFilters) {
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapReview);
     },
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 }
 
@@ -46,7 +50,14 @@ export function useCreateReview() {
 
 export function useUpdateReview() {
   const qc = useQueryClient();
-  return useMutation<Review, Error, { id: string | number; data: Partial<Review> & { userId?: number | string; type?: "trip" | "item" } }>({
+  return useMutation<
+    Review,
+    Error,
+    {
+      id: string | number;
+      data: Partial<Review> & { userId?: number | string; type?: "trip" | "item" };
+    }
+  >({
     mutationFn: async ({ id, data }) => {
       const res = await apiRequest("PUT", `/api/reviews/${id}`, data);
       const result = await unwrap<any>(res);
@@ -58,7 +69,11 @@ export function useUpdateReview() {
 
 export function useDeleteReview() {
   const qc = useQueryClient();
-  return useMutation<void, Error, { id: string | number; userId: string | number; type?: "trip" | "item" }>({
+  return useMutation<
+    void,
+    Error,
+    { id: string | number; userId: string | number; type?: "trip" | "item" }
+  >({
     mutationFn: async ({ id, userId, type }) => {
       const params = new URLSearchParams({ userId: String(userId) });
       if (type) params.set("type", type);

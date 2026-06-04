@@ -4,11 +4,14 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Platform, StyleSheet, View, Pressable, Text, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useThemeColors } from "@/constants/colors";
 import { useSettings } from "@/contexts/SettingsContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { TabBarProvider, useTabBar } from "@/contexts/TabBarContext";
 import { t } from "@/lib/i18n";
 
 // ──────────────────────────────────────────────────────────────
@@ -204,6 +207,7 @@ function CustomTabBar({
   setFabOpen: (v: boolean) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
 
@@ -216,6 +220,7 @@ function CustomTabBar({
     if (!cfg) return null;
     const realIdx = state.routes.findIndex((r) => r.name === route.name);
     const isFocused = state.index === realIdx;
+    const isProfileTab = route.name === "profile";
 
     const handlePress = () => {
       // Close FAB menu if open when switching tabs
@@ -230,6 +235,48 @@ function CustomTabBar({
         navigation.navigate(route.name as never);
       }
     };
+
+    // For profile tab: render user's avatar (icon-only, no label)
+    if (isProfileTab) {
+      return (
+        <Pressable
+          key={route.key}
+          onPress={handlePress}
+          style={({ pressed }) => [styles.tabItem, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <View
+            style={[
+              styles.avatarTabWrap,
+              {
+                borderColor: isFocused ? colors.primary : "transparent",
+                borderWidth: isFocused ? 2 : 0,
+              },
+            ]}
+          >
+            {user?.avatar ? (
+              <Image source={{ uri: user.avatar }} style={styles.avatarTabImg} contentFit="cover" />
+            ) : (
+              <View
+                style={[
+                  styles.avatarTabImg,
+                  {
+                    backgroundColor: isFocused ? colors.primary : colors.inputBg,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="person"
+                  size={18}
+                  color={isFocused ? "#fff" : colors.tabIconDefault}
+                />
+              </View>
+            )}
+          </View>
+        </Pressable>
+      );
+    }
 
     return (
       <Pressable
@@ -248,22 +295,18 @@ function CustomTabBar({
         >
           <Ionicons
             name={(isFocused ? cfg.filledIcon : cfg.outlineIcon) as keyof typeof Ionicons.glyphMap}
-            size={22}
+            size={24}
             color={isFocused ? colors.primary : colors.tabIconDefault}
           />
         </View>
-        <Text
-          style={[styles.tabLabel, { color: isFocused ? colors.primary : colors.tabIconDefault }]}
-          numberOfLines={1}
-        >
-          {cfg.label}
-        </Text>
       </Pressable>
     );
   };
 
+  const { translateY } = useTabBar();
+
   return (
-    <View
+    <Animated.View
       style={[
         styles.tabBar,
         {
@@ -271,6 +314,7 @@ function CustomTabBar({
           backgroundColor: isIOS ? "transparent" : colors.card,
           borderTopColor: colors.divider,
           shadowOpacity: isDark ? 0.4 : 0.08,
+          transform: [{ translateY }],
         },
       ]}
     >
@@ -288,7 +332,7 @@ function CustomTabBar({
         <View style={styles.fabSlot} pointerEvents="none" />
         {tabs.slice(2).map(renderTab)}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -306,6 +350,7 @@ function FabButton({
   bottom: number;
 }) {
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  const { translateY } = useTabBar();
 
   useEffect(() => {
     Animated.spring(rotateAnim, {
@@ -322,30 +367,41 @@ function FabButton({
   });
 
   return (
-    <Pressable
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        onToggle();
-      }}
-      style={({ pressed }) => [
+    <Animated.View
+      style={[
         styles.fab,
         {
-          opacity: pressed ? 0.92 : 1,
           bottom,
+          transform: [{ translateY }],
         },
       ]}
     >
-      <LinearGradient
-        colors={[colors.primary, colors.primaryDark]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.fabGradient}
+      <Pressable
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onToggle();
+        }}
+        style={({ pressed }) => [
+          {
+            width: "100%",
+            height: "100%",
+            borderRadius: FAB_SIZE / 2,
+            opacity: pressed ? 0.92 : 1,
+          },
+        ]}
       >
-        <Animated.View style={{ transform: [{ rotate: rotation }] }}>
-          <Ionicons name="add" size={28} color="#fff" />
-        </Animated.View>
-      </LinearGradient>
-    </Pressable>
+        <LinearGradient
+          colors={[colors.primary, colors.primaryDark]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.fabGradient}
+        >
+          <Animated.View style={{ transform: [{ rotate: rotation }] }}>
+            <Ionicons name="add" size={28} color="#fff" />
+          </Animated.View>
+        </LinearGradient>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -362,42 +418,42 @@ export default function TabLayout() {
   const fabBottom = (insets.bottom > 0 ? insets.bottom : 10) + 12;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <Tabs
-        screenOptions={{ headerShown: false }}
-        tabBar={(props) => (
-          <CustomTabBar
-            {...props}
-            colors={colors}
-            isDark={isDark}
-            fabOpen={fabOpen}
-            setFabOpen={setFabOpen}
-          />
-        )}
-      >
-        <Tabs.Screen name="index" options={{ title: TAB_CONFIG.index.label }} />
-        <Tabs.Screen name="community" options={{ title: TAB_CONFIG.community.label }} />
-        <Tabs.Screen name="trips" options={{ title: TAB_CONFIG.trips.label }} />
-        <Tabs.Screen name="profile" options={{ title: TAB_CONFIG.profile.label }} />
-        <Tabs.Screen name="map" />
-      </Tabs>
+    <TabBarProvider>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <Tabs
+          screenOptions={{ headerShown: false }}
+          tabBar={(props) => (
+            <CustomTabBar
+              {...props}
+              colors={colors}
+              isDark={isDark}
+              fabOpen={fabOpen}
+              setFabOpen={setFabOpen}
+            />
+          )}
+        >
+          <Tabs.Screen name="index" options={{ title: TAB_CONFIG.index.label }} />
+          <Tabs.Screen name="community" options={{ title: TAB_CONFIG.community.label }} />
+          <Tabs.Screen name="trips" options={{ title: TAB_CONFIG.trips.label }} />
+          <Tabs.Screen name="profile" options={{ title: TAB_CONFIG.profile.label }} />
+          <Tabs.Screen name="map" />
+        </Tabs>
 
-      {/* Speed-dial overlay (backdrop + mini action cards) — above tab bar */}
-      <FabSpeedDial
-        open={fabOpen}
-        onClose={() => setFabOpen(false)}
-        colors={colors}
-        bottom={fabBottom}
-      />
+        <FabSpeedDial
+          open={fabOpen}
+          onClose={() => setFabOpen(false)}
+          colors={colors}
+          bottom={fabBottom}
+        />
 
-      {/* FAB rendered LAST → stays on top of backdrop when menu is open */}
-      <FabButton
-        open={fabOpen}
-        onToggle={() => setFabOpen(!fabOpen)}
-        colors={colors}
-        bottom={fabBottom}
-      />
-    </View>
+        <FabButton
+          open={fabOpen}
+          onToggle={() => setFabOpen(!fabOpen)}
+          colors={colors}
+          bottom={fabBottom}
+        />
+      </View>
+    </TabBarProvider>
   );
 }
 
@@ -405,7 +461,7 @@ export default function TabLayout() {
 // Styles
 // ──────────────────────────────────────────────────────────────
 
-const TAB_BAR_HEIGHT = 64;
+const TAB_BAR_HEIGHT = 56;
 const FAB_SIZE = 60;
 
 const styles = StyleSheet.create({
@@ -433,16 +489,24 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   tabIconWrap: {
-    height: 30,
-    borderRadius: 15,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
   tabLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  avatarTabWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 1,
+  },
+  avatarTabImg: { width: "100%", height: "100%", borderRadius: 14 },
   fabSlot: { width: 80, height: TAB_BAR_HEIGHT },
 
   // FAB

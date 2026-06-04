@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile, useToggleFollow } from "@/hooks/queries/use-user-community";
 import { useBlogPosts, type BlogPost } from "@/hooks/queries/use-blog";
 import { useForumThreads, type ForumThread } from "@/hooks/queries/use-forum";
+import { BlogPostRow, ForumThreadRow } from "@/features/community/ContentRows";
 
 type Tab = "blog" | "forum";
 
@@ -55,6 +56,14 @@ export default function UserProfileScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user: me } = useAuth();
+
+  // Single source of truth: if viewing my own profile, redirect to Tôi tab
+  React.useEffect(() => {
+    if (me && userId && userId === Number(me.id)) {
+      router.replace("/(tabs)/profile");
+    }
+  }, [me, userId]);
+
   const profileQuery = useUserProfile(userId);
   const blogQuery = useBlogPosts(userId ? { authorId: userId, limit: 50 } : {});
   const forumQuery = useForumThreads({ limit: 100 });
@@ -169,25 +178,33 @@ export default function UserProfileScreen() {
             </View>
           )}
 
-          {profile.createdAt && (
-            <Text style={styles.joinedText}>
-              Tham gia từ{" "}
-              {new Date(profile.createdAt).toLocaleDateString("vi-VN", {
-                month: "long",
-                year: "numeric",
-              })}
-            </Text>
-          )}
-
           {/* Stats row */}
           <View style={styles.statsBar}>
             <StatItem value={profile.postCount} label="Bài viết" />
             <StatDivider />
             <StatItem value={profile.threadCount + profile.replyCount} label="Hỏi đáp" />
             <StatDivider />
-            <StatItem value={profile.followerCount} label="Theo dõi" />
+            <StatItem
+              value={profile.followerCount}
+              label="Theo dõi"
+              onPress={() =>
+                router.push({
+                  pathname: "/connections",
+                  params: { userId: String(userId), tab: "followers" },
+                })
+              }
+            />
             <StatDivider />
-            <StatItem value={profile.followingCount} label="Đang theo" />
+            <StatItem
+              value={profile.followingCount}
+              label="Đang theo"
+              onPress={() =>
+                router.push({
+                  pathname: "/connections",
+                  params: { userId: String(userId), tab: "following" },
+                })
+              }
+            />
           </View>
 
           {/* Follow button (other user) OR Edit profile (own profile) */}
@@ -304,12 +321,24 @@ export default function UserProfileScreen() {
   );
 }
 
-function StatItem({ value, label }: { value: number; label: string }) {
+function StatItem({
+  value,
+  label,
+  onPress,
+}: {
+  value: number;
+  label: string;
+  onPress?: () => void;
+}) {
   return (
-    <View style={styles.statItem}>
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [styles.statItem, { opacity: pressed && onPress ? 0.7 : 1 }]}
+    >
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -347,77 +376,7 @@ function BlogList({
   return (
     <View style={{ paddingHorizontal: 16, gap: 10, paddingTop: 12 }}>
       {items.map((p) => (
-        <Pressable
-          key={p.postId}
-          onPress={() =>
-            router.push({ pathname: "/community/blog/[id]", params: { id: String(p.postId) } })
-          }
-          style={({ pressed }) => [
-            {
-              flexDirection: "row",
-              gap: 10,
-              padding: 10,
-              borderRadius: 12,
-              borderWidth: 1,
-              backgroundColor: colors.card,
-              borderColor: colors.cardBorder,
-              opacity: pressed ? 0.95 : 1,
-            },
-          ]}
-        >
-          {p.coverImage && (
-            <Image
-              source={{ uri: p.coverImage }}
-              style={{ width: 80, height: 80, borderRadius: 10 }}
-              contentFit="cover"
-            />
-          )}
-          <View style={{ flex: 1 }}>
-            <Text
-              style={{
-                fontSize: 13,
-                fontFamily: "Inter_700Bold",
-                color: colors.text,
-                lineHeight: 18,
-              }}
-              numberOfLines={2}
-            >
-              {p.title}
-            </Text>
-            {p.excerpt && (
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontFamily: "Inter_400Regular",
-                  color: colors.textSecondary,
-                  marginTop: 4,
-                }}
-                numberOfLines={2}
-              >
-                {p.excerpt}
-              </Text>
-            )}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
-              <Text
-                style={{ fontSize: 10, fontFamily: "Inter_500Medium", color: colors.textTertiary }}
-              >
-                {timeAgo(p.publishedAt)}
-              </Text>
-              <Ionicons name="heart" size={10} color="#EF4444" />
-              <Text
-                style={{ fontSize: 10, fontFamily: "Inter_500Medium", color: colors.textTertiary }}
-              >
-                {p.likeCount}
-              </Text>
-              <Ionicons name="chatbubble-outline" size={10} color={colors.textTertiary} />
-              <Text
-                style={{ fontSize: 10, fontFamily: "Inter_500Medium", color: colors.textTertiary }}
-              >
-                {p.commentCount}
-              </Text>
-            </View>
-          </View>
-        </Pressable>
+        <BlogPostRow key={p.postId} post={p} colors={colors} />
       ))}
     </View>
   );
@@ -448,77 +407,9 @@ function ForumList({
   }
   return (
     <View style={{ paddingHorizontal: 16, gap: 8, paddingTop: 12 }}>
-      {items.map((t) => {
-        const isSolved = t.status === "solved";
-        return (
-          <Pressable
-            key={t.threadId}
-            onPress={() =>
-              router.push({ pathname: "/community/forum/[id]", params: { id: String(t.threadId) } })
-            }
-            style={({ pressed }) => [
-              {
-                padding: 12,
-                borderRadius: 12,
-                borderWidth: 1,
-                backgroundColor: colors.card,
-                borderColor: isSolved ? "#10B98140" : colors.cardBorder,
-                opacity: pressed ? 0.95 : 1,
-                gap: 4,
-              },
-            ]}
-          >
-            <Text
-              style={{
-                fontSize: 13,
-                fontFamily: "Inter_700Bold",
-                color: colors.text,
-                lineHeight: 18,
-              }}
-              numberOfLines={2}
-            >
-              {t.title}
-            </Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
-              {isSolved && (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 3,
-                    backgroundColor: "#10B981",
-                    paddingHorizontal: 6,
-                    paddingVertical: 2,
-                    borderRadius: 6,
-                  }}
-                >
-                  <Ionicons name="checkmark-circle" size={9} color="#fff" />
-                  <Text style={{ color: "#fff", fontSize: 9, fontFamily: "Inter_700Bold" }}>
-                    Đã giải đáp
-                  </Text>
-                </View>
-              )}
-              <Text
-                style={{ fontSize: 10, fontFamily: "Inter_500Medium", color: colors.textTertiary }}
-              >
-                {timeAgo(t.createdAt)}
-              </Text>
-              <Ionicons name="arrow-up" size={10} color={colors.textTertiary} />
-              <Text
-                style={{ fontSize: 10, fontFamily: "Inter_500Medium", color: colors.textTertiary }}
-              >
-                {t.upvotes}
-              </Text>
-              <Ionicons name="chatbubble-outline" size={10} color={colors.textTertiary} />
-              <Text
-                style={{ fontSize: 10, fontFamily: "Inter_500Medium", color: colors.textTertiary }}
-              >
-                {t.replyCount}
-              </Text>
-            </View>
-          </Pressable>
-        );
-      })}
+      {items.map((t) => (
+        <ForumThreadRow key={t.threadId} thread={t} colors={colors} />
+      ))}
     </View>
   );
 }

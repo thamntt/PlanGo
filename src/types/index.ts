@@ -191,6 +191,7 @@ export interface Review {
   id: string;
   userId: string;
   userName: string;
+  userAvatarUrl?: string;
   destinationId: string;
   poiId?: string;
   poiName?: string;
@@ -200,6 +201,15 @@ export interface Review {
   rating: number;
   comment: string;
   createdAt: string;
+  // Trip visit context (TripAdvisor pattern — each review is one visit)
+  tripTitle?: string;
+  tripStartDate?: string;
+  tripEndDate?: string;
+  tripNumPeople?: number;
+  // Phase 1.5 engagement
+  photos?: string[];
+  userReviewerLevel?: "newcomer" | "active" | "top" | "legend" | null;
+  userReviewCount?: number;
 }
 
 export interface Notification {

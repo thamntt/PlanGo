@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
+import { useScrollToTop } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -22,6 +23,8 @@ import { useBlogPosts, type BlogPost } from "@/hooks/queries/use-blog";
 import { useForumThreads, type ForumThread } from "@/hooks/queries/use-forum";
 import { useAuth } from "@/contexts/AuthContext";
 import { FilterMenuSheet, type FilterMode } from "@/features/community/FilterMenuSheet";
+import { SearchOverlay } from "@/features/community/SearchOverlay";
+import { useTabBar } from "@/contexts/TabBarContext";
 
 type Tab = "blog" | "forum";
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -71,6 +74,9 @@ export default function CommunityScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
+  const tabBar = useTabBar();
   const [tab, setTab] = useState<Tab>("blog");
   const [search, setSearch] = useState("");
   const [sortBlog, setSortBlog] = useState<"latest" | "popular" | "trending">("latest");
@@ -78,6 +84,7 @@ export default function CommunityScreen() {
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const blogFilters = {
     sort: sortBlog,
@@ -123,6 +130,9 @@ export default function CommunityScreen() {
             <Text style={styles.heroTitle}>Cộng đồng PlanGo</Text>
             <Text style={styles.heroSubtitle}>Chia sẻ kinh nghiệm — hỏi đáp du lịch</Text>
           </View>
+          <Pressable onPress={() => setSearchOpen(true)} style={styles.heroAction} hitSlop={6}>
+            <Ionicons name="search" size={20} color="#fff" />
+          </Pressable>
         </View>
 
         {/* Tab switcher in hero */}
@@ -160,8 +170,11 @@ export default function CommunityScreen() {
 
       {/* ─── BODY ─── */}
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 120 }}
+        onScroll={tabBar.onScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={tab === "blog" ? blogQuery.isRefetching : forumQuery.isRefetching}
@@ -191,27 +204,23 @@ export default function CommunityScreen() {
           </View>
         )}
 
-        {/* Search bar */}
-        <View
-          style={[
-            styles.searchBar,
-            { backgroundColor: colors.card, borderColor: colors.cardBorder },
-          ]}
-        >
-          <Ionicons name="search" size={18} color={colors.textTertiary} />
-          <TextInput
-            value={search}
-            onChangeText={setSearch}
-            placeholder={tab === "blog" ? "Tìm bài viết..." : "Tìm câu hỏi..."}
-            placeholderTextColor={colors.textTertiary}
-            style={[styles.searchInput, { color: colors.text }]}
-          />
-          {search.length > 0 && (
+        {/* Active search banner */}
+        {!!search && (
+          <View
+            style={[
+              styles.searchBanner,
+              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+            ]}
+          >
+            <Ionicons name="search" size={14} color={colors.textSecondary} />
+            <Text style={[styles.searchBannerText, { color: colors.text }]} numberOfLines={1}>
+              {search}
+            </Text>
             <Pressable onPress={() => setSearch("")} hitSlop={6}>
-              <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+              <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
             </Pressable>
-          )}
-        </View>
+          </View>
+        )}
 
         {/* Category chips */}
         <ScrollView
@@ -366,6 +375,13 @@ export default function CommunityScreen() {
         current={filterMode}
         onSelect={(m) => setFilterMode(m)}
         isLoggedIn={!!user}
+      />
+
+      <SearchOverlay
+        visible={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSubmit={(q) => setSearch(q)}
+        placeholder={tab === "blog" ? "Tìm bài viết, tác giả, địa danh..." : "Tìm câu hỏi..."}
       />
     </View>
   );
@@ -806,6 +822,18 @@ const styles = StyleSheet.create({
   tabBtnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
 
   // Search
+  searchBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginHorizontal: 16,
+    marginTop: 12,
+  },
+  searchBannerText: { fontSize: 13, fontFamily: "Inter_600SemiBold", flex: 1 },
   filterBanner: {
     flexDirection: "row",
     alignItems: "center",

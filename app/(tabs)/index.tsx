@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback , useRef } from "react";
 import {
   View,
   Text,
@@ -21,6 +21,8 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useDestinations, useDestinationTypes } from "@/hooks/queries/use-destinations";
 import { useNotifications } from "@/hooks/queries/use-notifications";
+import { useTabBar } from "@/contexts/TabBarContext";
+import { useScrollToTop } from "@react-navigation/native";
 import { t } from "@/lib/i18n";
 import type { Destination, DestinationType } from "@/types";
 import { formatRating } from "@/features/reviews/components/StarRating";
@@ -213,6 +215,9 @@ function CardSkeleton({ colors }: { colors: ReturnType<typeof useThemeColors> })
 // ──────────────────────────────────────────────────────────────
 
 export default function ExploreScreen() {
+  const tabBar = useTabBar();
+  const listRef = useRef<FlatList>(null);
+  useScrollToTop(listRef as any);
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
@@ -445,11 +450,14 @@ export default function ExploreScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <FlatList
+        ref={listRef}
         data={isLoading ? [] : filteredDestinations}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <DestinationCard item={item} colors={colors} />}
         contentContainerStyle={{ paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
+        onScroll={tabBar.onScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
