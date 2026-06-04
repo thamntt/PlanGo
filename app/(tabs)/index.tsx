@@ -9,6 +9,7 @@ import {
   Platform,
   RefreshControl,
   ScrollView,
+  Animated,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,6 +25,7 @@ import { useNotifications } from "@/hooks/queries/use-notifications";
 import { useTabBar } from "@/contexts/TabBarContext";
 import { useScrollToTop } from "@react-navigation/native";
 import { SearchOverlay } from "@/features/community/SearchOverlay";
+import { StickyFilterBar } from "@/features/community/StickyFilterBar";
 import { t } from "@/lib/i18n";
 import type { Destination, DestinationType } from "@/types";
 import { formatRating } from "@/features/reviews/components/StarRating";
@@ -219,6 +221,7 @@ export default function ExploreScreen() {
   const tabBar = useTabBar();
   const listRef = useRef<FlatList>(null);
   useScrollToTop(listRef as any);
+  const scrollY = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
@@ -454,14 +457,17 @@ export default function ExploreScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FlatList
+      <Animated.FlatList
         ref={listRef}
         data={isLoading ? [] : filteredDestinations}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <DestinationCard item={item} colors={colors} />}
+        keyExtractor={(item: any) => item.id}
+        renderItem={({ item }: any) => <DestinationCard item={item} colors={colors} />}
         contentContainerStyle={{ paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
-        onScroll={tabBar.onScroll}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+          useNativeDriver: false,
+          listener: (e: any) => tabBar.onScroll(e),
+        })}
         scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
@@ -506,6 +512,88 @@ export default function ExploreScreen() {
         ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
         style={{ paddingHorizontal: 0 }}
       />
+
+      {/* Sticky filter bar appears when scrolled past hero */}
+      <StickyFilterBar scrollY={scrollY} showAt={220}>
+        <View
+          style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 }}
+        >
+          <Pressable
+            onPress={() => setSearchOpen(true)}
+            style={({ pressed }) => [
+              {
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="search" size={18} color={colors.text} />
+          </Pressable>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 6, paddingRight: 16 }}
+            style={{ flex: 1 }}
+          >
+            <Pressable
+              onPress={() => setSelectedCategory(null)}
+              style={[
+                {
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  backgroundColor: !selectedCategory ? colors.primary : colors.card,
+                  borderColor: !selectedCategory ? colors.primary : colors.cardBorder,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontFamily: "Inter_700Bold",
+                  color: !selectedCategory ? "#fff" : colors.text,
+                }}
+              >
+                Tất cả
+              </Text>
+            </Pressable>
+            {destinationTypes.map((cat) => (
+              <Pressable
+                key={cat.id}
+                onPress={() => setSelectedCategory(selectedCategory === cat.id ? null : cat.id)}
+                style={[
+                  {
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    backgroundColor: selectedCategory === cat.id ? colors.primary : colors.card,
+                    borderColor: selectedCategory === cat.id ? colors.primary : colors.cardBorder,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontFamily: "Inter_700Bold",
+                    color: selectedCategory === cat.id ? "#fff" : colors.text,
+                  }}
+                >
+                  {cat.typeName}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </StickyFilterBar>
 
       <SearchOverlay
         visible={searchOpen}

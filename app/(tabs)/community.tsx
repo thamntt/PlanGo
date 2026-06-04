@@ -175,6 +175,7 @@ export default function CommunityScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
         onScroll={tabBar.onScroll}
         scrollEventThrottle={16}
+        stickyHeaderIndices={[0]}
         refreshControl={
           <RefreshControl
             refreshing={tab === "blog" ? blogQuery.isRefetching : forumQuery.isRefetching}
@@ -183,100 +184,105 @@ export default function CommunityScreen() {
           />
         }
       >
-        {/* Active filter banner */}
-        {filterMode !== "all" && (
-          <View
-            style={[
-              styles.filterBanner,
-              { backgroundColor: colors.primary + "12", borderColor: colors.primary + "44" },
-            ]}
-          >
-            <Ionicons name="funnel" size={13} color={colors.primary} />
-            <Text style={[styles.filterBannerText, { color: colors.primary }]}>
-              {filterMode === "following" && "Đang xem: Người bạn theo dõi"}
-              {filterMode === "liked" && "Đang xem: Bài bạn đã thích"}
-              {filterMode === "bookmarked" && "Đang xem: Bài đã lưu"}
-            </Text>
-            <View style={{ flex: 1 }} />
-            <Pressable onPress={() => setFilterMode("all")} hitSlop={4}>
-              <Ionicons name="close-circle" size={16} color={colors.primary} />
-            </Pressable>
-          </View>
-        )}
+        {/* STICKY FILTER WRAPPER — contains banners + chips + sort */}
+        <View style={{ backgroundColor: colors.background }}>
+          {/* Active filter banner */}
+          {filterMode !== "all" && (
+            <View
+              style={[
+                styles.filterBanner,
+                { backgroundColor: colors.primary + "12", borderColor: colors.primary + "44" },
+              ]}
+            >
+              <Ionicons name="funnel" size={13} color={colors.primary} />
+              <Text style={[styles.filterBannerText, { color: colors.primary }]}>
+                {filterMode === "following" && "Đang xem: Người bạn theo dõi"}
+                {filterMode === "liked" && "Đang xem: Bài bạn đã thích"}
+                {filterMode === "bookmarked" && "Đang xem: Bài đã lưu"}
+              </Text>
+              <View style={{ flex: 1 }} />
+              <Pressable onPress={() => setFilterMode("all")} hitSlop={4}>
+                <Ionicons name="close-circle" size={16} color={colors.primary} />
+              </Pressable>
+            </View>
+          )}
 
-        {/* Active search banner */}
-        {!!search && (
-          <View
-            style={[
-              styles.searchBanner,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
-            ]}
-          >
-            <Ionicons name="search" size={14} color={colors.textSecondary} />
-            <Text style={[styles.searchBannerText, { color: colors.text }]} numberOfLines={1}>
-              {search}
-            </Text>
-            <Pressable onPress={() => setSearch("")} hitSlop={6}>
-              <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
-            </Pressable>
-          </View>
-        )}
+          {/* Active search banner */}
+          {!!search && (
+            <View
+              style={[
+                styles.searchBanner,
+                { backgroundColor: colors.card, borderColor: colors.cardBorder },
+              ]}
+            >
+              <Ionicons name="search" size={14} color={colors.textSecondary} />
+              <Text style={[styles.searchBannerText, { color: colors.text }]} numberOfLines={1}>
+                {search}
+              </Text>
+              <Pressable onPress={() => setSearch("")} hitSlop={6}>
+                <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
+              </Pressable>
+            </View>
+          )}
 
-        {/* Category chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipsRow}
-        >
-          <FilterChip
-            label="Tất cả"
-            icon="apps"
-            active={!filterCategory}
-            color={colors.primary}
-            onPress={() => setFilterCategory(null)}
-            colors={colors}
-          />
-          {cats.map((c) => (
+          {/* Category chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipsRow}
+          >
             <FilterChip
-              key={c}
-              label={CAT_LABEL[c] || c}
-              icon="pricetag"
-              active={filterCategory === c}
-              color={CAT_COLOR[c] || colors.primary}
-              onPress={() => setFilterCategory(filterCategory === c ? null : c)}
+              label="Tất cả"
+              icon="apps"
+              active={!filterCategory}
+              color={colors.primary}
+              onPress={() => setFilterCategory(null)}
               colors={colors}
             />
-          ))}
-        </ScrollView>
+            {cats.map((c) => (
+              <FilterChip
+                key={c}
+                label={CAT_LABEL[c] || c}
+                icon="pricetag"
+                active={filterCategory === c}
+                color={CAT_COLOR[c] || colors.primary}
+                onPress={() => setFilterCategory(filterCategory === c ? null : c)}
+                colors={colors}
+              />
+            ))}
+          </ScrollView>
 
-        {/* Sort chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.sortRow}
-        >
-          {tab === "blog"
-            ? (["latest", "popular", "trending"] as const).map((s) => (
-                <SortChip
-                  key={s}
-                  label={s === "latest" ? "Mới nhất" : s === "popular" ? "Nhiều like" : "Trending"}
-                  active={sortBlog === s}
-                  onPress={() => setSortBlog(s)}
-                  colors={colors}
-                />
-              ))
-            : (["latest", "popular", "unanswered"] as const).map((s) => (
-                <SortChip
-                  key={s}
-                  label={
-                    s === "latest" ? "Mới nhất" : s === "popular" ? "Nhiều vote" : "Chưa trả lời"
-                  }
-                  active={sortForum === s}
-                  onPress={() => setSortForum(s)}
-                  colors={colors}
-                />
-              ))}
-        </ScrollView>
+          {/* Sort chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sortRow}
+          >
+            {tab === "blog"
+              ? (["latest", "popular", "trending"] as const).map((s) => (
+                  <SortChip
+                    key={s}
+                    label={
+                      s === "latest" ? "Mới nhất" : s === "popular" ? "Nhiều like" : "Trending"
+                    }
+                    active={sortBlog === s}
+                    onPress={() => setSortBlog(s)}
+                    colors={colors}
+                  />
+                ))
+              : (["latest", "popular", "unanswered"] as const).map((s) => (
+                  <SortChip
+                    key={s}
+                    label={
+                      s === "latest" ? "Mới nhất" : s === "popular" ? "Nhiều vote" : "Chưa trả lời"
+                    }
+                    active={sortForum === s}
+                    onPress={() => setSortForum(s)}
+                    colors={colors}
+                  />
+                ))}
+          </ScrollView>
+        </View>
 
         {/* List */}
         {tab === "blog" ? (

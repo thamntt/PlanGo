@@ -13,7 +13,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
-} from "react-native";
+ Animated } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -26,6 +26,7 @@ import { useThemeColors } from "@/constants/colors";
 import { useTabBar } from "@/contexts/TabBarContext";
 import { useScrollToTop } from "@react-navigation/native";
 import { SearchOverlay } from "@/features/community/SearchOverlay";
+import { StickyFilterBar } from "@/features/community/StickyFilterBar";
 import { useTrips, useUpdateTrip, useDeleteTrip } from "@/hooks/queries/use-trips";
 import { useDestinations } from "@/hooks/queries/use-destinations";
 import { useReviews, useCreateReview } from "@/hooks/queries/use-reviews";
@@ -118,6 +119,11 @@ function TripCard({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         onPress();
       }}
+      onLongPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        onMenu();
+      }}
+      delayLongPress={400}
       style={({ pressed }) => [
         cardStyles.card,
         {
@@ -152,26 +158,15 @@ function TripCard({
           <Ionicons name={meta.icon} size={11} color={meta.fg} />
           <Text style={[cardStyles.statusText, { color: meta.fg }]}>{meta.label}</Text>
         </View>
-        {/* Joined indicator + menu top-right */}
-        <View style={cardStyles.topRightRow}>
-          {isJoined && (
+        {/* Joined indicator top-right */}
+        {isJoined && (
+          <View style={cardStyles.topRightRow}>
             <View style={[cardStyles.joinedChip, { backgroundColor: "rgba(255,255,255,0.95)" }]}>
               <Ionicons name="people" size={10} color="#0F172A" />
               <Text style={cardStyles.joinedText}>Đã tham gia</Text>
             </View>
-          )}
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onMenu();
-            }}
-            hitSlop={6}
-            style={({ pressed }) => [cardStyles.menuBtn, { opacity: pressed ? 0.7 : 1 }]}
-          >
-            <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
-          </Pressable>
-        </View>
+          </View>
+        )}
 
         {/* Title + destination overlay on image */}
         <View style={cardStyles.imageInfo}>
@@ -258,6 +253,7 @@ export default function TripsScreen() {
   const tabBar = useTabBar();
   const listRef = useRef<FlatList>(null);
   useScrollToTop(listRef as any);
+  const scrollY = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
@@ -377,9 +373,12 @@ export default function TripsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FlatList
+      <Animated.FlatList
         ref={listRef}
-        onScroll={tabBar.onScroll}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+          useNativeDriver: false,
+          listener: (e: any) => tabBar.onScroll(e),
+        })}
         scrollEventThrottle={16}
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -394,7 +393,7 @@ export default function TripsScreen() {
               destination={destObj}
               colors={colors}
               onPress={() => router.push({ pathname: "/itinerary/[id]", params: { id: item.id } })}
-              onMenu={() => setMenuTarget(item)}
+              onMenu={() => handleDelete(item.id)}
               isJoined={!!user && String(item.userId) !== String(user.id)}
               isReviewed={isReviewed}
             />
@@ -559,94 +558,71 @@ export default function TripsScreen() {
         ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
       />
 
-      {/* ─── Menu action sheet ─── */}
-      <Modal
-        visible={!!menuTarget}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuTarget(null)}
-      >
-        <Pressable style={styles.menuOverlay} onPress={() => setMenuTarget(null)}>
+      {/* Sticky filter bar appears when scrolled past hero */}
+      <StickyFilterBar scrollY={scrollY} showAt={260}>
+        <View
+          style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 }}
+        >
           <Pressable
-            style={[
-              styles.menuSheet,
-              { backgroundColor: colors.card, paddingBottom: insets.bottom + 16 },
+            onPress={() => setSearchOpen(true)}
+            style={({ pressed }) => [
+              {
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              },
             ]}
-            onPress={(e) => e.stopPropagation()}
           >
-            <View style={[styles.menuHandle, { backgroundColor: colors.divider }]} />
-            <Text style={[styles.menuTitle, { color: colors.text }]} numberOfLines={1}>
-              {menuTarget?.title}
-            </Text>
-            <MenuItem
-              icon="open-outline"
-              label="Mở chi tiết"
-              colors={colors}
-              onPress={() => {
-                const id = menuTarget!.id;
-                setMenuTarget(null);
-                router.push({ pathname: "/itinerary/[id]", params: { id } });
-              }}
-            />
-            {menuTarget && getDisplayStatus(menuTarget) === "completed" && (
-              <MenuItem
-                icon="star-outline"
-                label={
-                  reviews.some(
-                    (r) =>
-                      r.userId === user?.id && r.itineraryId === menuTarget.id && !r.activityId,
-                  )
-                    ? "Xem đánh giá"
-                    : "Viết đánh giá"
-                }
-                color="#F59E0B"
-                colors={colors}
-                onPress={() => {
-                  if (!menuTarget) return;
-                  const isRev = reviews.some(
-                    (r) =>
-                      r.userId === user?.id && r.itineraryId === menuTarget.id && !r.activityId,
-                  );
-                  if (isRev) {
-                    const rev = reviews.find(
-                      (r) =>
-                        r.userId === user?.id && r.itineraryId === menuTarget.id && !r.activityId,
-                    );
-                    setMenuTarget(null);
-                    if (rev?.destinationId) router.push(`/destination/${rev.destinationId}`);
-                  } else {
-                    setRating(5);
-                    setComment("");
-                    setReviewModal(menuTarget);
-                    setMenuTarget(null);
-                  }
-                }}
-              />
-            )}
-            <MenuItem
-              icon={
-                user && menuTarget && String(menuTarget.userId) !== String(user.id)
-                  ? "log-out-outline"
-                  : "trash-outline"
-              }
-              label={
-                user && menuTarget && String(menuTarget.userId) !== String(user.id)
-                  ? "Rời chuyến đi"
-                  : "Xóa chuyến đi"
-              }
-              color="#EF4444"
-              colors={colors}
-              onPress={() => {
-                if (!menuTarget) return;
-                const id = menuTarget.id;
-                setMenuTarget(null);
-                handleDelete(id);
-              }}
-              isLast
-            />
+            <Ionicons name="search" size={18} color={colors.text} />
           </Pressable>
-        </Pressable>
-      </Modal>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 6, paddingRight: 16 }}
+            style={{ flex: 1 }}
+          >
+            {(["all", "upcoming", "active", "completed"] as const).map((f) => {
+              const labels: Record<string, string> = {
+                all: "Tất cả",
+                upcoming: "Sắp tới",
+                active: "Đang đi",
+                completed: "Đã đi",
+              };
+              const isActive = activeFilter === f;
+              return (
+                <Pressable
+                  key={f}
+                  onPress={() => setActiveFilter(f)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    backgroundColor: isActive ? colors.primary : colors.card,
+                    borderColor: isActive ? colors.primary : colors.cardBorder,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontFamily: "Inter_700Bold",
+                      color: isActive ? "#fff" : colors.text,
+                    }}
+                  >
+                    {labels[f]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </StickyFilterBar>
 
       {/* ─── Review modal (preserved from original) ─── */}
       <Modal
