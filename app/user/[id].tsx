@@ -172,7 +172,16 @@ export default function UserProfileScreen() {
             </View>
           )}
 
-          <Text style={[styles.userName, { color: colors.text }]}>{profile.userName}</Text>
+          <Text style={[styles.userName, { color: colors.text }]}>
+            {profile.fullName || profile.userName}
+          </Text>
+          {profile.fullName && (
+            <Text
+              style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: colors.textTertiary }}
+            >
+              @{profile.userName}
+            </Text>
+          )}
 
           {levelInfo && (
             <View style={[styles.levelBadge, { backgroundColor: levelInfo.color + "1F" }]}>

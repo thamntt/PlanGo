@@ -402,6 +402,18 @@ export default function ProfileScreen() {
             <Text style={[styles.heroNameCentered, { color: colors.text }]} numberOfLines={1}>
               {user?.fullName || firstName}
             </Text>
+            {user?.username && user?.username !== user?.fullName && (
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontFamily: "Inter_500Medium",
+                  color: colors.textTertiary,
+                  marginTop: -4,
+                }}
+              >
+                @{user.username}
+              </Text>
+            )}
 
             {isAdmin && (
               <View style={[styles.adminBadgeCentered, { backgroundColor: "#FBBF24" + "1F" }]}>

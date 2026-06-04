@@ -47,7 +47,8 @@ export const blogRepo = {
         bookmarkCount: blogPosts.bookmarkCount,
         publishedAt: blogPosts.publishedAt,
         createdAt: blogPosts.createdAt,
-        authorName: users.userName,
+        authorName: sql<string>`COALESCE(${users.fullName}, ${users.userName})`,
+        authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
         authorLevel: users.reviewerLevel,
       })
@@ -205,7 +206,8 @@ export const blogRepo = {
         publishedAt: blogPosts.publishedAt,
         createdAt: blogPosts.createdAt,
         updatedAt: blogPosts.updatedAt,
-        authorName: users.userName,
+        authorName: sql<string>`COALESCE(${users.fullName}, ${users.userName})`,
+        authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
         authorLevel: users.reviewerLevel,
         authorReviewCount: users.reviewCount,
@@ -398,7 +400,8 @@ export const blogRepo = {
         content: blogComments.content,
         likeCount: blogComments.likeCount,
         createdAt: blogComments.createdAt,
-        authorName: users.userName,
+        authorName: sql<string>`COALESCE(${users.fullName}, ${users.userName})`,
+        authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
       })
       .from(blogComments)

@@ -9,6 +9,7 @@ async function unwrap<T>(res: Response): Promise<T> {
 export interface UserProfile {
   userId: number;
   userName: string;
+  fullName?: string | null;
   avatarUrl?: string | null;
   reviewerLevel?: string | null;
   reviewCount: number;

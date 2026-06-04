@@ -12,6 +12,7 @@ export const userCommunityRepo = {
       .select({
         userId: users.userId,
         userName: users.userName,
+        fullName: users.fullName,
         avatarUrl: users.avatarUrl,
         reviewerLevel: users.reviewerLevel,
         reviewCount: users.reviewCount,
@@ -99,6 +100,7 @@ export const userCommunityRepo = {
       .select({
         userId: users.userId,
         userName: users.userName,
+        fullName: users.fullName,
         avatarUrl: users.avatarUrl,
         reviewerLevel: users.reviewerLevel,
         followedAt: userFollows.createdAt,
@@ -129,6 +131,7 @@ export const userCommunityRepo = {
       .select({
         userId: users.userId,
         userName: users.userName,
+        fullName: users.fullName,
         avatarUrl: users.avatarUrl,
         reviewerLevel: users.reviewerLevel,
         followedAt: userFollows.createdAt,

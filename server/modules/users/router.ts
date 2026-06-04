@@ -76,7 +76,7 @@ async function updateUser(req: Request, res: Response) {
   const updateData: Record<string, any> = {};
   const body = req.body;
   if (body.userName !== undefined) updateData.userName = body.userName;
-  if (body.fullName !== undefined) updateData.userName = body.fullName;
+  if (body.fullName !== undefined) updateData.fullName = body.fullName;
   if (body.email !== undefined) updateData.email = body.email;
   if (body.password !== undefined && body.password !== "") {
     updateData.password = await hashPassword(body.password);
@@ -151,7 +151,7 @@ async function login(req: Request, res: Response) {
 }
 
 async function register(req: Request, res: Response) {
-  const { userName, username, password, email } = req.body;
+  const { userName, username, fullName, password, email } = req.body;
   const finalUserName = userName || username;
 
   if (!finalUserName || !password || !email) {
@@ -165,6 +165,7 @@ async function register(req: Request, res: Response) {
   const hashed = await hashPassword(password);
   const user = await storage.createUser({
     userName: finalUserName,
+    fullName: fullName || finalUserName,
     password: hashed,
     email: normalizedEmail,
     role: "user",

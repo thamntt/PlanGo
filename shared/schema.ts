@@ -24,6 +24,8 @@ import { z } from "zod";
 export const users = pgTable("users", {
   userId: serial("user_id").primaryKey(),
   userName: varchar("user_name", { length: 255 }).notNull(),
+  // Display name with diacritics + spaces (e.g. "Thắm Nguyễn"). Defaults to userName.
+  fullName: varchar("full_name", { length: 255 }),
   email: varchar("email", { length: 255 }).notNull().unique(),
   // Password is bcrypt-hashed. NULL allowed for social-login-only accounts.
   password: varchar("password", { length: 255 }),
