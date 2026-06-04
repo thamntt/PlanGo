@@ -20,6 +20,8 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useBlogPosts, type BlogPost } from "@/hooks/queries/use-blog";
 import { useForumThreads, type ForumThread } from "@/hooks/queries/use-forum";
+import { useAuth } from "@/contexts/AuthContext";
+import { FilterMenuSheet, type FilterMode } from "@/features/community/FilterMenuSheet";
 
 type Tab = "blog" | "forum";
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -68,22 +70,35 @@ export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
+  const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("blog");
   const [search, setSearch] = useState("");
   const [sortBlog, setSortBlog] = useState<"latest" | "popular" | "trending">("latest");
   const [sortForum, setSortForum] = useState<"latest" | "popular" | "unanswered">("latest");
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  const blogQuery = useBlogPosts({
+  const blogFilters = {
     sort: sortBlog,
     search: search || undefined,
     category: filterCategory || undefined,
-  });
-  const forumQuery = useForumThreads({
+    followingOnly: filterMode === "following",
+    likedOnly: filterMode === "liked",
+    bookmarkedOnly: filterMode === "bookmarked",
+  };
+  const forumFilters = {
     sort: sortForum,
     search: search || undefined,
     category: filterCategory || undefined,
-  });
+    followingOnly: filterMode === "following",
+  };
+
+  // 'liked' / 'bookmarked' do not apply to forum — hide forum tab content in that case
+  const forumDisabledInMode = filterMode === "liked" || filterMode === "bookmarked";
+
+  const blogQuery = useBlogPosts(blogFilters);
+  const forumQuery = useForumThreads(forumFilters);
 
   const blogCats = ["guide", "review", "food", "tips", "experience"];
   const forumCats = ["question", "discussion", "tip", "recommendation"];
@@ -101,9 +116,9 @@ export default function CommunityScreen() {
         style={[styles.hero, { paddingTop: insets.top + webTopInset + 12 }]}
       >
         <View style={styles.heroTop}>
-          <View style={styles.heroIcon}>
-            <Ionicons name="people" size={22} color="#fff" />
-          </View>
+          <Pressable onPress={() => setMenuOpen(true)} style={styles.heroIcon} hitSlop={8}>
+            <Ionicons name="menu" size={22} color="#fff" />
+          </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>Cộng đồng PlanGo</Text>
             <Text style={styles.heroSubtitle}>Chia sẻ kinh nghiệm — hỏi đáp du lịch</Text>
@@ -155,6 +170,27 @@ export default function CommunityScreen() {
           />
         }
       >
+        {/* Active filter banner */}
+        {filterMode !== "all" && (
+          <View
+            style={[
+              styles.filterBanner,
+              { backgroundColor: colors.primary + "12", borderColor: colors.primary + "44" },
+            ]}
+          >
+            <Ionicons name="funnel" size={13} color={colors.primary} />
+            <Text style={[styles.filterBannerText, { color: colors.primary }]}>
+              {filterMode === "following" && "Đang xem: Người bạn theo dõi"}
+              {filterMode === "liked" && "Đang xem: Bài bạn đã thích"}
+              {filterMode === "bookmarked" && "Đang xem: Bài đã lưu"}
+            </Text>
+            <View style={{ flex: 1 }} />
+            <Pressable onPress={() => setFilterMode("all")} hitSlop={4}>
+              <Ionicons name="close-circle" size={16} color={colors.primary} />
+            </Pressable>
+          </View>
+        )}
+
         {/* Search bar */}
         <View
           style={[
@@ -242,6 +278,47 @@ export default function CommunityScreen() {
               router.push({ pathname: "/community/blog/[id]", params: { id: String(p.postId) } })
             }
           />
+        ) : forumDisabledInMode ? (
+          <View style={{ paddingVertical: 50, alignItems: "center", paddingHorizontal: 24 }}>
+            <Ionicons name="information-circle-outline" size={40} color={colors.textTertiary} />
+            <Text
+              style={{
+                fontSize: 14,
+                fontFamily: "Inter_700Bold",
+                color: colors.text,
+                marginTop: 12,
+                textAlign: "center",
+              }}
+            >
+              Bộ lọc này chỉ dành cho Blog
+            </Text>
+            <Text
+              style={{
+                fontSize: 12,
+                fontFamily: "Inter_400Regular",
+                color: colors.textTertiary,
+                marginTop: 4,
+                textAlign: "center",
+              }}
+            >
+              {filterMode === "liked" && "Forum không có chức năng like — chuyển về Blog để xem"}
+              {filterMode === "bookmarked" && "Forum không có bookmark — chuyển về Blog để xem"}
+            </Text>
+            <Pressable
+              onPress={() => setTab("blog")}
+              style={{
+                marginTop: 14,
+                backgroundColor: colors.primary,
+                paddingHorizontal: 18,
+                paddingVertical: 9,
+                borderRadius: 14,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" }}>
+                Chuyển sang Blog
+              </Text>
+            </Pressable>
+          </View>
         ) : (
           <ForumList
             query={forumQuery}
@@ -282,6 +359,14 @@ export default function CommunityScreen() {
           <Text style={styles.fabText}>{tab === "blog" ? "Đăng bài" : "Hỏi đáp"}</Text>
         </LinearGradient>
       </Pressable>
+
+      <FilterMenuSheet
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        current={filterMode}
+        onSelect={(m) => setFilterMode(m)}
+        isLoggedIn={!!user}
+      />
     </View>
   );
 }
@@ -447,27 +532,40 @@ function BlogPostCard({
           </View>
         )}
         <View style={styles.blogMeta}>
-          {post.authorAvatar ? (
-            <Image
-              source={{ uri: post.authorAvatar }}
-              style={styles.metaAvatar}
-              contentFit="cover"
-            />
-          ) : (
-            <View
-              style={[
-                styles.metaAvatar,
-                { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-              ]}
-            >
-              <Text style={{ fontSize: 9, fontFamily: "Inter_700Bold", color: "#fff" }}>
-                {post.authorName.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
-          <Text style={[styles.metaText, { color: colors.text }]} numberOfLines={1}>
-            {post.authorName}
-          </Text>
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation?.();
+              router.push({ pathname: "/user/[id]", params: { id: String(post.authorId) } });
+            }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+            hitSlop={4}
+          >
+            {post.authorAvatar ? (
+              <Image
+                source={{ uri: post.authorAvatar }}
+                style={styles.metaAvatar}
+                contentFit="cover"
+              />
+            ) : (
+              <View
+                style={[
+                  styles.metaAvatar,
+                  {
+                    backgroundColor: colors.primary,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  },
+                ]}
+              >
+                <Text style={{ fontSize: 9, fontFamily: "Inter_700Bold", color: "#fff" }}>
+                  {post.authorName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <Text style={[styles.metaText, { color: colors.text }]} numberOfLines={1}>
+              {post.authorName}
+            </Text>
+          </Pressable>
           <Text style={[styles.metaDot, { color: colors.textTertiary }]}>·</Text>
           <Text style={[styles.metaText, { color: colors.textTertiary }]}>
             {timeAgo(post.publishedAt)}
@@ -590,27 +688,36 @@ function ForumThreadCard({
         {thread.body}
       </Text>
       <View style={styles.threadFooter}>
-        {thread.authorAvatar ? (
-          <Image
-            source={{ uri: thread.authorAvatar }}
-            style={styles.metaAvatar}
-            contentFit="cover"
-          />
-        ) : (
-          <View
-            style={[
-              styles.metaAvatar,
-              { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-            ]}
-          >
-            <Text style={{ fontSize: 9, fontFamily: "Inter_700Bold", color: "#fff" }}>
-              {thread.authorName.charAt(0).toUpperCase()}
-            </Text>
-          </View>
-        )}
-        <Text style={[styles.metaText, { color: colors.text }]} numberOfLines={1}>
-          {thread.authorName}
-        </Text>
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation?.();
+            router.push({ pathname: "/user/[id]", params: { id: String(thread.authorId) } });
+          }}
+          style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+          hitSlop={4}
+        >
+          {thread.authorAvatar ? (
+            <Image
+              source={{ uri: thread.authorAvatar }}
+              style={styles.metaAvatar}
+              contentFit="cover"
+            />
+          ) : (
+            <View
+              style={[
+                styles.metaAvatar,
+                { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+              ]}
+            >
+              <Text style={{ fontSize: 9, fontFamily: "Inter_700Bold", color: "#fff" }}>
+                {thread.authorName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <Text style={[styles.metaText, { color: colors.text }]} numberOfLines={1}>
+            {thread.authorName}
+          </Text>
+        </Pressable>
         <Text style={[styles.metaDot, { color: colors.textTertiary }]}>·</Text>
         <Text style={[styles.metaText, { color: colors.textTertiary }]}>
           {timeAgo(thread.createdAt)}
@@ -670,6 +777,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  heroAction: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   heroTitle: { fontSize: 20, fontFamily: "Inter_700Bold", color: "#fff" },
   heroSubtitle: {
     fontSize: 12,
@@ -691,6 +806,18 @@ const styles = StyleSheet.create({
   tabBtnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
 
   // Search
+  filterBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginHorizontal: 16,
+    marginTop: 12,
+  },
+  filterBannerText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",

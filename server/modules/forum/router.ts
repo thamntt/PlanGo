@@ -1,11 +1,11 @@
 import type { Express, Request, Response } from "express";
 import { asyncHandler, sendResponse, errors } from "../../lib/http";
-import { requireAuth } from "../../middlewares/auth";
+import { requireAuth, optionalAuth } from "../../middlewares/auth";
 import { forumRepo } from "./repository";
 import { blogRepo } from "../blog/repository"; // reuse ensureTags
 
 function viewerIdOf(req: Request): number | undefined {
-  return (req as any).user?.userId;
+  return req.auth?.id;
 }
 
 async function listThreads(req: Request, res: Response) {
@@ -18,6 +18,8 @@ async function listThreads(req: Request, res: Response) {
       sort: (req.query.sort as any) || "latest",
       limit: req.query.limit ? Number(req.query.limit) : 30,
       offset: req.query.offset ? Number(req.query.offset) : 0,
+      authorId: req.query.authorId ? Number(req.query.authorId) : undefined,
+      followingOnly: req.query.followingOnly === "true",
     },
     viewerIdOf(req),
   );
@@ -119,12 +121,12 @@ async function voteReply(req: Request, res: Response) {
 }
 
 export function registerForumRoutes(app: Express) {
-  app.get("/api/forum/threads", asyncHandler(listThreads));
-  app.get("/api/forum/threads/:id", asyncHandler(getThread));
+  app.get("/api/forum/threads", optionalAuth, asyncHandler(listThreads));
+  app.get("/api/forum/threads/:id", optionalAuth, asyncHandler(getThread));
   app.post("/api/forum/threads", requireAuth, asyncHandler(createThread));
   app.delete("/api/forum/threads/:id", requireAuth, asyncHandler(deleteThread));
 
-  app.get("/api/forum/threads/:id/replies", asyncHandler(listReplies));
+  app.get("/api/forum/threads/:id/replies", optionalAuth, asyncHandler(listReplies));
   app.post("/api/forum/threads/:id/replies", requireAuth, asyncHandler(createReply));
   app.delete("/api/forum/replies/:replyId", requireAuth, asyncHandler(deleteReply));
   app.post("/api/forum/threads/:threadId/accept/:replyId", requireAuth, asyncHandler(acceptReply));

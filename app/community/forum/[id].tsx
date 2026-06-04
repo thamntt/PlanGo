@@ -30,6 +30,7 @@ import {
   useDeleteForumReply,
   type ForumReply,
 } from "@/hooks/queries/use-forum";
+import { ReportSheet } from "@/features/community/ReportSheet";
 
 const CAT_LABEL: Record<string, string> = {
   question: "Câu hỏi",
@@ -62,6 +63,11 @@ export default function ThreadDetailScreen() {
   const deleteThread = useDeleteForumThread();
   const deleteReply = useDeleteForumReply();
   const [draft, setDraft] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{
+    type: "forum_thread" | "forum_reply";
+    id: number;
+  } | null>(null);
 
   const thread = threadQuery.data;
   const replies = repliesQuery.data || [];
@@ -200,6 +206,28 @@ export default function ThreadDetailScreen() {
             >
               <Ionicons name="trash-outline" size={18} color="#EF4444" />
             </Pressable>
+          ) : user ? (
+            <Pressable
+              onPress={() => {
+                setReportTarget({ type: "forum_thread", id: thread.threadId });
+                setReportOpen(true);
+              }}
+              style={({ pressed }) => [
+                {
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: colors.card,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="flag-outline" size={16} color={colors.text} />
+            </Pressable>
           ) : (
             <View style={{ width: 40 }} />
           )}
@@ -255,7 +283,12 @@ export default function ThreadDetailScreen() {
             <Text style={[styles.threadBody, { color: colors.text }]}>{thread.body}</Text>
 
             {/* Author bar */}
-            <View style={styles.authorBar}>
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: "/user/[id]", params: { id: String(thread.authorId) } })
+              }
+              style={({ pressed }) => [styles.authorBar, { opacity: pressed ? 0.9 : 1 }]}
+            >
               {thread.authorAvatar ? (
                 <Image
                   source={{ uri: thread.authorAvatar }}
@@ -285,44 +318,78 @@ export default function ThreadDetailScreen() {
                   xem
                 </Text>
               </View>
-            </View>
+              <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
+            </Pressable>
 
-            {/* Vote bar */}
+            {/* Vote bar — explicit labels (Hữu ích / Không hữu ích) */}
             <View style={styles.voteBar}>
               <Pressable
                 onPress={() => handleVoteThread("up")}
-                style={[
-                  styles.voteBtn,
+                style={({ pressed }) => [
+                  styles.voteBtnLabeled,
                   {
                     backgroundColor: thread.myVote === "up" ? "#10B981" : colors.inputBg,
+                    borderColor: thread.myVote === "up" ? "#10B981" : colors.cardBorder,
+                    opacity: pressed ? 0.85 : 1,
                   },
                 ]}
                 hitSlop={4}
               >
                 <Ionicons
                   name="arrow-up"
-                  size={16}
-                  color={thread.myVote === "up" ? "#fff" : colors.text}
+                  size={15}
+                  color={thread.myVote === "up" ? "#fff" : "#10B981"}
                 />
+                <Text
+                  style={[
+                    styles.voteBtnLabel,
+                    { color: thread.myVote === "up" ? "#fff" : "#10B981" },
+                  ]}
+                >
+                  Hữu ích
+                </Text>
+                <Text
+                  style={[
+                    styles.voteBtnCount,
+                    { color: thread.myVote === "up" ? "#fff" : colors.text },
+                  ]}
+                >
+                  {thread.upvotes}
+                </Text>
               </Pressable>
-              <Text style={[styles.voteCount, { color: colors.text }]}>
-                {thread.upvotes - thread.downvotes}
-              </Text>
               <Pressable
                 onPress={() => handleVoteThread("down")}
-                style={[
-                  styles.voteBtn,
+                style={({ pressed }) => [
+                  styles.voteBtnLabeled,
                   {
                     backgroundColor: thread.myVote === "down" ? "#EF4444" : colors.inputBg,
+                    borderColor: thread.myVote === "down" ? "#EF4444" : colors.cardBorder,
+                    opacity: pressed ? 0.85 : 1,
                   },
                 ]}
                 hitSlop={4}
               >
                 <Ionicons
                   name="arrow-down"
-                  size={16}
-                  color={thread.myVote === "down" ? "#fff" : colors.text}
+                  size={15}
+                  color={thread.myVote === "down" ? "#fff" : "#EF4444"}
                 />
+                <Text
+                  style={[
+                    styles.voteBtnLabel,
+                    { color: thread.myVote === "down" ? "#fff" : "#EF4444" },
+                  ]}
+                >
+                  Phản đối
+                </Text>
+                <Text
+                  style={[
+                    styles.voteBtnCount,
+                    { color: thread.myVote === "down" ? "#fff" : colors.text },
+                  ]}
+                >
+                  {thread.downvotes}
+                </Text>
               </Pressable>
               <View style={{ flex: 1 }} />
               <Ionicons name="chatbubble-ellipses" size={14} color={colors.textTertiary} />
@@ -334,9 +401,36 @@ export default function ThreadDetailScreen() {
 
           {/* Replies section */}
           <View style={styles.repliesSection}>
-            <Text style={[styles.repliesTitle, { color: colors.text }]}>
-              {replies.length} câu trả lời
-            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <Text style={[styles.repliesTitle, { color: colors.text, marginBottom: 0 }]}>
+                {replies.length} câu trả lời
+              </Text>
+              {isOwn && replies.length > 0 && !thread.acceptedReplyId && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    backgroundColor: "#10B981" + "14",
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Ionicons name="bulb-outline" size={11} color="#10B981" />
+                  <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#10B981" }}>
+                    Chọn 1 câu trả lời đúng nhất
+                  </Text>
+                </View>
+              )}
+            </View>
             {replies.length === 0 ? (
               <Text style={[styles.empty, { color: colors.textTertiary }]}>
                 Chưa có ai trả lời. Hãy là người đầu tiên!
@@ -359,36 +453,56 @@ export default function ThreadDetailScreen() {
                       ]}
                     >
                       {isAccepted && (
-                        <View style={styles.acceptedBadge}>
+                        <Pressable
+                          onPress={() =>
+                            Alert.alert(
+                              "Câu trả lời được chọn",
+                              "Chủ thớt đã đánh dấu đây là câu trả lời giải quyết được vấn đề. Người sau xem có thể nhanh chóng tìm thấy lời giải đáng tin nhất.",
+                            )
+                          }
+                          style={styles.acceptedBadge}
+                          hitSlop={4}
+                        >
                           <Ionicons name="checkmark-circle" size={11} color="#fff" />
                           <Text style={styles.acceptedText}>Câu trả lời được chọn</Text>
-                        </View>
+                          <Ionicons name="information-circle-outline" size={11} color="#fff" />
+                        </Pressable>
                       )}
                       <View style={styles.replyHeader}>
-                        {r.authorAvatar ? (
-                          <Image
-                            source={{ uri: r.authorAvatar }}
-                            style={styles.replyAvatar}
-                            contentFit="cover"
-                          />
-                        ) : (
-                          <View
-                            style={[
-                              styles.replyAvatar,
-                              {
-                                backgroundColor: colors.primary,
-                                alignItems: "center",
-                                justifyContent: "center",
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#fff" }}
+                        <Pressable
+                          onPress={() =>
+                            router.push({
+                              pathname: "/user/[id]",
+                              params: { id: String(r.authorId) },
+                            })
+                          }
+                          hitSlop={4}
+                        >
+                          {r.authorAvatar ? (
+                            <Image
+                              source={{ uri: r.authorAvatar }}
+                              style={styles.replyAvatar}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                styles.replyAvatar,
+                                {
+                                  backgroundColor: colors.primary,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                },
+                              ]}
                             >
-                              {r.authorName.charAt(0).toUpperCase()}
-                            </Text>
-                          </View>
-                        )}
+                              <Text
+                                style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#fff" }}
+                              >
+                                {r.authorName.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                        </Pressable>
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.replyAuthor, { color: colors.text }]}>
                             {r.authorName}
@@ -413,32 +527,53 @@ export default function ThreadDetailScreen() {
                         <View style={styles.replyVote}>
                           <Pressable
                             onPress={() => handleVoteReply(r, "up")}
-                            style={[
-                              styles.smallVoteBtn,
-                              { backgroundColor: r.myVote === "up" ? "#10B981" : colors.inputBg },
+                            style={({ pressed }) => [
+                              styles.smallVoteBtnLabeled,
+                              {
+                                backgroundColor: r.myVote === "up" ? "#10B981" : colors.inputBg,
+                                opacity: pressed ? 0.85 : 1,
+                              },
                             ]}
+                            hitSlop={4}
                           >
                             <Ionicons
                               name="arrow-up"
-                              size={13}
-                              color={r.myVote === "up" ? "#fff" : colors.text}
+                              size={12}
+                              color={r.myVote === "up" ? "#fff" : "#10B981"}
                             />
+                            <Text
+                              style={[
+                                styles.smallVoteLabel,
+                                { color: r.myVote === "up" ? "#fff" : colors.text },
+                              ]}
+                            >
+                              {r.upvotes}
+                            </Text>
                           </Pressable>
-                          <Text style={[styles.smallVoteCount, { color: colors.text }]}>
-                            {r.upvotes - r.downvotes}
-                          </Text>
                           <Pressable
                             onPress={() => handleVoteReply(r, "down")}
-                            style={[
-                              styles.smallVoteBtn,
-                              { backgroundColor: r.myVote === "down" ? "#EF4444" : colors.inputBg },
+                            style={({ pressed }) => [
+                              styles.smallVoteBtnLabeled,
+                              {
+                                backgroundColor: r.myVote === "down" ? "#EF4444" : colors.inputBg,
+                                opacity: pressed ? 0.85 : 1,
+                              },
                             ]}
+                            hitSlop={4}
                           >
                             <Ionicons
                               name="arrow-down"
-                              size={13}
-                              color={r.myVote === "down" ? "#fff" : colors.text}
+                              size={12}
+                              color={r.myVote === "down" ? "#fff" : "#EF4444"}
                             />
+                            <Text
+                              style={[
+                                styles.smallVoteLabel,
+                                { color: r.myVote === "down" ? "#fff" : colors.text },
+                              ]}
+                            >
+                              {r.downvotes}
+                            </Text>
                           </Pressable>
                         </View>
                         {/* Owner can accept best answer */}
@@ -513,6 +648,18 @@ export default function ThreadDetailScreen() {
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {reportTarget && (
+        <ReportSheet
+          visible={reportOpen}
+          onClose={() => {
+            setReportOpen(false);
+            setReportTarget(null);
+          }}
+          contentType={reportTarget.type}
+          contentRefId={reportTarget.id}
+        />
+      )}
     </View>
   );
 }
@@ -571,6 +718,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  voteBtnLabeled: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1.5,
+  },
+  voteBtnLabel: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  voteBtnCount: { fontSize: 12, fontFamily: "Inter_700Bold", marginLeft: 2 },
   voteCount: { fontSize: 14, fontFamily: "Inter_700Bold", minWidth: 28, textAlign: "center" },
   replyCount: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
@@ -606,6 +764,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   smallVoteCount: { fontSize: 12, fontFamily: "Inter_700Bold", minWidth: 18, textAlign: "center" },
+  smallVoteBtnLabeled: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  smallVoteLabel: { fontSize: 11, fontFamily: "Inter_700Bold" },
   acceptBtn: {
     flexDirection: "row",
     alignItems: "center",

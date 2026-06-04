@@ -75,6 +75,13 @@ function RootLayoutNav() {
         <Stack.Screen name="create-trip" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
         <Stack.Screen name="join/[code]" options={{ headerShown: false }} />
+        <Stack.Screen name="community/blog/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="community/blog/create" options={{ headerShown: false }} />
+        <Stack.Screen name="community/forum/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="community/forum/create" options={{ headerShown: false }} />
+        <Stack.Screen name="community/bookmarks" options={{ headerShown: false }} />
+        <Stack.Screen name="community/rules" options={{ headerShown: false }} />
+        <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
     </AuthGate>

@@ -4,7 +4,8 @@ import { asyncHandler, sendResponse } from "../../lib/http";
 import { errors, AppError } from "../../lib/errors";
 import { hashPassword, verifyPassword, isBcryptHash } from "../../lib/password";
 import { signJwt } from "../../lib/jwt";
-import { requireAuth, requireAdmin } from "../../middlewares/auth";
+import { requireAuth, requireAdmin, optionalAuth } from "../../middlewares/auth";
+import { userCommunityRepo } from "./community";
 import { authLimiter } from "../../middlewares/rate-limit";
 import { logger } from "../../lib/logger";
 import { socialLogin, forgotPassword, resetPassword } from "./service";
@@ -88,6 +89,11 @@ async function updateUser(req: Request, res: Response) {
     updateData.status = body.status;
   }
 
+  // Avatar — FE may send either `avatar` (UserData type) or `avatarUrl`.
+  // Stored as TEXT in DB so base64 data URIs fit.
+  if (body.avatar !== undefined) updateData.avatarUrl = body.avatar;
+  if (body.avatarUrl !== undefined) updateData.avatarUrl = body.avatarUrl;
+
   const user = await storage.updateUser(id, updateData);
   if (!user) throw errors.notFound("User");
   const { password: _pw, ...sanitized } = user;
@@ -105,7 +111,8 @@ async function deleteUser(req: Request, res: Response) {
 async function login(req: Request, res: Response) {
   const { email, username, password } = req.body;
   const identifier = (email || username || "").toLowerCase().trim();
-  if (!identifier || !password) throw new AppError("BAD_REQUEST", "Email or username and password are required");
+  if (!identifier || !password)
+    throw new AppError("BAD_REQUEST", "Email or username and password are required");
 
   let user = await storage.getUserByEmail(identifier);
   if (!user) user = await storage.getUserByUsername(identifier);
@@ -178,6 +185,38 @@ async function getCurrentUser(req: Request, res: Response) {
   sendResponse(res, 200, "Current user retrieved", sanitized);
 }
 
+async function getUserProfile(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  if (isNaN(id)) throw errors.badRequest("Invalid user ID");
+  const profile = await userCommunityRepo.getProfile(id, req.auth?.id);
+  if (!profile) throw errors.notFound("User");
+  sendResponse(res, 200, "Profile retrieved", profile);
+}
+
+async function toggleFollow(req: Request, res: Response) {
+  const followedId = Number(req.params.id);
+  if (isNaN(followedId)) throw errors.badRequest("Invalid user ID");
+  const viewerId = req.auth!.id;
+  try {
+    const r = await userCommunityRepo.toggleFollow(viewerId, followedId);
+    sendResponse(res, 200, "Follow toggled", r);
+  } catch (err: any) {
+    throw errors.badRequest(err?.message || "Cannot follow");
+  }
+}
+
+async function listFollowers(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  const data = await userCommunityRepo.listFollowers(id);
+  sendResponse(res, 200, "Followers retrieved", data);
+}
+
+async function listFollowing(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  const data = await userCommunityRepo.listFollowing(id);
+  sendResponse(res, 200, "Following retrieved", data);
+}
+
 async function changePassword(req: Request, res: Response) {
   const auth = req.auth!;
   const { currentPassword, newPassword } = req.body;
@@ -208,6 +247,10 @@ async function changePassword(req: Request, res: Response) {
 export function registerUserRoutes(app: Express) {
   app.get("/api/users", requireAdmin, asyncHandler(listUsers));
   app.get("/api/users/me", requireAuth, asyncHandler(getCurrentUser));
+  app.get("/api/users/:id/profile", optionalAuth, asyncHandler(getUserProfile));
+  app.get("/api/users/:id/followers", asyncHandler(listFollowers));
+  app.get("/api/users/:id/following", asyncHandler(listFollowing));
+  app.post("/api/users/:id/follow", requireAuth, asyncHandler(toggleFollow));
   app.get("/api/users/:id", requireAuth, asyncHandler(getUserById));
   app.post("/api/users", requireAdmin, asyncHandler(createUser));
   app.put("/api/users/:id", requireAuth, asyncHandler(updateUser));

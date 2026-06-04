@@ -56,6 +56,9 @@ export interface BlogFilters {
   sort?: "latest" | "popular" | "trending";
   limit?: number;
   offset?: number;
+  followingOnly?: boolean;
+  likedOnly?: boolean;
+  bookmarkedOnly?: boolean;
 }
 
 const KEY = ["blog"];
@@ -72,6 +75,9 @@ export function useBlogPosts(filters: BlogFilters = {}) {
       if (filters.sort) params.set("sort", filters.sort);
       if (filters.limit) params.set("limit", String(filters.limit));
       if (filters.offset) params.set("offset", String(filters.offset));
+      if (filters.followingOnly) params.set("followingOnly", "true");
+      if (filters.likedOnly) params.set("likedOnly", "true");
+      if (filters.bookmarkedOnly) params.set("bookmarkedOnly", "true");
       const qs = params.toString();
       const res = await apiRequest("GET", `/api/blog/posts${qs ? "?" + qs : ""}`);
       return unwrap<BlogPost[]>(res);

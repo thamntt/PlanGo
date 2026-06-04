@@ -7,6 +7,7 @@ import {
   forumThreadTags,
   communityTags,
   users,
+  userFollows,
   destinations,
 } from "../../../shared/schema";
 
@@ -18,6 +19,8 @@ interface ListFilters {
   sort?: "latest" | "popular" | "unanswered";
   limit?: number;
   offset?: number;
+  authorId?: number;
+  followingOnly?: boolean;
 }
 
 export const forumRepo = {
@@ -60,6 +63,17 @@ export const forumRepo = {
     }
     if (filters.sort === "unanswered") {
       conds.push(eq(forumThreads.replyCount, 0));
+    }
+    if (filters.authorId) conds.push(eq(forumThreads.authorId, filters.authorId));
+    if (filters.followingOnly) {
+      if (!viewerId) return [];
+      const followedRows = await db
+        .select({ followedId: userFollows.followedId })
+        .from(userFollows)
+        .where(eq(userFollows.followerId, viewerId));
+      const followedIds = followedRows.map((r) => r.followedId);
+      if (followedIds.length === 0) return [];
+      conds.push(inArray(forumThreads.authorId, followedIds));
     }
     if (conds.length > 0) query = query.where(and(...conds));
 

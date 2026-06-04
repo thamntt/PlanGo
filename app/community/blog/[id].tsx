@@ -29,6 +29,7 @@ import {
   useDeleteBlogComment,
   useDeleteBlogPost,
 } from "@/hooks/queries/use-blog";
+import { ReportSheet } from "@/features/community/ReportSheet";
 
 const CAT_LABEL: Record<string, string> = {
   guide: "Hướng dẫn",
@@ -60,6 +61,7 @@ export default function BlogDetailScreen() {
   const deleteComment = useDeleteBlogComment();
   const deletePost = useDeleteBlogPost();
   const [commentDraft, setCommentDraft] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
 
   const post = postQuery.data;
   const comments = commentsQuery.data || [];
@@ -170,14 +172,21 @@ export default function BlogDetailScreen() {
                     color="#fff"
                   />
                 </Pressable>
-                {isOwn && (
+                {isOwn ? (
                   <Pressable
                     onPress={handleDeletePost}
                     style={({ pressed }) => [styles.floatBtn, { opacity: pressed ? 0.85 : 1 }]}
                   >
                     <Ionicons name="trash-outline" size={20} color="#fff" />
                   </Pressable>
-                )}
+                ) : user ? (
+                  <Pressable
+                    onPress={() => setReportOpen(true)}
+                    style={({ pressed }) => [styles.floatBtn, { opacity: pressed ? 0.85 : 1 }]}
+                  >
+                    <Ionicons name="flag-outline" size={18} color="#fff" />
+                  </Pressable>
+                ) : null}
               </View>
             </View>
             {/* Title overlay */}
@@ -199,10 +208,17 @@ export default function BlogDetailScreen() {
           </View>
 
           {/* Author bar */}
-          <View
-            style={[
+          <Pressable
+            onPress={() =>
+              router.push({ pathname: "/user/[id]", params: { id: String(post.authorId) } })
+            }
+            style={({ pressed }) => [
               styles.authorBar,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder,
+                opacity: pressed ? 0.9 : 1,
+              },
             ]}
           >
             {post.authorAvatar ? (
@@ -245,7 +261,8 @@ export default function BlogDetailScreen() {
                 </Text>
               </View>
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+          </Pressable>
 
           {/* Destinations linked */}
           {post.destinationsList.length > 0 && (
@@ -388,30 +405,40 @@ export default function BlogDetailScreen() {
                       ]}
                     >
                       <View style={styles.commentHeader}>
-                        {c.authorAvatar ? (
-                          <Image
-                            source={{ uri: c.authorAvatar }}
-                            style={styles.commentAvatar}
-                            contentFit="cover"
-                          />
-                        ) : (
-                          <View
-                            style={[
-                              styles.commentAvatar,
-                              {
-                                backgroundColor: colors.primary,
-                                alignItems: "center",
-                                justifyContent: "center",
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#fff" }}
+                        <Pressable
+                          onPress={() =>
+                            router.push({
+                              pathname: "/user/[id]",
+                              params: { id: String(c.authorId) },
+                            })
+                          }
+                          hitSlop={4}
+                        >
+                          {c.authorAvatar ? (
+                            <Image
+                              source={{ uri: c.authorAvatar }}
+                              style={styles.commentAvatar}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                styles.commentAvatar,
+                                {
+                                  backgroundColor: colors.primary,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                },
+                              ]}
                             >
-                              {c.authorName.charAt(0).toUpperCase()}
-                            </Text>
-                          </View>
-                        )}
+                              <Text
+                                style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#fff" }}
+                              >
+                                {c.authorName.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                        </Pressable>
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.commentAuthor, { color: colors.text }]}>
                             {c.authorName}
@@ -487,6 +514,13 @@ export default function BlogDetailScreen() {
           </View>
         )}
       </KeyboardAvoidingView>
+
+      <ReportSheet
+        visible={reportOpen}
+        onClose={() => setReportOpen(false)}
+        contentType="blog"
+        contentRefId={post.postId}
+      />
     </View>
   );
 }

@@ -638,6 +638,46 @@ const FORUM_THREADS: {
       },
     ],
   },
+  // ─── Unanswered threads (chưa có ai trả lời — demo filter "Chưa trả lời") ───
+  {
+    destName: "Đà Nẵng",
+    title: "Cuối tuần Đà Nẵng có quán cafe nào yên tĩnh để work từ xa?",
+    body: "Mình đi công tác Đà Nẵng 5 ngày, cần làm việc remote buổi sáng. Cần wifi mạnh + ổn định, không quá ồn, ổ cắm. Ai biết quán nào recommend giúp mình với?",
+    category: "recommendation",
+    tags: ["Mẹo hay"],
+    replies: [],
+  },
+  {
+    destName: "Phú Quốc",
+    title: "Phú Quốc tháng 9 lặn ngắm san hô được không?",
+    body: "Mình book Phú Quốc đầu tháng 9. Đọc trên mạng thấy nói mùa biển động, không lặn được. Có ai từng đi tháng 9 chia sẻ thực tế không?",
+    category: "question",
+    tags: ["Mùa hè"],
+    replies: [],
+  },
+  {
+    destName: "Hội An",
+    title: "Đặt cyclo Hội An ban đêm — chỗ nào đẹp + giá bao nhiêu?",
+    body: "Mình muốn trải nghiệm cyclo xuyên phố cổ buổi tối với bạn gái. Mọi người chia sẻ giá thuê + tuyến đường nào view đèn lồng đẹp nhất?",
+    category: "recommendation",
+    tags: ["Cặp đôi"],
+    replies: [],
+  },
+  {
+    title: "Vé tàu Bắc - Nam giường nằm có còn không? Đặt đâu?",
+    body: "Mình muốn đi tàu Hà Nội - Sài Gòn (SE3 hoặc SE5) giường nằm khoang 4, có thể đặt trước bao lâu? Đặt trên dsvn.vn an toàn không?",
+    category: "question",
+    tags: ["Hướng dẫn"],
+    replies: [],
+  },
+  {
+    destName: "Sa Pa",
+    title: "Trek Fansipan mùa mưa có an toàn không? Cần guide không?",
+    body: "Mình muốn trek đỉnh Fansipan thay vì đi cáp treo, dự kiến tháng 7. Có ai từng trek mùa mưa? An toàn không, cần thuê guide địa phương không?",
+    category: "discussion",
+    tags: ["Phượt"],
+    replies: [],
+  },
 ];
 
 async function main() {

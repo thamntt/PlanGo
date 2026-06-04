@@ -1,10 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { asyncHandler, sendResponse, errors } from "../../lib/http";
-import { requireAuth } from "../../middlewares/auth";
+import { requireAuth, optionalAuth } from "../../middlewares/auth";
 import { blogRepo } from "./repository";
 
 function viewerIdOf(req: Request): number | undefined {
-  return (req as any).user?.userId;
+  return req.auth?.id;
 }
 
 function slugify(s: string): string {
@@ -29,6 +29,9 @@ async function listPosts(req: Request, res: Response) {
       sort: (req.query.sort as any) || "latest",
       limit: req.query.limit ? Number(req.query.limit) : 30,
       offset: req.query.offset ? Number(req.query.offset) : 0,
+      followingOnly: req.query.followingOnly === "true",
+      likedOnly: req.query.likedOnly === "true",
+      bookmarkedOnly: req.query.bookmarkedOnly === "true",
     },
     viewerIdOf(req),
   );
@@ -159,8 +162,8 @@ async function listTags(req: Request, res: Response) {
 }
 
 export function registerBlogRoutes(app: Express) {
-  app.get("/api/blog/posts", asyncHandler(listPosts));
-  app.get("/api/blog/posts/:id", asyncHandler(getPost));
+  app.get("/api/blog/posts", optionalAuth, asyncHandler(listPosts));
+  app.get("/api/blog/posts/:id", optionalAuth, asyncHandler(getPost));
   app.post("/api/blog/posts", requireAuth, asyncHandler(createPost));
   app.put("/api/blog/posts/:id", requireAuth, asyncHandler(updatePost));
   app.delete("/api/blog/posts/:id", requireAuth, asyncHandler(deletePost));

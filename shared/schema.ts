@@ -558,6 +558,20 @@ export const notes = pgTable("notes", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const userFollows = pgTable(
+  "user_follows",
+  {
+    followerId: integer("follower_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    followedId: integer("followed_id")
+      .notNull()
+      .references(() => users.userId, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.followerId, t.followedId] }) }),
+);
+
 // ==============================================================================
 // TYPE DEFINITIONS
 // ==============================================================================

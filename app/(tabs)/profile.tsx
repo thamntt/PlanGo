@@ -417,17 +417,44 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            <Pressable
-              onPress={() => {
-                setFullName(user?.fullName || "");
-                setEmail(user?.email || "");
-                setEditProfileOpen(true);
-              }}
-              style={({ pressed }) => [styles.heroEditIcon, { opacity: pressed ? 0.7 : 1 }]}
-              hitSlop={6}
-            >
-              <Ionicons name="create-outline" size={18} color="#fff" />
-            </Pressable>
+            <View style={{ alignItems: "flex-end", gap: 8 }}>
+              <Pressable
+                onPress={() => {
+                  setFullName(user?.fullName || "");
+                  setEmail(user?.email || "");
+                  setEditProfileOpen(true);
+                }}
+                style={({ pressed }) => [styles.heroEditIcon, { opacity: pressed ? 0.7 : 1 }]}
+                hitSlop={6}
+              >
+                <Ionicons name="create-outline" size={18} color="#fff" />
+              </Pressable>
+              {user && (
+                <Pressable
+                  onPress={() =>
+                    router.push({ pathname: "/user/[id]", params: { id: String(user.id) } })
+                  }
+                  style={({ pressed }) => [
+                    {
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                      paddingHorizontal: 8,
+                      paddingVertical: 5,
+                      borderRadius: 10,
+                      backgroundColor: "rgba(255,255,255,0.18)",
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                  hitSlop={6}
+                >
+                  <Ionicons name="eye-outline" size={11} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" }}>
+                    Trang công khai
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         </View>
 

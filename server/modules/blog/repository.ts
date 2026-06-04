@@ -9,6 +9,7 @@ import {
   blogComments,
   communityTags,
   users,
+  userFollows,
   destinations,
   trips,
 } from "../../../shared/schema";
@@ -22,6 +23,9 @@ interface ListFilters {
   sort?: "latest" | "popular" | "trending";
   limit?: number;
   offset?: number;
+  followingOnly?: boolean; // posts from users I follow
+  likedOnly?: boolean; // posts I have liked
+  bookmarkedOnly?: boolean; // posts I have bookmarked
 }
 
 export const blogRepo = {
@@ -68,6 +72,41 @@ export const blogRepo = {
       if (ids.length === 0) return [];
       conds.push(inArray(blogPosts.postId, ids));
     }
+
+    // Viewer-scoped filters (Threads-style menu)
+    if (viewerId) {
+      if (filters.followingOnly) {
+        const followedRows = await db
+          .select({ followedId: userFollows.followedId })
+          .from(userFollows)
+          .where(eq(userFollows.followerId, viewerId));
+        const followedIds = followedRows.map((r) => r.followedId);
+        if (followedIds.length === 0) return [];
+        conds.push(inArray(blogPosts.authorId, followedIds));
+      }
+      if (filters.likedOnly) {
+        const likedRows = await db
+          .select({ postId: blogLikes.postId })
+          .from(blogLikes)
+          .where(eq(blogLikes.userId, viewerId));
+        const likedIds = likedRows.map((r) => r.postId);
+        if (likedIds.length === 0) return [];
+        conds.push(inArray(blogPosts.postId, likedIds));
+      }
+      if (filters.bookmarkedOnly) {
+        const bmRows = await db
+          .select({ postId: blogBookmarks.postId })
+          .from(blogBookmarks)
+          .where(eq(blogBookmarks.userId, viewerId));
+        const bmIds = bmRows.map((r) => r.postId);
+        if (bmIds.length === 0) return [];
+        conds.push(inArray(blogPosts.postId, bmIds));
+      }
+    } else if (filters.followingOnly || filters.likedOnly || filters.bookmarkedOnly) {
+      // Anonymous user requesting viewer-scoped filter → empty
+      return [];
+    }
+
     query = query.where(and(...conds));
 
     // Sort
