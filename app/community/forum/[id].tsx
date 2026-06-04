@@ -576,7 +576,7 @@ export default function ThreadDetailScreen() {
                             </Text>
                           </Pressable>
                         </View>
-                        {/* Owner can accept best answer */}
+                        {/* Owner can accept/un-accept best answer */}
                         {isOwn && !isAccepted && (
                           <Pressable
                             onPress={() => handleAccept(r.replyId)}
@@ -591,6 +591,41 @@ export default function ThreadDetailScreen() {
                             <Ionicons name="checkmark-circle-outline" size={13} color="#10B981" />
                             <Text style={[styles.acceptBtnText, { color: "#10B981" }]}>
                               Chọn làm câu trả lời
+                            </Text>
+                          </Pressable>
+                        )}
+                        {isOwn && isAccepted && (
+                          <Pressable
+                            onPress={() => {
+                              const doUnaccept = () => handleAccept(r.replyId);
+                              if (Platform.OS === "web") {
+                                if (confirm("Bỏ chọn câu trả lời này?")) doUnaccept();
+                              } else {
+                                Alert.alert(
+                                  "Bỏ chọn câu trả lời",
+                                  "Bạn có chắc muốn bỏ chọn câu trả lời này? Thread sẽ chuyển về trạng thái 'Đang mở'.",
+                                  [
+                                    { text: "Hủy", style: "cancel" },
+                                    { text: "Bỏ chọn", style: "destructive", onPress: doUnaccept },
+                                  ],
+                                );
+                              }
+                            }}
+                            style={({ pressed }) => [
+                              styles.acceptBtn,
+                              {
+                                borderColor: colors.textTertiary,
+                                opacity: pressed ? 0.85 : 1,
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="close-circle-outline"
+                              size={13}
+                              color={colors.textSecondary}
+                            />
+                            <Text style={[styles.acceptBtnText, { color: colors.textSecondary }]}>
+                              Bỏ chọn
                             </Text>
                           </Pressable>
                         )}

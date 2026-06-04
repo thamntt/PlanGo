@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { asyncHandler, sendResponse, errors } from "../../lib/http";
-import { requireAuth, optionalAuth } from "../../middlewares/auth";
+import { requireAuth, optionalAuth, requireAdmin } from "../../middlewares/auth";
 import { blogRepo } from "./repository";
 
 function viewerIdOf(req: Request): number | undefined {
@@ -161,6 +161,38 @@ async function listTags(req: Request, res: Response) {
   sendResponse(res, 200, "Tags retrieved", data);
 }
 
+async function createTag(req: Request, res: Response) {
+  const { name, color, description } = req.body ?? {};
+  if (!name || String(name).trim().length === 0) throw errors.badRequest("name required");
+  const tag = await blogRepo.createTag({
+    name: String(name).trim(),
+    color: color || null,
+    description: description || null,
+  });
+  sendResponse(res, 201, "Tag created", tag);
+}
+
+async function updateTag(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  if (isNaN(id)) throw errors.badRequest("Invalid tag id");
+  const { name, color, description } = req.body ?? {};
+  const tag = await blogRepo.updateTag(id, {
+    ...(name !== undefined ? { name: String(name).trim() } : {}),
+    ...(color !== undefined ? { color } : {}),
+    ...(description !== undefined ? { description } : {}),
+  });
+  if (!tag) throw errors.notFound("Tag");
+  sendResponse(res, 200, "Tag updated", tag);
+}
+
+async function deleteTag(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  if (isNaN(id)) throw errors.badRequest("Invalid tag id");
+  const ok = await blogRepo.deleteTag(id);
+  if (!ok) throw errors.notFound("Tag");
+  sendResponse(res, 200, "Tag deleted", null);
+}
+
 export function registerBlogRoutes(app: Express) {
   app.get("/api/blog/posts", optionalAuth, asyncHandler(listPosts));
   app.get("/api/blog/posts/:id", optionalAuth, asyncHandler(getPost));
@@ -174,4 +206,7 @@ export function registerBlogRoutes(app: Express) {
   app.delete("/api/blog/comments/:commentId", requireAuth, asyncHandler(deleteComment));
   app.get("/api/blog/me/bookmarks", requireAuth, asyncHandler(listMyBookmarks));
   app.get("/api/blog/tags", asyncHandler(listTags));
+  app.post("/api/blog/tags", requireAdmin, asyncHandler(createTag));
+  app.put("/api/blog/tags/:id", requireAdmin, asyncHandler(updateTag));
+  app.delete("/api/blog/tags/:id", requireAdmin, asyncHandler(deleteTag));
 }

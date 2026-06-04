@@ -49,14 +49,46 @@ export function BlogPostRow({ post, colors }: { post: BlogPost; colors: ThemeCol
           {post.title}
         </Text>
         {post.excerpt && (
-          <Text style={[styles.excerpt, { color: colors.textSecondary }]} numberOfLines={2}>
+          <Text style={[styles.excerpt, { color: colors.textSecondary }]} numberOfLines={1}>
             {post.excerpt}
           </Text>
         )}
-        <View style={styles.metaRow}>
+        {/* Author row */}
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation?.();
+            router.push({ pathname: "/user/[id]", params: { id: String(post.authorId) } });
+          }}
+          style={styles.authorRow}
+          hitSlop={4}
+        >
+          {post.authorAvatar ? (
+            <Image
+              source={{ uri: post.authorAvatar }}
+              style={styles.authorAvatar}
+              contentFit="cover"
+            />
+          ) : (
+            <View
+              style={[
+                styles.authorAvatar,
+                { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+              ]}
+            >
+              <Text style={{ color: "#fff", fontSize: 8, fontFamily: "Inter_700Bold" }}>
+                {post.authorName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>
+            {post.authorName}
+          </Text>
+          <Text style={[styles.metaText, { color: colors.textTertiary }]}>·</Text>
           <Text style={[styles.metaText, { color: colors.textTertiary }]}>
             {timeAgo(post.publishedAt)}
           </Text>
+        </Pressable>
+        <View style={styles.metaRow}>
           <Ionicons name="heart" size={10} color="#EF4444" />
           <Text style={[styles.metaText, { color: colors.textTertiary }]}>{post.likeCount}</Text>
           <Ionicons name="chatbubble-outline" size={10} color={colors.textTertiary} />
@@ -88,6 +120,41 @@ export function ForumThreadRow({ thread, colors }: { thread: ForumThread; colors
       <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
         {thread.title}
       </Text>
+      {/* Author row */}
+      <Pressable
+        onPress={(e) => {
+          e.stopPropagation?.();
+          router.push({ pathname: "/user/[id]", params: { id: String(thread.authorId) } });
+        }}
+        style={styles.authorRow}
+        hitSlop={4}
+      >
+        {thread.authorAvatar ? (
+          <Image
+            source={{ uri: thread.authorAvatar }}
+            style={styles.authorAvatar}
+            contentFit="cover"
+          />
+        ) : (
+          <View
+            style={[
+              styles.authorAvatar,
+              { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+            ]}
+          >
+            <Text style={{ color: "#fff", fontSize: 8, fontFamily: "Inter_700Bold" }}>
+              {thread.authorName.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>
+          {thread.authorName}
+        </Text>
+        <Text style={[styles.metaText, { color: colors.textTertiary }]}>·</Text>
+        <Text style={[styles.metaText, { color: colors.textTertiary }]}>
+          {timeAgo(thread.createdAt)}
+        </Text>
+      </Pressable>
       <View style={styles.metaRow}>
         {solved && (
           <View style={styles.solvedBadge}>
@@ -95,9 +162,6 @@ export function ForumThreadRow({ thread, colors }: { thread: ForumThread; colors
             <Text style={styles.solvedText}>Đã giải đáp</Text>
           </View>
         )}
-        <Text style={[styles.metaText, { color: colors.textTertiary }]}>
-          {timeAgo(thread.createdAt)}
-        </Text>
         <Ionicons name="arrow-up" size={10} color={colors.textTertiary} />
         <Text style={[styles.metaText, { color: colors.textTertiary }]}>{thread.upvotes}</Text>
         <Ionicons name="chatbubble-outline" size={10} color={colors.textTertiary} />
@@ -152,6 +216,9 @@ const styles = StyleSheet.create({
   excerpt: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 4, lineHeight: 16 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" },
   metaText: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  authorRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 5 },
+  authorAvatar: { width: 18, height: 18, borderRadius: 9 },
+  authorName: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
 
   threadCard: { padding: 12, borderRadius: 12, borderWidth: 1, gap: 4 },
   solvedBadge: {

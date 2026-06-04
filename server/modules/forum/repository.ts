@@ -311,15 +311,21 @@ export const forumRepo = {
   },
 
   async acceptReply(threadId: number, replyId: number, authorId: number) {
-    // Only thread author can accept
+    // Only thread author can accept. Toggle: if already accepted → un-accept.
     const [thread] = await db
       .select()
       .from(forumThreads)
       .where(eq(forumThreads.threadId, threadId));
     if (!thread || thread.authorId !== authorId) return false;
+
+    const isAlreadyAccepted = thread.acceptedReplyId === replyId;
     await db
       .update(forumThreads)
-      .set({ acceptedReplyId: replyId, status: "solved" })
+      .set(
+        isAlreadyAccepted
+          ? { acceptedReplyId: null, status: "open" }
+          : { acceptedReplyId: replyId, status: "solved" },
+      )
       .where(eq(forumThreads.threadId, threadId));
     return true;
   },

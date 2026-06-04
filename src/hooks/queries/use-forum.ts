@@ -53,6 +53,8 @@ export interface ForumFilters {
   sort?: "latest" | "popular" | "unanswered";
   limit?: number;
   offset?: number;
+  authorId?: number;
+  followingOnly?: boolean;
 }
 
 const KEY = ["forum"];
@@ -69,6 +71,8 @@ export function useForumThreads(filters: ForumFilters = {}) {
       if (filters.sort) params.set("sort", filters.sort);
       if (filters.limit) params.set("limit", String(filters.limit));
       if (filters.offset) params.set("offset", String(filters.offset));
+      if (filters.authorId) params.set("authorId", String(filters.authorId));
+      if (filters.followingOnly) params.set("followingOnly", "true");
       const qs = params.toString();
       const res = await apiRequest("GET", `/api/forum/threads${qs ? "?" + qs : ""}`);
       return unwrap<ForumThread[]>(res);
@@ -185,6 +189,8 @@ export function useAcceptReply() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: [...KEY, "thread", vars.threadId] });
       qc.invalidateQueries({ queryKey: [...KEY, "replies", vars.threadId] });
+      // Also refresh thread lists so "Đã giải đáp" badge updates everywhere
+      qc.invalidateQueries({ queryKey: [...KEY, "threads"] });
     },
   });
 }

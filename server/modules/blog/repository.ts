@@ -470,4 +470,50 @@ export const blogRepo = {
     }
     return ids;
   },
+
+  async createTag(input: { name: string; color?: string | null; description?: string | null }) {
+    const slug = input.name
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .slice(0, 60);
+    const [created] = await db
+      .insert(communityTags)
+      .values({
+        name: input.name,
+        slug,
+        color: input.color ?? undefined,
+        description: input.description ?? undefined,
+      })
+      .returning();
+    return created;
+  },
+
+  async updateTag(
+    tagId: number,
+    input: Partial<{ name: string; color: string | null; description: string | null }>,
+  ) {
+    const updates: any = {};
+    if (input.name !== undefined) {
+      updates.name = input.name;
+      updates.slug = input.name
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]/g, "")
+        .slice(0, 60);
+    }
+    if (input.color !== undefined) updates.color = input.color;
+    if (input.description !== undefined) updates.description = input.description;
+    const [updated] = await db
+      .update(communityTags)
+      .set(updates)
+      .where(eq(communityTags.tagId, tagId))
+      .returning();
+    return updated;
+  },
+
+  async deleteTag(tagId: number): Promise<boolean> {
+    const result = await db.delete(communityTags).where(eq(communityTags.tagId, tagId)).returning();
+    return result.length > 0;
+  },
 };

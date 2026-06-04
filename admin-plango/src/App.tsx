@@ -1,21 +1,25 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Sidebar from './components/Sidebar';
-import Header from './components/Header';
-import Dashboard from './pages/Dashboard';
-import Users from './pages/Users';
-import Destinations from './pages/Destinations';
-import POIs from './pages/POIs';
-import Reviews from './pages/Reviews';
-import Trips from './pages/Trips';
-import Interests from './pages/Interests';
-import ExpenseCategories from './pages/ExpenseCategories';
-import PoiTypes from './pages/PoiTypes';
-import DestinationTypes from './pages/DestinationTypes';
-import Login from './pages/Login';
-import { DataProvider } from './contexts/DataContext';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import GlobalLoading from './components/GlobalLoading';
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import Sidebar from "./components/Sidebar";
+import Header from "./components/Header";
+import Dashboard from "./pages/Dashboard";
+import Users from "./pages/Users";
+import Destinations from "./pages/Destinations";
+import POIs from "./pages/POIs";
+import Reviews from "./pages/Reviews";
+import Trips from "./pages/Trips";
+import Interests from "./pages/Interests";
+import ExpenseCategories from "./pages/ExpenseCategories";
+import PoiTypes from "./pages/PoiTypes";
+import DestinationTypes from "./pages/DestinationTypes";
+import Reports from "./pages/Reports";
+import BlogAdmin from "./pages/BlogAdmin";
+import ForumAdmin from "./pages/ForumAdmin";
+import Tags from "./pages/Tags";
+import Login from "./pages/Login";
+import { DataProvider } from "./contexts/DataContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import GlobalLoading from "./components/GlobalLoading";
 
 const ProtectedLayout: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -52,6 +56,10 @@ const ProtectedLayout: React.FC = () => {
             <Route path="/expense-categories" element={<ExpenseCategories />} />
             <Route path="/destination-types" element={<DestinationTypes />} />
             <Route path="/poi-types" element={<PoiTypes />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/blog" element={<BlogAdmin />} />
+            <Route path="/forum" element={<ForumAdmin />} />
+            <Route path="/tags" element={<Tags />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
