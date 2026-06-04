@@ -61,16 +61,18 @@ export const userRepo = {
   },
 
   async seedAdminUser(): Promise<void> {
-    const existing = await userRepo.getUserByEmail("admin@plango.vn");
+    const email = process.env.ADMIN_SEED_EMAIL || "trieuvy250804@gmail.com";
+    const password = process.env.ADMIN_SEED_PASSWORD || "admin123";
+    const existing = await userRepo.getUserByEmail(email);
     if (!existing) {
       await userRepo.createUser({
         userName: "admin",
-        email: "admin@plango.vn",
-        password: "admin123",
+        email,
+        password,
         role: "admin",
         status: "active",
       });
-      console.log("[Seed] Admin user created: admin@plango.vn / admin123");
+      console.log(`[Seed] Admin user created: ${email}`);
     }
   },
 };

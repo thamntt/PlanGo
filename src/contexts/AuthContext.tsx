@@ -111,8 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await apiRequest("GET", "/api/users/me");
       const data = await unwrapResponse(res);
       const fresh = mapUser(data);
-      // Block admin role on mobile (admin uses admin-plango web)
-      if (fresh.isLocked || fresh.role === "admin") {
+      // Block only locked accounts. Admin CAN use the mobile app like a
+      // regular user (post blog, comment, follow) — their extra moderation
+      // powers are exposed only inside admin-plango web.
+      if (fresh.isLocked) {
         await logout();
         return;
       }
@@ -163,10 +165,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         await setToken(data.token);
         const found = mapUser(data);
-        if (found.role === "admin") {
-          await logout();
-          return { success: false, error: "Tài khoản hoặc mật khẩu không đúng" };
-        }
+        // Admin có thể login như user thường (post/comment/follow). Moderation
+        // chỉ hiển thị trong admin-plango web.
         await persistUser(found);
         return { success: true };
       } catch (err: any) {
@@ -215,10 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (token) await setToken(token);
         if (userData) {
           const mapped = mapUser(userData);
-          if (mapped.role === "admin") {
-            await logout();
-            return { success: false, error: "Admin phải đăng nhập qua admin portal" };
-          }
+          // Admin có thể dùng mobile app như user thường
           await persistUser(mapped);
         } else {
           await loadCurrentUser();

@@ -25,6 +25,7 @@ export interface ForumThread {
   createdAt: string;
   authorName: string;
   authorHandle?: string;
+  authorRole?: string | null;
   authorAvatar?: string | null;
   authorLevel?: string | null;
   tags: { tagId: number; name: string; color?: string | null }[];
@@ -42,6 +43,7 @@ export interface ForumReply {
   createdAt: string;
   authorName: string;
   authorHandle?: string;
+  authorRole?: string | null;
   authorAvatar?: string | null;
   authorLevel?: string | null;
   myVote: string | null;

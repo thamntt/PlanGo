@@ -30,6 +30,7 @@ import {
   useDeleteBlogPost,
 } from "@/hooks/queries/use-blog";
 import { ReportSheet } from "@/features/community/ReportSheet";
+import { AdminBadge } from "@/features/community/AdminBadge";
 
 const CAT_LABEL: Record<string, string> = {
   guide: "Hướng dẫn",
@@ -257,7 +258,10 @@ export default function BlogDetailScreen() {
               </View>
             )}
             <View style={{ flex: 1 }}>
-              <Text style={[styles.authorName, { color: colors.text }]}>{post.authorName}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={[styles.authorName, { color: colors.text }]}>{post.authorName}</Text>
+                <AdminBadge role={post.authorRole} size="small" />
+              </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
                 <Ionicons name="time-outline" size={11} color={colors.textTertiary} />
                 <Text style={[styles.authorMeta, { color: colors.textTertiary }]}>
@@ -453,9 +457,12 @@ export default function BlogDetailScreen() {
                           )}
                         </Pressable>
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.commentAuthor, { color: colors.text }]}>
-                            {c.authorName}
-                          </Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                            <Text style={[styles.commentAuthor, { color: colors.text }]}>
+                              {c.authorName}
+                            </Text>
+                            <AdminBadge role={c.authorRole} size="tiny" />
+                          </View>
                           <Text style={[styles.commentTime, { color: colors.textTertiary }]}>
                             {new Date(c.createdAt).toLocaleDateString("vi-VN")}
                           </Text>

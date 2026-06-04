@@ -31,6 +31,7 @@ import {
   type ForumReply,
 } from "@/hooks/queries/use-forum";
 import { ReportSheet } from "@/features/community/ReportSheet";
+import { AdminBadge } from "@/features/community/AdminBadge";
 
 const CAT_LABEL: Record<string, string> = {
   question: "Câu hỏi",
@@ -312,7 +313,12 @@ export default function ThreadDetailScreen() {
                 </View>
               )}
               <View style={{ flex: 1 }}>
-                <Text style={[styles.authorName, { color: colors.text }]}>{thread.authorName}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.authorName, { color: colors.text }]}>
+                    {thread.authorName}
+                  </Text>
+                  <AdminBadge role={thread.authorRole} size="small" />
+                </View>
                 <Text style={[styles.authorTime, { color: colors.textTertiary }]}>
                   {new Date(thread.createdAt).toLocaleDateString("vi-VN")} · {thread.viewCount} lượt
                   xem
@@ -504,9 +510,12 @@ export default function ThreadDetailScreen() {
                           )}
                         </Pressable>
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.replyAuthor, { color: colors.text }]}>
-                            {r.authorName}
-                          </Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                            <Text style={[styles.replyAuthor, { color: colors.text }]}>
+                              {r.authorName}
+                            </Text>
+                            <AdminBadge role={(r as any).authorRole} size="tiny" />
+                          </View>
                           <Text style={[styles.replyTime, { color: colors.textTertiary }]}>
                             {new Date(r.createdAt).toLocaleDateString("vi-VN")}
                           </Text>

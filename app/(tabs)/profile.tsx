@@ -399,7 +399,16 @@ export default function ProfileScreen() {
                   contentFit="cover"
                 />
               ) : (
-                <View style={[styles.avatarCentered, styles.avatarPlaceholder]}>
+                <View
+                  style={[
+                    styles.avatarCentered,
+                    {
+                      backgroundColor: colors.primary,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    },
+                  ]}
+                >
                   <Text style={styles.avatarInitial}>{avatarInitial}</Text>
                 </View>
               )}

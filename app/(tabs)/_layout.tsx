@@ -255,6 +255,21 @@ function CustomTabBar({
           >
             {user?.avatar ? (
               <Image source={{ uri: user.avatar }} style={styles.avatarTabImg} contentFit="cover" />
+            ) : user?.fullName || user?.username ? (
+              <View
+                style={[
+                  styles.avatarTabImg,
+                  {
+                    backgroundColor: colors.primary,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  },
+                ]}
+              >
+                <Text style={{ color: "#fff", fontFamily: "Inter_700Bold", fontSize: 13 }}>
+                  {(user.fullName || user.username || "?").charAt(0).toUpperCase()}
+                </Text>
+              </View>
             ) : (
               <View
                 style={[

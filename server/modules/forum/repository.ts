@@ -46,6 +46,7 @@ export const forumRepo = {
         authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
         authorLevel: users.reviewerLevel,
+        authorRole: users.role,
         destinationName: destinations.name,
       })
       .from(forumThreads)
@@ -158,6 +159,7 @@ export const forumRepo = {
         authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
         authorLevel: users.reviewerLevel,
+        authorRole: users.role,
         destinationName: destinations.name,
       })
       .from(forumThreads)
@@ -255,6 +257,7 @@ export const forumRepo = {
         authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
         authorLevel: users.reviewerLevel,
+        authorRole: users.role,
       })
       .from(forumReplies)
       .innerJoin(users, eq(forumReplies.authorId, users.userId))

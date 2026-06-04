@@ -28,6 +28,7 @@ export interface BlogPost {
   updatedAt?: string;
   authorName: string;
   authorHandle?: string;
+  authorRole?: string | null;
   authorAvatar?: string | null;
   authorLevel?: string | null;
   authorReviewCount?: number;
@@ -47,6 +48,7 @@ export interface BlogComment {
   createdAt: string;
   authorName: string;
   authorHandle?: string;
+  authorRole?: string | null;
   authorAvatar?: string | null;
 }
 

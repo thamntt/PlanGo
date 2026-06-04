@@ -6,6 +6,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import type { useThemeColors } from "@/constants/colors";
 import type { BlogPost } from "@/hooks/queries/use-blog";
 import type { ForumThread } from "@/hooks/queries/use-forum";
+import { AdminBadge } from "./AdminBadge";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -109,6 +110,7 @@ export function BlogPostRow({ post, colors }: { post: BlogPost; colors: ThemeCol
           <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>
             {post.authorName}
           </Text>
+          <AdminBadge role={post.authorRole} size="tiny" />
           <Text style={[styles.metaText, { color: colors.textTertiary }]}>·</Text>
           <Text style={[styles.metaText, { color: colors.textTertiary }]}>
             {timeAgo(post.publishedAt)}
@@ -185,6 +187,7 @@ export function ForumThreadRow({ thread, colors }: { thread: ForumThread; colors
         <Text style={[styles.authorName, { color: colors.text }]} numberOfLines={1}>
           {thread.authorName}
         </Text>
+        <AdminBadge role={thread.authorRole} size="tiny" />
         <Text style={[styles.metaText, { color: colors.textTertiary }]}>·</Text>
         <Text style={[styles.metaText, { color: colors.textTertiary }]}>
           {timeAgo(thread.createdAt)}

@@ -51,6 +51,7 @@ export const blogRepo = {
         authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
         authorLevel: users.reviewerLevel,
+        authorRole: users.role,
       })
       .from(blogPosts)
       .innerJoin(users, eq(blogPosts.authorId, users.userId))
@@ -210,6 +211,7 @@ export const blogRepo = {
         authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
         authorLevel: users.reviewerLevel,
+        authorRole: users.role,
         authorReviewCount: users.reviewCount,
       })
       .from(blogPosts)
@@ -443,6 +445,7 @@ export const blogRepo = {
         authorName: sql<string>`COALESCE(${users.fullName}, ${users.userName})`,
         authorHandle: users.userName,
         authorAvatar: users.avatarUrl,
+        authorRole: users.role,
       })
       .from(blogComments)
       .innerJoin(users, eq(blogComments.authorId, users.userId))

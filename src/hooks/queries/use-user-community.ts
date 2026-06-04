@@ -10,6 +10,7 @@ export interface UserProfile {
   userId: number;
   userName: string;
   fullName?: string | null;
+  role?: string | null;
   avatarUrl?: string | null;
   reviewerLevel?: string | null;
   reviewCount: number;
