@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback , useRef } from "react";
+import React, { useState, useMemo, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -135,6 +135,8 @@ export default function ProfileScreen() {
   const myCommunityCount = myBlogCount + myThreadCount;
   const followerCount = profileSummaryQuery.data?.followerCount ?? 0;
   const followingCount = profileSummaryQuery.data?.followingCount ?? 0;
+  const replyCount = profileSummaryQuery.data?.replyCount ?? 0;
+  const totalThreadActivity = myThreadCount + replyCount;
   const [communityTab, setCommunityTab] = useState<"blog" | "forum">("blog");
   const memberSince = user?.createdAt
     ? new Date(user.createdAt).toLocaleDateString("vi-VN", { month: "short", year: "numeric" })
@@ -347,51 +349,30 @@ export default function ProfileScreen() {
           />
         }
       >
-        {/* ═══════ HERO (PlanGo signature gradient + decorative blobs) ═══════ */}
-        <View style={[styles.hero, { paddingTop: insets.top + webTopInset + 12 }]}>
-          {/* PlanGo signature gradient — Vietnamese sunset travel palette.
-              Light: indigo → magenta → coral → amber (Hạ Long Bay sunset)
-              Dark : navy → violet → magenta → burnt sienna (twilight)
-              Diagonal flow + decorative blobs + airplane = "đi đâu cũng được" feel. */}
-          <LinearGradient
-            colors={
-              isDark
-                ? ["#1E1B4B", "#581C87", "#9D174D", "#B45309"]
-                : ["#4338CA", "#A855F7", "#EC4899", "#F59E0B"]
-            }
-            locations={[0, 0.35, 0.7, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1.1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          {/* Secondary radial-feel gradient overlay for depth & warmth */}
-          <LinearGradient
-            colors={["transparent", "rgba(251,191,36,0.18)"]}
-            start={{ x: 1, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          {/* Decorative blobs — translucent circles for depth + brand identity */}
-          <View style={styles.blob1} />
-          <View style={styles.blob2} />
-          <View style={styles.blob3} />
-          {/* Travel iconography: airplane + palm tree silhouettes (very faint) */}
-          <View style={styles.heroPlane}>
-            <Ionicons name="airplane" size={130} color="rgba(255,255,255,0.1)" />
-          </View>
-          <View style={styles.heroPalm}>
-            <MaterialCommunityIcons name="palm-tree" size={90} color="rgba(255,255,255,0.08)" />
-          </View>
-
+        {/* ═══════ HERO — plain (no gradient) ═══════ */}
+        <View
+          style={[
+            styles.hero,
+            { paddingTop: insets.top + webTopInset + 12, backgroundColor: colors.background },
+          ]}
+        >
           {/* Top action bar */}
           <View style={styles.heroTopBar}>
             <View />
             <Pressable
               onPress={() => setMenuOpen(true)}
-              style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.7 : 1 }]}
+              style={({ pressed }) => [
+                styles.iconBtn,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder,
+                  borderWidth: 1,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
               hitSlop={6}
             >
-              <Ionicons name="menu" size={22} color="#fff" />
+              <Ionicons name="menu" size={22} color={colors.text} />
             </Pressable>
           </View>
 
@@ -418,90 +399,113 @@ export default function ProfileScreen() {
               </View>
             </Pressable>
 
-            <Text style={styles.heroNameCentered} numberOfLines={1}>
+            <Text style={[styles.heroNameCentered, { color: colors.text }]} numberOfLines={1}>
               {user?.fullName || firstName}
             </Text>
 
             {isAdmin && (
-              <View style={styles.adminBadgeCentered}>
-                <MaterialCommunityIcons name="shield-crown" size={11} color="#FBBF24" />
-                <Text style={styles.adminBadgeText}>Admin</Text>
+              <View style={[styles.adminBadgeCentered, { backgroundColor: "#FBBF24" + "1F" }]}>
+                <MaterialCommunityIcons name="shield-crown" size={11} color="#D97706" />
+                <Text style={[styles.adminBadgeText, { color: "#D97706" }]}>Admin</Text>
               </View>
             )}
 
-            {/* Action buttons row — Threads style */}
-            <View style={styles.actionRowCentered}>
+            {/* Stats inside hero — theme colors */}
+            <View
+              style={[
+                styles.heroStatsBar,
+                { backgroundColor: colors.card, borderColor: colors.cardBorder },
+              ]}
+            >
+              <View style={styles.heroStatItem}>
+                <Text style={[styles.heroStatValue, { color: colors.text }]}>{myBlogCount}</Text>
+                <Text style={[styles.heroStatLabel, { color: colors.textSecondary }]}>
+                  Bài viết
+                </Text>
+              </View>
+              <View style={[styles.heroStatSep, { backgroundColor: colors.divider }]} />
+              <View style={styles.heroStatItem}>
+                <Text style={[styles.heroStatValue, { color: colors.text }]}>
+                  {totalThreadActivity}
+                </Text>
+                <Text style={[styles.heroStatLabel, { color: colors.textSecondary }]}>Hỏi đáp</Text>
+              </View>
+              <View style={[styles.heroStatSep, { backgroundColor: colors.divider }]} />
+              <Pressable
+                onPress={() =>
+                  user &&
+                  router.push({
+                    pathname: "/connections",
+                    params: { userId: String(user.id), tab: "followers" },
+                  })
+                }
+                style={({ pressed }) => [styles.heroStatItem, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={[styles.heroStatValue, { color: colors.text }]}>{followerCount}</Text>
+                <Text style={[styles.heroStatLabel, { color: colors.textSecondary }]}>
+                  Followers
+                </Text>
+              </Pressable>
+              <View style={[styles.heroStatSep, { backgroundColor: colors.divider }]} />
+              <Pressable
+                onPress={() =>
+                  user &&
+                  router.push({
+                    pathname: "/connections",
+                    params: { userId: String(user.id), tab: "following" },
+                  })
+                }
+                style={({ pressed }) => [styles.heroStatItem, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={[styles.heroStatValue, { color: colors.text }]}>{followingCount}</Text>
+                <Text style={[styles.heroStatLabel, { color: colors.textSecondary }]}>
+                  Following
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Action buttons row — IG style: side by side, both light bg */}
+            <View style={[styles.actionRowCentered, { alignSelf: "stretch", marginTop: 10 }]}>
               <Pressable
                 onPress={() => router.push("/profile/edit")}
                 style={({ pressed }) => [
-                  styles.actionBtn,
+                  styles.igActionBtn,
                   {
-                    backgroundColor: "#fff",
+                    flex: 1,
+                    backgroundColor: colors.inputBg,
                     opacity: pressed ? 0.85 : 1,
                   },
                 ]}
               >
-                <Ionicons name="create-outline" size={14} color={colors.primary} />
-                <Text style={[styles.actionBtnText, { color: colors.primary }]}>
+                <Text style={[styles.igActionBtnText, { color: colors.text }]}>
                   Chỉnh sửa profile
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  if (!user) return;
+                  try {
+                    const { Share } = await import("react-native");
+                    await Share.share({
+                      message: `Xem profile ${user.fullName} trên PlanGo`,
+                    });
+                  } catch {}
+                }}
+                style={({ pressed }) => [
+                  styles.igActionBtn,
+                  {
+                    flex: 1,
+                    backgroundColor: colors.inputBg,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <Text style={[styles.igActionBtnText, { color: colors.text }]}>
+                  Chia sẻ profile
                 </Text>
               </Pressable>
             </View>
           </View>
-        </View>
-
-        {/* ═══════ COMMUNITY STATS (matches /user/[id]) ═══════ */}
-        <View
-          style={[
-            styles.statsCard,
-            { backgroundColor: colors.card, borderColor: colors.cardBorder },
-          ]}
-        >
-          <StatTile
-            icon="newspaper-outline"
-            value={myBlogCount}
-            label="Bài viết"
-            color="#0891B2"
-            colors={colors}
-          />
-          <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />
-          <StatTile
-            icon="chatbubbles-outline"
-            value={myThreadCount}
-            label="Hỏi đáp"
-            color="#8B5CF6"
-            colors={colors}
-          />
-          <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />
-          <StatTile
-            icon="people-outline"
-            value={followerCount}
-            label="Theo dõi"
-            color="#A855F7"
-            colors={colors}
-            onPress={() =>
-              user &&
-              router.push({
-                pathname: "/connections",
-                params: { userId: String(user.id), tab: "followers" },
-              })
-            }
-          />
-          <View style={[styles.statDivider, { backgroundColor: colors.divider }]} />
-          <StatTile
-            icon="person-add-outline"
-            value={followingCount}
-            label="Đang theo"
-            color="#10B981"
-            colors={colors}
-            onPress={() =>
-              user &&
-              router.push({
-                pathname: "/connections",
-                params: { userId: String(user.id), tab: "following" },
-              })
-            }
-          />
         </View>
 
         {/* ═══════ MY POSTS + QUESTIONS ═══════ */}
@@ -587,21 +591,9 @@ export default function ProfileScreen() {
                 />
               ) : (
                 <View style={{ gap: 10 }}>
-                  {myBlogPosts.slice(0, 5).map((p) => (
+                  {myBlogPosts.map((p) => (
                     <BlogPostRow key={p.postId} post={p} colors={colors} />
                   ))}
-                  {myBlogPosts.length > 5 && (
-                    <Pressable
-                      onPress={() => router.push("/(tabs)/community")}
-                      style={{ alignItems: "center", padding: 10 }}
-                    >
-                      <Text
-                        style={{ color: colors.primary, fontFamily: "Inter_700Bold", fontSize: 12 }}
-                      >
-                        Xem tất cả {myBlogCount} bài
-                      </Text>
-                    </Pressable>
-                  )}
                 </View>
               )
             ) : myThreads.length === 0 ? (
@@ -614,21 +606,9 @@ export default function ProfileScreen() {
               />
             ) : (
               <View style={{ gap: 8 }}>
-                {myThreads.slice(0, 5).map((t) => (
+                {myThreads.map((t) => (
                   <ForumThreadRow key={t.threadId} thread={t} colors={colors} />
                 ))}
-                {myThreads.length > 5 && (
-                  <Pressable
-                    onPress={() => router.push("/(tabs)/community")}
-                    style={{ alignItems: "center", padding: 10 }}
-                  >
-                    <Text
-                      style={{ color: colors.primary, fontFamily: "Inter_700Bold", fontSize: 12 }}
-                    >
-                      Xem tất cả {myThreadCount} câu hỏi
-                    </Text>
-                  </Pressable>
-                )}
               </View>
             )}
           </View>
@@ -1646,10 +1626,7 @@ const styles = StyleSheet.create({
   // Hero (compact horizontal + signature gradient)
   hero: {
     paddingHorizontal: 20,
-    paddingBottom: 48,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    overflow: "hidden",
+    paddingBottom: 16,
     position: "relative",
   },
   heroTopBar: {
@@ -1667,14 +1644,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.18)",
   },
   heroProfile: { flexDirection: "row", alignItems: "center", gap: 14 },
-  heroCentered: { alignItems: "center", gap: 8 },
-  avatarWrapCentered: { width: 88, height: 88, position: "relative" },
+  heroCentered: { alignItems: "center", gap: 6 },
+  avatarWrapCentered: { width: 72, height: 72, position: "relative" },
   avatarCentered: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.5)",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
   },
   avatarEditBadgeCentered: {
     position: "absolute",
@@ -1689,7 +1664,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  heroNameCentered: { fontSize: 20, fontFamily: "Inter_700Bold", color: "#fff", marginTop: 8 },
+  heroNameCentered: { fontSize: 18, fontFamily: "Inter_700Bold", marginTop: 6 },
   adminBadgeCentered: {
     flexDirection: "row",
     alignItems: "center",
@@ -1697,9 +1672,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.18)",
   },
+  heroStatsBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 14,
+    marginTop: 12,
+    alignSelf: "stretch",
+  },
+  heroStatItem: { flex: 1, alignItems: "center" },
+  heroStatValue: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#fff" },
+  heroStatLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(255,255,255,0.85)",
+    marginTop: 2,
+  },
+  heroStatSep: { width: 1, height: 26, backgroundColor: "rgba(255,255,255,0.3)" },
   actionRowCentered: { flexDirection: "row", gap: 8, marginTop: 12 },
+  igActionBtn: {
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  igActionBtnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1816,6 +1817,9 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 20, fontFamily: "Inter_700Bold" },
   statLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
   statDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", marginVertical: 8 },
+  simpleStatItem: { flex: 1, alignItems: "center", paddingVertical: 4 },
+  simpleStatValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  simpleStatLabel: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 2 },
 
   // Section header
   sectionHeader: {

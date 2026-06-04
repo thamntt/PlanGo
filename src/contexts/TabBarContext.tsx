@@ -9,8 +9,8 @@ interface TabBarContextValue {
 
 const TabBarContext = createContext<TabBarContextValue | null>(null);
 
-const HIDE_DISTANCE = 80; // tab bar slide-out distance
-const HIDE_THRESHOLD = 30; // px scroll delta before reacting
+const HIDE_DISTANCE = 100; // tab bar slide-out distance
+const HIDE_THRESHOLD = 14; // px scroll delta before reacting
 
 export function TabBarProvider({ children }: { children: React.ReactNode }) {
   const translateY = useRef(new Animated.Value(0)).current;
@@ -34,7 +34,7 @@ export function TabBarProvider({ children }: { children: React.ReactNode }) {
       const y = e.nativeEvent.contentOffset.y;
       const dy = y - lastY.current;
       if (Math.abs(dy) < HIDE_THRESHOLD) return;
-      if (y < 30) {
+      if (y < 10) {
         if (lastDir.current !== "up") {
           setVisible(true);
           animate(true);

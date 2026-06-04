@@ -25,6 +25,7 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useTabBar } from "@/contexts/TabBarContext";
 import { useScrollToTop } from "@react-navigation/native";
+import { SearchOverlay } from "@/features/community/SearchOverlay";
 import { useTrips, useUpdateTrip, useDeleteTrip } from "@/hooks/queries/use-trips";
 import { useDestinations } from "@/hooks/queries/use-destinations";
 import { useReviews, useCreateReview } from "@/hooks/queries/use-reviews";
@@ -276,6 +277,7 @@ export default function TripsScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [menuTarget, setMenuTarget] = useState<Itinerary | null>(null);
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -448,27 +450,37 @@ export default function TripsScreen() {
               />
             </View>
 
-            {/* Search bar */}
-            <View
-              style={[
+            {/* Search bar (tap → overlay) */}
+            <Pressable
+              onPress={() => setSearchOpen(true)}
+              style={({ pressed }) => [
                 styles.searchBar,
-                { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder,
+                  opacity: pressed ? 0.85 : 1,
+                },
               ]}
             >
               <Ionicons name="search" size={18} color={colors.textTertiary} />
-              <TextInput
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Tìm chuyến đi theo tên hoặc điểm đến..."
-                placeholderTextColor={colors.textTertiary}
-                style={[styles.searchInput, { color: colors.text }]}
-              />
+              <Text
+                style={[
+                  styles.searchInput,
+                  {
+                    color: search ? colors.text : colors.textTertiary,
+                    fontFamily: "Inter_400Regular",
+                  },
+                ]}
+                numberOfLines={1}
+              >
+                {search || "Tìm chuyến đi theo tên hoặc điểm đến..."}
+              </Text>
               {search.length > 0 && (
                 <Pressable onPress={() => setSearch("")} hitSlop={6}>
                   <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
                 </Pressable>
               )}
-            </View>
+            </Pressable>
 
             {/* Filter chips */}
             <ScrollView
@@ -713,6 +725,13 @@ export default function TripsScreen() {
           </Pressable>
         </KeyboardAvoidingView>
       </Modal>
+
+      <SearchOverlay
+        visible={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSubmit={(q) => setSearch(q)}
+        placeholder="Tìm chuyến đi theo tên hoặc điểm đến..."
+      />
     </View>
   );
 }

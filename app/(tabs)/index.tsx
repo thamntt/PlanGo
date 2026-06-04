@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback , useRef } from "react";
+import React, { useState, useMemo, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { useDestinations, useDestinationTypes } from "@/hooks/queries/use-destin
 import { useNotifications } from "@/hooks/queries/use-notifications";
 import { useTabBar } from "@/contexts/TabBarContext";
 import { useScrollToTop } from "@react-navigation/native";
+import { SearchOverlay } from "@/features/community/SearchOverlay";
 import { t } from "@/lib/i18n";
 import type { Destination, DestinationType } from "@/types";
 import { formatRating } from "@/features/reviews/components/StarRating";
@@ -224,6 +225,7 @@ export default function ExploreScreen() {
   const { user } = useAuth();
 
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -328,32 +330,35 @@ export default function ExploreScreen() {
         </Pressable>
       </View>
 
-      {/* Search bar (elevated) */}
-      <View
-        style={[
+      {/* Search bar (tap → overlay) */}
+      <Pressable
+        onPress={() => setSearchOpen(true)}
+        style={({ pressed }) => [
           styles.searchBar,
           {
             backgroundColor: colors.card,
             borderColor: colors.cardBorder,
             shadowColor: isDark ? "#000" : "#0F172A",
+            opacity: pressed ? 0.85 : 1,
           },
         ]}
       >
         <Ionicons name="search" size={20} color={colors.textTertiary} />
-        <TextInput
-          style={[styles.searchInput, { color: colors.text }]}
-          placeholder="Tìm điểm đến, thành phố, hoạt động..."
-          placeholderTextColor={colors.textTertiary}
-          value={search}
-          onChangeText={setSearch}
-          returnKeyType="search"
-        />
+        <Text
+          style={[
+            styles.searchInput,
+            { color: search ? colors.text : colors.textTertiary, fontFamily: "Inter_400Regular" },
+          ]}
+          numberOfLines={1}
+        >
+          {search || "Tìm điểm đến, thành phố, hoạt động..."}
+        </Text>
         {search.length > 0 && (
           <Pressable onPress={() => setSearch("")} hitSlop={8}>
             <Ionicons name="close-circle" size={20} color={colors.textTertiary} />
           </Pressable>
         )}
-      </View>
+      </Pressable>
 
       {/* Category chips with emojis */}
       <FlatList
@@ -500,6 +505,13 @@ export default function ExploreScreen() {
         }
         ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
         style={{ paddingHorizontal: 0 }}
+      />
+
+      <SearchOverlay
+        visible={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSubmit={(q) => setSearch(q)}
+        placeholder="Tìm điểm đến, thành phố, hoạt động..."
       />
     </View>
   );

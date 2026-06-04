@@ -173,24 +173,36 @@ export function useDeleteBlogComment() {
   });
 }
 
+type BlogInput = {
+  title: string;
+  content: string;
+  excerpt?: string;
+  coverImage?: string;
+  images?: string[];
+  category?: string;
+  readMinutes?: number;
+  tagNames?: string[];
+  destinationIds?: number[];
+  referencedTripId?: number | null;
+};
+
+export function useUpdateBlogPost() {
+  const qc = useQueryClient();
+  return useMutation<BlogPost, Error, { postId: number; input: Partial<BlogInput> }>({
+    mutationFn: async ({ postId, input }) => {
+      const res = await apiRequest("PUT", `/api/blog/posts/${postId}`, input);
+      return unwrap(res);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: [...KEY, "posts"] });
+      qc.invalidateQueries({ queryKey: [...KEY, "post", vars.postId] });
+    },
+  });
+}
+
 export function useCreateBlogPost() {
   const qc = useQueryClient();
-  return useMutation<
-    BlogPost,
-    Error,
-    {
-      title: string;
-      content: string;
-      excerpt?: string;
-      coverImage?: string;
-      images?: string[];
-      category?: string;
-      readMinutes?: number;
-      tagNames?: string[];
-      destinationIds?: number[];
-      referencedTripId?: number | null;
-    }
-  >({
+  return useMutation<BlogPost, Error, BlogInput>({
     mutationFn: async (input) => {
       const res = await apiRequest("POST", "/api/blog/posts", input);
       return unwrap(res);

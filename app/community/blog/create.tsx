@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -21,7 +21,7 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDestinations } from "@/hooks/queries/use-destinations";
-import { useCreateBlogPost } from "@/hooks/queries/use-blog";
+import { useCreateBlogPost, useUpdateBlogPost, useBlogPost } from "@/hooks/queries/use-blog";
 
 const CATEGORIES = [
   { key: "guide", label: "Hướng dẫn", color: "#3B82F6", icon: "book-outline" as const },
@@ -32,12 +32,17 @@ const CATEGORIES = [
 ];
 
 export default function CreateBlogPostScreen() {
+  const params = useLocalSearchParams<{ editId?: string }>();
+  const editId = params.editId ? Number(params.editId) : undefined;
+  const isEdit = !!editId;
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const destinationsQuery = useDestinations();
   const createPost = useCreateBlogPost();
+  const updatePost = useUpdateBlogPost();
+  const existingPostQuery = useBlogPost(editId);
 
   const [title, setTitle] = useState("");
   const [excerpt, setExcerpt] = useState("");
@@ -49,6 +54,22 @@ export default function CreateBlogPostScreen() {
   const [tags, setTags] = useState<string[]>([]);
   const [destSearch, setDestSearch] = useState("");
   const [destPickerOpen, setDestPickerOpen] = useState(false);
+  const [prefilled, setPrefilled] = useState(false);
+
+  // Prefill on edit mode once existing post loads
+  useEffect(() => {
+    if (!isEdit || prefilled) return;
+    const p = existingPostQuery.data;
+    if (!p) return;
+    setTitle(p.title || "");
+    setExcerpt(p.excerpt || "");
+    setContent(p.content || "");
+    setCoverImage(p.coverImage || null);
+    setCategory(p.category || "story");
+    setSelectedDestinationIds((p.destinationsList || []).map((d) => Number(d.destinationId)));
+    setTags((p.tags || []).map((t) => t.name));
+    setPrefilled(true);
+  }, [isEdit, existingPostQuery.data, prefilled]);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
@@ -109,7 +130,7 @@ export default function CreateBlogPostScreen() {
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || !user) return;
     try {
-      const created = await createPost.mutateAsync({
+      const payload = {
         title: title.trim(),
         content: content.trim(),
         excerpt: excerpt.trim() || undefined,
@@ -118,16 +139,27 @@ export default function CreateBlogPostScreen() {
         readMinutes,
         tagNames: tags,
         destinationIds: selectedDestinationIds,
-      });
+      };
+      let resultId: number;
+      if (isEdit && editId) {
+        const updated = await updatePost.mutateAsync({ postId: editId, input: payload });
+        resultId = updated.postId;
+      } else {
+        const created = await createPost.mutateAsync(payload);
+        resultId = created.postId;
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace({ pathname: "/community/blog/[id]", params: { id: String(created.postId) } });
+      router.replace({ pathname: "/community/blog/[id]", params: { id: String(resultId) } });
     } catch (err: any) {
-      Alert.alert("Lỗi", err?.message || "Không tạo được bài viết");
+      Alert.alert("Lỗi", err?.message || (isEdit ? "Không lưu được" : "Không tạo được bài viết"));
     }
   }, [
     canSubmit,
     user,
     createPost,
+    updatePost,
+    isEdit,
+    editId,
     title,
     content,
     excerpt,
@@ -161,7 +193,9 @@ export default function CreateBlogPostScreen() {
           >
             <Ionicons name="close" size={20} color={colors.text} />
           </Pressable>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Bài viết mới</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            {isEdit ? "Sửa bài viết" : "Bài viết mới"}
+          </Text>
           <Pressable
             onPress={handleSubmit}
             disabled={!canSubmit || createPost.isPending}
@@ -169,17 +203,17 @@ export default function CreateBlogPostScreen() {
               styles.publishBtn,
               {
                 backgroundColor: canSubmit ? colors.primary : colors.inputBg,
-                opacity: createPost.isPending ? 0.6 : 1,
+                opacity: createPost.isPending || updatePost.isPending ? 0.6 : 1,
               },
             ]}
           >
-            {createPost.isPending ? (
+            {createPost.isPending || updatePost.isPending ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
               <Text
                 style={[styles.publishText, { color: canSubmit ? "#fff" : colors.textTertiary }]}
               >
-                Đăng
+                {isEdit ? "Lưu" : "Đăng"}
               </Text>
             )}
           </Pressable>

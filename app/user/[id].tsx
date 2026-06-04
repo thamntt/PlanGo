@@ -144,12 +144,15 @@ export default function UserProfileScreen() {
           />
         }
       >
-        {/* Hero header */}
-        <LinearGradient
-          colors={[colors.primary, colors.primaryDark]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.hero, { paddingTop: insets.top + webTopInset + 60 }]}
+        {/* Hero header — plain (no gradient) */}
+        <View
+          style={[
+            styles.hero,
+            {
+              paddingTop: insets.top + webTopInset + 60,
+              backgroundColor: colors.background,
+            },
+          ]}
         >
           {/* Avatar */}
           {profile.avatarUrl ? (
@@ -159,7 +162,7 @@ export default function UserProfileScreen() {
               style={[
                 styles.avatar,
                 {
-                  backgroundColor: "rgba(255,255,255,0.2)",
+                  backgroundColor: colors.primary,
                   alignItems: "center",
                   justifyContent: "center",
                 },
@@ -169,24 +172,29 @@ export default function UserProfileScreen() {
             </View>
           )}
 
-          <Text style={styles.userName}>{profile.userName}</Text>
+          <Text style={[styles.userName, { color: colors.text }]}>{profile.userName}</Text>
 
           {levelInfo && (
-            <View style={[styles.levelBadge, { backgroundColor: levelInfo.color }]}>
-              <Ionicons name="star" size={11} color="#fff" />
-              <Text style={styles.levelText}>{levelInfo.label}</Text>
+            <View style={[styles.levelBadge, { backgroundColor: levelInfo.color + "1F" }]}>
+              <Ionicons name="star" size={11} color={levelInfo.color} />
+              <Text style={[styles.levelText, { color: levelInfo.color }]}>{levelInfo.label}</Text>
             </View>
           )}
 
           {/* Stats row */}
-          <View style={styles.statsBar}>
+          <View
+            style={[
+              styles.statsBar,
+              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+            ]}
+          >
             <StatItem value={profile.postCount} label="Bài viết" />
             <StatDivider />
             <StatItem value={profile.threadCount + profile.replyCount} label="Hỏi đáp" />
             <StatDivider />
             <StatItem
               value={profile.followerCount}
-              label="Theo dõi"
+              label="Followers"
               onPress={() =>
                 router.push({
                   pathname: "/connections",
@@ -197,7 +205,7 @@ export default function UserProfileScreen() {
             <StatDivider />
             <StatItem
               value={profile.followingCount}
-              label="Đang theo"
+              label="Following"
               onPress={() =>
                 router.push({
                   pathname: "/connections",
@@ -207,60 +215,66 @@ export default function UserProfileScreen() {
             />
           </View>
 
-          {/* Follow button (other user) OR Edit profile (own profile) */}
-          {profile.isOwnProfile ? (
-            <Pressable
-              onPress={() => router.push("/(tabs)/profile")}
-              style={({ pressed }) => [
-                styles.followBtn,
-                {
-                  backgroundColor: "#fff",
-                  opacity: pressed ? 0.85 : 1,
-                },
-              ]}
-            >
-              <Ionicons name="create-outline" size={15} color={colors.primary} />
-              <Text style={[styles.followText, { color: colors.primary }]}>Chỉnh sửa profile</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={handleFollow}
-              disabled={toggleFollow.isPending}
-              style={({ pressed }) => [
-                styles.followBtn,
-                {
-                  backgroundColor: profile.isFollowing ? "rgba(255,255,255,0.2)" : "#fff",
-                  borderColor: profile.isFollowing ? "rgba(255,255,255,0.4)" : "transparent",
-                  borderWidth: profile.isFollowing ? 1 : 0,
-                  opacity: pressed || toggleFollow.isPending ? 0.85 : 1,
-                },
-              ]}
-            >
-              {toggleFollow.isPending ? (
-                <ActivityIndicator
-                  size="small"
-                  color={profile.isFollowing ? "#fff" : colors.primary}
-                />
-              ) : (
-                <>
-                  <Ionicons
-                    name={profile.isFollowing ? "checkmark" : "person-add"}
-                    size={15}
-                    color={profile.isFollowing ? "#fff" : colors.primary}
+          {/* Action buttons — IG style: side by side, light bg */}
+          <View style={{ flexDirection: "row", gap: 8, alignSelf: "stretch", marginTop: 10 }}>
+            {profile.isOwnProfile ? (
+              <Pressable
+                onPress={() => router.push("/profile/edit")}
+                style={({ pressed }) => [
+                  styles.igBtn,
+                  { flex: 1, backgroundColor: colors.inputBg, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={[styles.igBtnText, { color: colors.text }]}>Chỉnh sửa profile</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={handleFollow}
+                disabled={toggleFollow.isPending}
+                style={({ pressed }) => [
+                  styles.igBtn,
+                  {
+                    flex: 1,
+                    backgroundColor: profile.isFollowing ? colors.inputBg : colors.primary,
+                    opacity: pressed || toggleFollow.isPending ? 0.85 : 1,
+                  },
+                ]}
+              >
+                {toggleFollow.isPending ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={profile.isFollowing ? colors.text : "#fff"}
                   />
+                ) : (
                   <Text
                     style={[
-                      styles.followText,
-                      { color: profile.isFollowing ? "#fff" : colors.primary },
+                      styles.igBtnText,
+                      { color: profile.isFollowing ? colors.text : "#fff" },
                     ]}
                   >
                     {profile.isFollowing ? "Đang theo dõi" : "Theo dõi"}
                   </Text>
-                </>
-              )}
+                )}
+              </Pressable>
+            )}
+            <Pressable
+              onPress={async () => {
+                try {
+                  const { Share } = await import("react-native");
+                  await Share.share({
+                    message: `Xem profile ${profile.userName} trên PlanGo`,
+                  });
+                } catch {}
+              }}
+              style={({ pressed }) => [
+                styles.igBtn,
+                { flex: 1, backgroundColor: colors.inputBg, opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Text style={[styles.igBtnText, { color: colors.text }]}>Chia sẻ profile</Text>
             </Pressable>
-          )}
-        </LinearGradient>
+          </View>
+        </View>
 
         {/* Tab switcher */}
         <View
@@ -330,20 +344,24 @@ function StatItem({
   label: string;
   onPress?: () => void;
 }) {
+  const { isDark } = useSettings();
+  const colors = useThemeColors(isDark);
   return (
     <Pressable
       onPress={onPress}
       disabled={!onPress}
       style={({ pressed }) => [styles.statItem, { opacity: pressed && onPress ? 0.7 : 1 }]}
     >
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
+      <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
     </Pressable>
   );
 }
 
 function StatDivider() {
-  return <View style={styles.statSeparator} />;
+  const { isDark } = useSettings();
+  const colors = useThemeColors(isDark);
+  return <View style={[styles.statSeparator, { backgroundColor: colors.divider }]} />;
 }
 
 function BlogList({
@@ -435,21 +453,24 @@ const styles = StyleSheet.create({
 
   hero: {
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 14,
     alignItems: "center",
-    gap: 8,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    gap: 6,
   },
   avatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.5)",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
   },
-  avatarInitial: { fontSize: 32, fontFamily: "Inter_700Bold", color: "#fff" },
-  userName: { fontSize: 20, fontFamily: "Inter_700Bold", color: "#fff", marginTop: 8 },
+  avatarInitial: { fontSize: 28, fontFamily: "Inter_700Bold", color: "#fff" },
+  userName: { fontSize: 18, fontFamily: "Inter_700Bold", marginTop: 6 },
+  igBtn: {
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  igBtnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   levelBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -465,22 +486,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.15)",
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderRadius: 14,
+    borderWidth: 1,
     marginTop: 12,
     width: "100%",
   },
   statItem: { flex: 1, alignItems: "center" },
-  statValue: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#fff" },
+  statValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
   statLabel: {
     fontSize: 10,
     fontFamily: "Inter_500Medium",
-    color: "rgba(255,255,255,0.85)",
     marginTop: 2,
   },
-  statSeparator: { width: 1, height: 26, backgroundColor: "rgba(255,255,255,0.3)" },
+  statSeparator: { width: 1, height: 26, backgroundColor: "rgba(0,0,0,0.1)" },
 
   followBtn: {
     marginTop: 14,

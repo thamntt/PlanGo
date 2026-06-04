@@ -19,7 +19,7 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest } from "@/lib/api/query-client";
-import { useToggleFollow } from "@/hooks/queries/use-user-community";
+import { useToggleFollow, useUserProfile } from "@/hooks/queries/use-user-community";
 
 interface ConnectionEdge {
   userId: number;
@@ -55,6 +55,8 @@ export default function ConnectionsScreen() {
   const colors = useThemeColors(isDark);
   const { user: me } = useAuth();
   const toggleFollow = useToggleFollow();
+  const ownerProfileQuery = useUserProfile(userId);
+  const ownerName = ownerProfileQuery.data?.userName || "";
 
   const [tab, setTab] = useState<Tab>(initialTab);
   const [sort, setSort] = useState<SortMode>("default");
@@ -129,9 +131,11 @@ export default function ConnectionsScreen() {
           ]}
           hitSlop={8}
         >
-          <Ionicons name="arrow-back" size={20} color={colors.text} />
+          <Ionicons name="close" size={22} color={colors.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Kết nối</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+          {ownerName}
+        </Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -152,7 +156,7 @@ export default function ConnectionsScreen() {
               { color: tab === "followers" ? colors.primary : colors.textSecondary },
             ]}
           >
-            Người theo dõi
+            Followers
           </Text>
           <Text
             style={[
@@ -176,7 +180,7 @@ export default function ConnectionsScreen() {
               { color: tab === "following" ? colors.primary : colors.textSecondary },
             ]}
           >
-            Đang theo dõi
+            Following
           </Text>
           <Text
             style={[
@@ -190,11 +194,7 @@ export default function ConnectionsScreen() {
       </View>
 
       {/* Sort chips */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.sortRow}
-      >
+      <View style={styles.sortRow}>
         {(
           [
             { key: "default", label: "Mặc định" },
@@ -223,7 +223,7 @@ export default function ConnectionsScreen() {
             </Text>
           </Pressable>
         ))}
-      </ScrollView>
+      </View>
 
       {/* List */}
       {activeQuery.isLoading ? (
@@ -409,9 +409,22 @@ const styles = StyleSheet.create({
   tabBtnText: { fontSize: 12, fontFamily: "Inter_700Bold" },
   tabBtnCount: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
 
-  sortRow: { paddingHorizontal: 16, gap: 6, paddingBottom: 12 },
-  sortChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, borderWidth: 1 },
-  sortChipText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  sortRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  sortChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sortChipText: { fontSize: 12, fontFamily: "Inter_700Bold" },
 
   row: {
     flexDirection: "row",

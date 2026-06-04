@@ -173,12 +173,25 @@ export default function BlogDetailScreen() {
                   />
                 </Pressable>
                 {isOwn ? (
-                  <Pressable
-                    onPress={handleDeletePost}
-                    style={({ pressed }) => [styles.floatBtn, { opacity: pressed ? 0.85 : 1 }]}
-                  >
-                    <Ionicons name="trash-outline" size={20} color="#fff" />
-                  </Pressable>
+                  <>
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: "/community/blog/create",
+                          params: { editId: String(post.postId) },
+                        })
+                      }
+                      style={({ pressed }) => [styles.floatBtn, { opacity: pressed ? 0.85 : 1 }]}
+                    >
+                      <Ionicons name="create-outline" size={20} color="#fff" />
+                    </Pressable>
+                    <Pressable
+                      onPress={handleDeletePost}
+                      style={({ pressed }) => [styles.floatBtn, { opacity: pressed ? 0.85 : 1 }]}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#fff" />
+                    </Pressable>
+                  </>
                 ) : user ? (
                   <Pressable
                     onPress={() => setReportOpen(true)}
