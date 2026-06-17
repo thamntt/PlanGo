@@ -13,7 +13,7 @@ services:
     # transpile step that would normally produce server_dist/.
     buildCommand: npm install --legacy-peer-deps
     startCommand: npx tsx server/index.ts
-    healthCheckPath: /api/preferences
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
