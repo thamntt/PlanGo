@@ -11,7 +11,9 @@ services:
     branch: dev
     # Keep build minimal; tsx runs TypeScript directly so we skip the
     # transpile step that would normally produce server_dist/.
-    buildCommand: npm install --legacy-peer-deps
+    # `--include=dev` forces dev deps to install even when NODE_ENV=production
+    # so the `patch-package` postinstall script (devDependency) can run.
+    buildCommand: npm install --legacy-peer-deps --include=dev
     startCommand: npx tsx server/index.ts
     healthCheckPath: /api/health
     envVars:
