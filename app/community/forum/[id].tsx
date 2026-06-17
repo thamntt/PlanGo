@@ -41,6 +41,7 @@ import { CommentReplies } from "@/features/community/CommentReplies";
 import { CommentActionSheet, type ActionItem } from "@/features/community/CommentActionSheet";
 import { PollBlock } from "@/features/community/PollBlock";
 import { useToast } from "@/contexts/ToastContext";
+import { useConfirm } from "@/contexts/ConfirmContext";
 import { getForumCategory } from "@/features/community/categories";
 
 const EDIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
@@ -65,6 +66,7 @@ export default function ThreadDetailScreen() {
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const toast = useToast();
+  const { confirm } = useConfirm();
   const threadQuery = useForumThread(threadId);
   const repliesQuery = useForumReplies(threadId);
   const createReply = useCreateForumReply();
@@ -202,23 +204,20 @@ export default function ThreadDetailScreen() {
     [threadId, createReply],
   );
 
-  const handleDeleteThread = useCallback(() => {
+  const handleDeleteThread = useCallback(async () => {
     if (!threadId) return;
-    const doDel = async () => {
-      try {
-        await deleteThread.mutateAsync(threadId);
-        router.back();
-      } catch {}
-    };
-    if (Platform.OS === "web") {
-      if (confirm("Xóa câu hỏi này?")) doDel();
-    } else {
-      Alert.alert("Xóa câu hỏi", "Câu hỏi sẽ bị xóa vĩnh viễn", [
-        { text: "Hủy", style: "cancel" },
-        { text: "Xóa", style: "destructive", onPress: doDel },
-      ]);
-    }
-  }, [threadId, deleteThread]);
+    const ok = await confirm({
+      title: "Xóa câu hỏi?",
+      message: "Câu hỏi và mọi câu trả lời sẽ bị xóa vĩnh viễn.",
+      destructive: true,
+      confirmText: "Xóa",
+    });
+    if (!ok) return;
+    try {
+      await deleteThread.mutateAsync(threadId);
+      router.back();
+    } catch {}
+  }, [threadId, deleteThread, confirm]);
 
   const startEditThread = useCallback(() => {
     if (!thread) return;

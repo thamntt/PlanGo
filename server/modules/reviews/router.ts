@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { asyncHandler, sendResponse } from "../../lib/http";
 import { errors } from "../../lib/errors";
 import { validate, numericIdParam } from "../../middlewares/validate";
-import { requireAuth } from "../../middlewares/auth";
+import { requireAuth, optionalAuth } from "../../middlewares/auth";
 import {
   listReviewsQuerySchema,
   createReviewInputSchema,
@@ -13,7 +13,7 @@ import * as svc from "./service";
 import { engagementRepo } from "./engagement";
 
 async function listReviews(req: Request, res: Response) {
-  const data = await svc.listReviews((req as any).validatedQuery);
+  const data = await svc.listReviews((req as any).validatedQuery, req.auth?.id);
   sendResponse(res, 200, "Reviews retrieved successfully", data);
 }
 async function createReview(req: Request, res: Response) {
@@ -38,7 +38,7 @@ async function deleteReview(req: Request, res: Response) {
 async function voteReview(req: Request, res: Response) {
   const reviewUserId = Number(req.params.reviewUserId);
   const reviewTripId = Number(req.params.reviewTripId);
-  const voterUserId = Number((req as any).user?.userId);
+  const voterUserId = Number(req.auth?.id);
   const voteType = req.body?.voteType as "helpful" | "not_helpful";
   if (!voterUserId) throw errors.unauthorized();
   if (voteType !== "helpful" && voteType !== "not_helpful") {
@@ -53,51 +53,18 @@ async function voteReview(req: Request, res: Response) {
 async function unvoteReview(req: Request, res: Response) {
   const reviewUserId = Number(req.params.reviewUserId);
   const reviewTripId = Number(req.params.reviewTripId);
-  const voterUserId = Number((req as any).user?.userId);
+  const voterUserId = Number(req.auth?.id);
   if (!voterUserId) throw errors.unauthorized();
   const summary = await engagementRepo.removeVote(reviewUserId, reviewTripId, voterUserId);
   engagementRepo.recomputeReviewerStats(reviewUserId).catch(() => {});
   sendResponse(res, 200, "Vote removed", summary);
 }
 
-async function listReplies(req: Request, res: Response) {
-  const reviewUserId = Number(req.params.reviewUserId);
-  const reviewTripId = Number(req.params.reviewTripId);
-  const data = await engagementRepo.listReplies(reviewUserId, reviewTripId);
-  sendResponse(res, 200, "Replies retrieved", data);
-}
-
-async function createReply(req: Request, res: Response) {
-  const reviewUserId = Number(req.params.reviewUserId);
-  const reviewTripId = Number(req.params.reviewTripId);
-  const authorId = Number((req as any).user?.userId);
-  const content = (req.body?.content ?? "").toString().trim();
-  if (!authorId) throw errors.unauthorized();
-  if (!content || content.length < 2) throw errors.badRequest("Nội dung quá ngắn");
-  if (content.length > 1000) throw errors.badRequest("Nội dung quá dài");
-  const r = await engagementRepo.createReply({
-    parentReviewUserId: reviewUserId,
-    parentReviewTripId: reviewTripId,
-    authorId,
-    content,
-  });
-  sendResponse(res, 201, "Reply created", r);
-}
-
-async function deleteReply(req: Request, res: Response) {
-  const replyId = Number(req.params.replyId);
-  const authorId = Number((req as any).user?.userId);
-  if (!authorId) throw errors.unauthorized();
-  const ok = await engagementRepo.deleteReply(replyId, authorId);
-  if (!ok) throw errors.notFound("Reply");
-  sendResponse(res, 200, "Reply deleted", null);
-}
-
 async function reportContent(req: Request, res: Response) {
-  const reporterId = Number((req as any).user?.userId);
+  const reporterId = Number(req.auth?.id);
   if (!reporterId) throw errors.unauthorized();
   const { contentType, contentRefId, reason, details } = req.body ?? {};
-  if (!["review", "reply", "blog", "qa"].includes(contentType)) {
+  if (!["review", "blog", "qa"].includes(contentType)) {
     throw errors.badRequest("Invalid contentType");
   }
   if (!contentRefId) throw errors.badRequest("contentRefId required");
@@ -113,7 +80,12 @@ async function reportContent(req: Request, res: Response) {
 }
 
 export function registerReviewRoutes(app: Express) {
-  app.get("/api/reviews", validate({ query: listReviewsQuerySchema }), asyncHandler(listReviews));
+  app.get(
+    "/api/reviews",
+    optionalAuth,
+    validate({ query: listReviewsQuerySchema }),
+    asyncHandler(listReviews),
+  );
   app.post(
     "/api/reviews",
     requireAuth,
@@ -140,12 +112,5 @@ export function registerReviewRoutes(app: Express) {
     requireAuth,
     asyncHandler(unvoteReview),
   );
-  app.get("/api/reviews/:reviewUserId/:reviewTripId/replies", asyncHandler(listReplies));
-  app.post(
-    "/api/reviews/:reviewUserId/:reviewTripId/replies",
-    requireAuth,
-    asyncHandler(createReply),
-  );
-  app.delete("/api/reviews/replies/:replyId", requireAuth, asyncHandler(deleteReply));
   app.post("/api/reports", requireAuth, asyncHandler(reportContent));
 }

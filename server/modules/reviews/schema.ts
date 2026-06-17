@@ -21,6 +21,8 @@ export const createReviewInputSchema = z.object({
   poiId: numericId.optional(),
   rating: z.union([z.string(), z.number()]).transform(Number).pipe(z.number().min(0).max(5)),
   comment: z.string().nullable().optional(),
+  // Photo URLs or data URIs — cap at 10 (mirrors blog/forum limits).
+  photos: z.array(z.string()).max(10).nullable().optional(),
 });
 export type CreateReviewInput = z.infer<typeof createReviewInputSchema>;
 

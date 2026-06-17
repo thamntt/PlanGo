@@ -199,7 +199,9 @@ export default function CreateTripScreen() {
 
   // Mode selection — null = show picker; "ai" = AI flow; "manual" = self-design.
   // When editing, skip picker (editing existing trip uses the form directly).
-  const [mode, setMode] = useState<"ai" | "manual" | null>(isEditing ? "manual" : null);
+  const [mode, setMode] = useState<"ai" | "manual" | null>(
+    isEditing ? (editingItinerary?.generatedByAi ? "ai" : "manual") : null,
+  );
 
   const [showStartingSuggestions, setShowStartingSuggestions] = useState(false);
   const [showDestSuggestions, setShowDestSuggestions] = useState(false);
@@ -404,6 +406,21 @@ export default function CreateTripScreen() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const [aiProvider, setAiProvider] = useState<string | null>(null);
+  const [loadingStep, setLoadingStep] = useState(0);
+
+  // Cycle through 3 loading steps every 3 seconds while AI is generating
+  React.useEffect(() => {
+    if (!loading) {
+      setLoadingStep(0);
+      return;
+    }
+    const t = setInterval(() => {
+      setLoadingStep((s) => (s + 1) % 3);
+    }, 3000);
+    return () => clearInterval(t);
+  }, [loading]);
+
   const fetchAIDays = async (): Promise<ItineraryDay[] | null> => {
     try {
       // For multi-destination: pass primary as `destination` (backward compat)
@@ -420,6 +437,7 @@ export default function CreateTripScreen() {
         numPeople: parseInt(numPeople) || 2,
         preferences: selectedPrefs,
       } as any);
+      if (data?.provider) setAiProvider(String(data.provider));
       if (data?.days && Array.isArray(data.days)) {
         return data.days as ItineraryDay[];
       }
@@ -527,6 +545,7 @@ export default function CreateTripScreen() {
           numPeople: parseInt(numPeople) || 2,
           preferences: selectedPrefs,
           userId: user!.id,
+          generatedByAi: true,
         } as any);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         router.replace({ pathname: "/itinerary/[id]", params: { id: itin.id } });
@@ -556,6 +575,7 @@ export default function CreateTripScreen() {
         numPeople: parseInt(numPeople) || 2,
         preferences: selectedPrefs,
         userId: user!.id,
+        generatedByAi: true,
         days: previewDays,
       } as any);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -701,23 +721,96 @@ export default function CreateTripScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Simplified AI Loading Modal */}
-      <Modal visible={loading} transparent animationType="fade">
+      {/* AI Loading — modern animated sheet */}
+      <Modal visible={loading} transparent animationType="fade" statusBarTranslucent>
         <View style={styles.loadingOverlay}>
           <BlurView
-            intensity={20}
+            intensity={30}
             tint={isDark ? "dark" : "light"}
             style={StyleSheet.absoluteFill}
           />
           <View
             style={[
-              styles.loadingCard,
-              { backgroundColor: colors.card, borderColor: colors.inputBorder },
+              styles.aiLoadingCard,
+              { backgroundColor: colors.background, borderColor: colors.cardBorder },
             ]}
           >
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.loadingText, { color: colors.text }]}>
-              AI đang phân tích và tạo chuyến đi của bạn, vui lòng chờ...
+            <LinearGradient
+              colors={[colors.primary + "26", colors.primary + "00"]}
+              style={styles.aiLoadingHeroGlow}
+              pointerEvents="none"
+            />
+            <View style={[styles.aiLoadingIconWrap, { backgroundColor: colors.primary + "14" }]}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <View
+                style={[styles.aiLoadingSparkle, { backgroundColor: colors.primary }]}
+              >
+                <Ionicons name="sparkles" size={14} color="#fff" />
+              </View>
+            </View>
+            <Text style={[styles.aiLoadingTitle, { color: colors.text }]}>
+              AI đang lên lịch trình
+            </Text>
+            <Text style={[styles.aiLoadingSub, { color: colors.textSecondary }]}>
+              Sắp xếp địa điểm, kiểm tra giờ mở cửa, ước tính chi phí…
+            </Text>
+            <View style={styles.aiLoadingSteps}>
+              {[
+                "Phân tích sở thích & ngân sách",
+                "Chọn POI phù hợp khung giờ",
+                "Lấy rating + giờ MC từ Google Maps",
+              ].map((label, idx) => {
+                const isActive = idx === loadingStep;
+                const isDone = idx < loadingStep;
+                const dotColor = isActive
+                  ? colors.primary
+                  : isDone
+                    ? colors.primary + "AA"
+                    : colors.primary + "33";
+                const textColor = isActive
+                  ? colors.text
+                  : isDone
+                    ? colors.textSecondary
+                    : colors.textTertiary;
+                return (
+                  <View key={idx} style={styles.aiLoadingStep}>
+                    <View
+                      style={[
+                        styles.aiStepDot,
+                        {
+                          backgroundColor: dotColor,
+                          transform: [{ scale: isActive ? 1.3 : 1 }],
+                        },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.aiStepText,
+                        {
+                          color: textColor,
+                          fontFamily: isActive ? "Inter_700Bold" : "Inter_500Medium",
+                        },
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                    {isDone && (
+                      <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+            <Text style={[styles.aiLoadingHint, { color: colors.textTertiary }]}>
+              {(() => {
+                // Empirical: ~25s base + ~8s/day. Show a ±10s window so users
+                // who finish at the low end aren't surprised by the high end.
+                const lo = Math.max(20, 25 + Math.max(0, tripDays) * 8 - 10);
+                const hi = 25 + Math.max(0, tripDays) * 8 + 10;
+                return tripDays > 0
+                  ? `⏱ Thường mất ${lo}-${hi} giây cho chuyến ${tripDays} ngày`
+                  : "⏱ Thường mất 30-50 giây";
+              })()}
             </Text>
           </View>
         </View>
@@ -1877,7 +1970,10 @@ export default function CreateTripScreen() {
           <View style={[styles.previewAiBadge, { backgroundColor: colors.primary + "15" }]}>
             <Ionicons name="sparkles" size={16} color={colors.primary} />
             <Text style={[styles.previewAiBadgeText, { color: colors.primary }]}>
-              Lịch trình được tạo bởi AI (Gemini)
+              Lịch trình được tạo bởi AI
+              {aiProvider
+                ? ` (${aiProvider === "gemini" ? "Gemini" : aiProvider === "openai" ? "OpenAI" : aiProvider})`
+                : ""}
             </Text>
           </View>
 
@@ -1964,105 +2060,141 @@ export default function CreateTripScreen() {
                       };
                       const accentColor = typeColors[act.activityType || "other"] || colors.primary;
 
+                      const isLastInDay = actIdx === day.activities.length - 1;
+                      const hasThumb = !!(act as any).thumbnail;
                       return (
-                        <View
-                          key={actIdx}
-                          style={[
-                            styles.previewActivityCard,
-                            {
-                              backgroundColor: colors.card,
-                              borderColor: colors.cardBorder || colors.inputBorder,
-                            },
-                          ]}
-                        >
+                        <View key={actIdx} style={styles.tlRow}>
+                          {/* Timeline column */}
+                          <View style={styles.tlCol}>
+                            <View
+                              style={[
+                                styles.tlDot,
+                                { backgroundColor: accentColor, borderColor: colors.background },
+                              ]}
+                            >
+                              <Ionicons name={iconName as any} size={11} color="#fff" />
+                            </View>
+                            {!isLastInDay && (
+                              <View style={[styles.tlLine, { backgroundColor: colors.divider }]} />
+                            )}
+                          </View>
+                          {/* Activity card */}
                           <View
                             style={[
-                              styles.previewActTimeBadge,
-                              { backgroundColor: accentColor + "20" },
+                              styles.actCardV2,
+                              {
+                                backgroundColor: colors.card,
+                                borderColor: colors.cardBorder || colors.inputBorder,
+                              },
                             ]}
                           >
-                            <Ionicons name={iconName as any} size={14} color={accentColor} />
-                            <Text style={[styles.previewActTime, { color: accentColor }]}>
-                              {act.time}
-                            </Text>
-                          </View>
-                          <Text style={[styles.previewActTitle, { color: colors.text }]}>
-                            {act.title}
-                          </Text>
-                          {act.rating ? (
-                            <View style={styles.previewActMetaItem}>
-                              <Ionicons name="star" size={12} color="#F5A623" />
-                              <Text
-                                style={[
-                                  styles.previewActMetaText,
-                                  { color: "#F5A623", fontFamily: "Inter_600SemiBold" },
-                                ]}
-                              >
-                                {act.rating.toFixed(1)}
-                              </Text>
+                            <View style={styles.actCardRow}>
+                              <View style={{ flex: 1, gap: 4 }}>
+                                <View style={styles.actHeader}>
+                                  <Text
+                                    style={[styles.actTimeV2, { color: accentColor }]}
+                                  >
+                                    {act.time}
+                                  </Text>
+                                  {act.duration ? (
+                                    <Text
+                                      style={[styles.actDuration, { color: colors.textTertiary }]}
+                                    >
+                                      · {act.duration}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                                <Text
+                                  style={[styles.actTitleV2, { color: colors.text }]}
+                                  numberOfLines={2}
+                                >
+                                  {act.title}
+                                </Text>
+                                {/* Inline rating + open hours */}
+                                <View style={styles.actInlineRow}>
+                                  {act.rating ? (
+                                    <View style={styles.actChip}>
+                                      <Ionicons name="star" size={11} color="#F5A623" />
+                                      <Text
+                                        style={[styles.actChipText, { color: "#F5A623" }]}
+                                      >
+                                        {act.rating.toFixed(1)}
+                                      </Text>
+                                      {(act as any).reviewCount ? (
+                                        <Text
+                                          style={[
+                                            styles.actChipText,
+                                            { color: colors.textTertiary },
+                                          ]}
+                                        >
+                                          ({(act as any).reviewCount})
+                                        </Text>
+                                      ) : null}
+                                    </View>
+                                  ) : null}
+                                  {(act as any).openHours ? (
+                                    <View style={styles.actChip}>
+                                      <Ionicons
+                                        name="time-outline"
+                                        size={11}
+                                        color={colors.textSecondary}
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.actChipText,
+                                          { color: colors.textSecondary },
+                                        ]}
+                                        numberOfLines={1}
+                                      >
+                                        {(act as any).openHours}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                  {act.estimatedCost > 0 ? (
+                                    <View style={styles.actChip}>
+                                      <Ionicons
+                                        name="cash-outline"
+                                        size={11}
+                                        color={colors.textSecondary}
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.actChipText,
+                                          {
+                                            color: colors.textSecondary,
+                                            fontFamily: "Inter_700Bold",
+                                          },
+                                        ]}
+                                      >
+                                        {formatVND(act.estimatedCost)}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                </View>
+                                {act.address ? (
+                                  <View style={styles.actAddrRow}>
+                                    <Ionicons
+                                      name="location"
+                                      size={11}
+                                      color={colors.textTertiary}
+                                    />
+                                    <Text
+                                      style={[styles.actAddrText, { color: colors.textTertiary }]}
+                                      numberOfLines={1}
+                                    >
+                                      {act.address}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                              {hasThumb && (
+                                <Image
+                                  source={{ uri: (act as any).thumbnail }}
+                                  style={styles.actThumb}
+                                  contentFit="cover"
+                                />
+                              )}
                             </View>
-                          ) : null}
-                          {act.description ? (
-                            <Text
-                              style={[styles.previewActDesc, { color: colors.textSecondary }]}
-                              numberOfLines={3}
-                            >
-                              {act.description}
-                            </Text>
-                          ) : null}
-                          <View style={styles.previewActMeta}>
-                            {act.duration ? (
-                              <View style={styles.previewActMetaItem}>
-                                <Ionicons
-                                  name="time-outline"
-                                  size={12}
-                                  color={colors.textTertiary}
-                                />
-                                <Text
-                                  style={[
-                                    styles.previewActMetaText,
-                                    { color: colors.textTertiary },
-                                  ]}
-                                >
-                                  {act.duration}
-                                </Text>
-                              </View>
-                            ) : null}
-                            {act.estimatedCost > 0 ? (
-                              <View style={styles.previewActMetaItem}>
-                                <Ionicons
-                                  name="cash-outline"
-                                  size={12}
-                                  color={colors.textTertiary}
-                                />
-                                <Text
-                                  style={[
-                                    styles.previewActMetaText,
-                                    { color: colors.textTertiary },
-                                  ]}
-                                >
-                                  {formatVND(act.estimatedCost)}
-                                </Text>
-                              </View>
-                            ) : null}
-                            {act.address ? (
-                              <View style={[styles.previewActMetaItem, { flex: 1 }]}>
-                                <Ionicons
-                                  name="location-outline"
-                                  size={12}
-                                  color={colors.textTertiary}
-                                />
-                                <Text
-                                  style={[
-                                    styles.previewActMetaText,
-                                    { color: colors.textTertiary },
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {act.address}
-                                </Text>
-                              </View>
-                            ) : null}
                           </View>
                         </View>
                       );
@@ -2398,13 +2530,119 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     color: "#fff",
   },
+
+  // ── Redesigned preview activity card (timeline + thumb + chips) ──
+  tlRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  tlCol: { width: 22, alignItems: "center" },
+  tlDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 14,
+  },
+  tlLine: { width: 2, flex: 1, marginTop: 2 },
+  actCardV2: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+  },
+  actCardRow: { flexDirection: "row", gap: 10 },
+  actHeader: { flexDirection: "row", alignItems: "center", gap: 4 },
+  actTimeV2: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  actDuration: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  actTitleV2: { fontSize: 14, fontFamily: "Inter_700Bold", lineHeight: 18 },
+  actInlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    marginTop: 4,
+  },
+  actChip: { flexDirection: "row", alignItems: "center", gap: 3 },
+  actChipText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  actAddrRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  actAddrText: { fontSize: 11, fontFamily: "Inter_500Medium", flex: 1 },
+  actThumb: { width: 60, height: 60, borderRadius: 10 },
+
   // AI Loading Modal Styles
   loadingOverlay: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 32,
-    backgroundColor: "rgba(0,0,0,0.2)",
+    padding: 24,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  aiLoadingCard: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingTop: 32,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  aiLoadingHeroGlow: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 140,
+  },
+  aiLoadingIconWrap: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+  aiLoadingSparkle: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  aiLoadingTitle: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  aiLoadingSub: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    lineHeight: 19,
+    marginBottom: 18,
+    paddingHorizontal: 8,
+  },
+  aiLoadingSteps: {
+    alignSelf: "stretch",
+    gap: 10,
+    marginBottom: 18,
+  },
+  aiLoadingStep: { flexDirection: "row", alignItems: "center", gap: 10 },
+  aiStepDot: { width: 8, height: 8, borderRadius: 4 },
+  aiStepText: { fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
+  aiLoadingHint: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    textAlign: "center",
   },
   loadingCard: {
     width: "100%",

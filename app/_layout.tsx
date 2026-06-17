@@ -16,7 +16,7 @@ import { queryClient } from "@/lib/api/query-client";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import { ToastProvider } from "@/contexts/ToastContext";
-import GlobalLoading from "@/components/GlobalLoading";
+import { ConfirmProvider } from "@/contexts/ConfirmContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -116,8 +116,9 @@ export default function RootLayout() {
             <SettingsProvider>
               <AuthProvider>
                 <ToastProvider>
-                  <GlobalLoading />
-                  <RootLayoutNav />
+                  <ConfirmProvider>
+                    <RootLayoutNav />
+                  </ConfirmProvider>
                 </ToastProvider>
               </AuthProvider>
             </SettingsProvider>

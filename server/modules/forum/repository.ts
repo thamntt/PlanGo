@@ -26,6 +26,23 @@ interface ListFilters {
   followingOnly?: boolean;
 }
 
+const FORUM_LABEL_TO_KEY: Record<string, string[]> = {
+  "câu hỏi": ["question"],
+  "thảo luận": ["discussion"],
+  mẹo: ["tip"],
+  "mẹo hay": ["tip"],
+  "gợi ý": ["recommendation"],
+};
+
+function resolveForumCategoryKeys(search: string): string[] {
+  const q = search.trim().toLowerCase();
+  const keys = new Set<string>();
+  for (const [label, ks] of Object.entries(FORUM_LABEL_TO_KEY)) {
+    if (label.includes(q) || q.includes(label)) ks.forEach((k) => keys.add(k));
+  }
+  return [...keys];
+}
+
 export const forumRepo = {
   async listThreads(filters: ListFilters = {}, viewerId?: number) {
     let query = db
@@ -63,8 +80,20 @@ export const forumRepo = {
     if (filters.category) conds.push(eq(forumThreads.category, filters.category));
     if (filters.status) conds.push(eq(forumThreads.status, filters.status));
     if (filters.search) {
+      const q = `%${filters.search}%`;
+      const catKeys = resolveForumCategoryKeys(filters.search);
       conds.push(
-        sql`(${forumThreads.title} ILIKE ${`%${filters.search}%`} OR ${forumThreads.body} ILIKE ${`%${filters.search}%`})`,
+        sql`(
+          ${forumThreads.title} ILIKE ${q}
+          OR ${forumThreads.body} ILIKE ${q}
+          OR ${destinations.name} ILIKE ${q}
+          OR EXISTS (
+            SELECT 1 FROM ${forumThreadTags} ftt
+            JOIN ${communityTags} ct ON ct.tag_id = ftt.tag_id
+            WHERE ftt.thread_id = ${forumThreads.threadId} AND ct.name ILIKE ${q}
+          )
+          ${catKeys.length ? sql`OR ${forumThreads.category} IN (${sql.join(catKeys.map((k) => sql`${k}`), sql`, `)})` : sql``}
+        )`,
       );
     }
     if (filters.sort === "unanswered") {

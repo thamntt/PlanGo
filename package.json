@@ -5,7 +5,7 @@
   "scripts": {
     "postinstall": "patch-package",
     "expo:dev": "npx expo start --web -c",
-    "expo:lan": "npx expo start --lan -c",
+    "expo:lan": "node scripts/start-expo-lan.mjs",
     "expo:tunnel": "npx expo start --tunnel -c",
     "server:dev": "cross-env NODE_ENV=development tsx --watch server/index.ts",
     "expo:start:static:build": "npx expo start --no-dev --minify --localhost",
@@ -74,6 +74,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-draggable-flatlist": "^4.0.3",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-keyboard-controller": "^1.20.6",
     "react-native-reanimated": "~4.1.1",

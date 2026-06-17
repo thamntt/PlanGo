@@ -65,7 +65,7 @@ const BlogAdmin: React.FC = () => {
       if (search.trim()) params.set("q", search.trim());
       if (categoryFilter !== "all") params.set("category", categoryFilter);
       const res = await apiRequest("GET", `/api/blog/posts?${params.toString()}`);
-      setPosts(res.data || []);
+      setPosts(Array.isArray(res) ? res : []);
     } catch (err) {
       console.error("Failed to fetch blog posts", err);
     } finally {
@@ -82,7 +82,7 @@ const BlogAdmin: React.FC = () => {
     setDetailContent(null);
     try {
       const res = await apiRequest("GET", `/api/blog/posts/${post.postId}`);
-      setDetailContent(res.data || res);
+      setDetailContent(res);
     } catch {
       setDetailContent({ error: "Không tải được nội dung" });
     }

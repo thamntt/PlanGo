@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api/query-client";
 import { mapItinerary } from "@/lib/mappers";
 import type { Itinerary } from "@/types";
@@ -27,6 +27,16 @@ export function useTrips(filters?: ListTripsFilters) {
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapItinerary);
     },
+    // Short freshness window so optimistic mutations still feel instant, but
+    // returning to the app (a joiner accepted an invite while we were on
+    // another screen) refetches and surfaces the new member without F5.
+    staleTime: 15_000,
+    refetchOnWindowFocus: "always",
+    refetchOnMount: true,
+    // KEEP the previous list visible while refetching — fixes the flicker
+    // where Companions tab momentarily dropped to "just owner" during a
+    // refetch because `itinerary.companions` briefly became empty.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -40,6 +50,10 @@ export function useTrip(id: string | number | undefined) {
       return data ? mapItinerary(data) : null;
     },
     enabled: id !== undefined && id !== null && id !== "",
+    // Same window — detail mutations invalidate explicitly, so 60s of cache
+    // freshness saves the cold detail fetch when bouncing between tabs.
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -65,9 +79,47 @@ export function useUpdateTrip() {
       const result = await unwrap<any>(res);
       return mapItinerary(result);
     },
-    onSuccess: (_, vars) => {
+    onMutate: async ({ id, data }) => {
+      await qc.cancelQueries({ queryKey: queryKeys.trips() });
+      const prevDetail = qc.getQueryData<Itinerary>(queryKeys.tripDetail(id));
+      const prevLists: Array<{ key: readonly unknown[]; data: Itinerary[] }> = [];
+      qc.getQueriesData<Itinerary[]>({ queryKey: ["trips", "list"] }).forEach(
+        ([key, listData]) => {
+          if (listData) {
+            prevLists.push({ key, data: listData });
+            qc.setQueryData<Itinerary[]>(
+              key,
+              listData.map((t) =>
+                String(t.id) === String(id) ? ({ ...t, ...data } as Itinerary) : t,
+              ),
+            );
+          }
+        },
+      );
+      if (prevDetail) {
+        qc.setQueryData<Itinerary>(queryKeys.tripDetail(id), {
+          ...prevDetail,
+          ...data,
+        } as Itinerary);
+      }
+      return { prevDetail, prevLists };
+    },
+    onError: (_err, vars, context: any) => {
+      if (context?.prevDetail) {
+        qc.setQueryData(queryKeys.tripDetail(vars.id), context.prevDetail);
+      }
+      if (context?.prevLists) {
+        for (const entry of context.prevLists as Array<{
+          key: readonly unknown[];
+          data: Itinerary[];
+        }>) {
+          qc.setQueryData(entry.key, entry.data);
+        }
+      }
+    },
+    onSettled: (_, __, vars) => {
       qc.invalidateQueries({ queryKey: queryKeys.tripDetail(vars.id) });
-      qc.invalidateQueries({ queryKey: queryKeys.tripList() });
+      qc.invalidateQueries({ queryKey: ["trips", "list"] });
     },
   });
 }
@@ -101,7 +153,10 @@ export function useGenerateItinerary() {
   >({
     mutationFn: async (input) => {
       const res = await apiRequest("POST", "/api/generate-itinerary", input);
-      return res.json();
+      const json = await res.json();
+      // BE returns { status, message, data: { days, ... } } — unwrap so the
+      // caller can read `.days` directly.
+      return "data" in json ? json.data : json;
     },
   });
 }

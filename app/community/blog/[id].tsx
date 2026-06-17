@@ -39,6 +39,7 @@ import { AdminBadge } from "@/features/community/AdminBadge";
 import { CommentItem } from "@/features/community/CommentItem";
 import { CommentReplies } from "@/features/community/CommentReplies";
 import { useToast } from "@/contexts/ToastContext";
+import { useConfirm } from "@/contexts/ConfirmContext";
 import { getBlogCategory } from "@/features/community/categories";
 
 function stripMarkdown(input: string): string {
@@ -61,6 +62,7 @@ export default function BlogDetailScreen() {
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const toast = useToast();
+  const { confirm } = useConfirm();
   const postQuery = useBlogPost(postId);
   const commentsQuery = useBlogComments(postId);
   const toggleLike = useToggleBlogLike();
@@ -191,23 +193,20 @@ export default function BlogDetailScreen() {
     [postId, togglePinComment],
   );
 
-  const handleDeletePost = useCallback(() => {
+  const handleDeletePost = useCallback(async () => {
     if (!postId) return;
-    const doDelete = async () => {
-      try {
-        await deletePost.mutateAsync(postId);
-        router.back();
-      } catch {}
-    };
-    if (Platform.OS === "web") {
-      if (confirm("Xóa bài viết này?")) doDelete();
-    } else {
-      Alert.alert("Xóa bài viết", "Bài viết sẽ bị xóa vĩnh viễn", [
-        { text: "Hủy", style: "cancel" },
-        { text: "Xóa", style: "destructive", onPress: doDelete },
-      ]);
-    }
-  }, [postId, deletePost]);
+    const ok = await confirm({
+      title: "Xóa bài viết?",
+      message: "Bài viết sẽ bị xóa vĩnh viễn và không thể khôi phục.",
+      destructive: true,
+      confirmText: "Xóa",
+    });
+    if (!ok) return;
+    try {
+      await deletePost.mutateAsync(postId);
+      router.back();
+    } catch {}
+  }, [postId, deletePost, confirm]);
 
   if (postQuery.isLoading) {
     return (

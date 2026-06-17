@@ -15,6 +15,13 @@ async function listDestinations(req: Request, res: Response) {
   const data = await svc.listDestinations((req as any).validatedQuery);
   sendResponse(res, 200, "Destinations retrieved successfully", data);
 }
+
+async function popularDestinations(req: Request, res: Response) {
+  const raw = Number(req.query.limit);
+  const limit = Number.isFinite(raw) && raw > 0 && raw <= 50 ? raw : 10;
+  const data = await svc.popularDestinations(limit);
+  sendResponse(res, 200, "Popular destinations retrieved", data);
+}
 async function getDestinationById(req: Request, res: Response) {
   const { id } = (req as any).validatedParams;
   const data = await svc.getDestinationById(id);
@@ -60,6 +67,7 @@ export function registerDestinationRoutes(app: Express) {
     validate({ query: listDestinationsQuerySchema }),
     asyncHandler(listDestinations),
   );
+  app.get("/api/destinations/popular", asyncHandler(popularDestinations));
   app.get(
     "/api/destinations/:id",
     validate({ params: numericIdParam }),

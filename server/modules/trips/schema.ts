@@ -21,25 +21,26 @@ const optionalNumeric = z
 
 export const activityInputSchema = z.object({
   id: z.union([z.string(), z.number()]).optional(),
-  poiId: z.union([z.string(), z.number()]).optional(),
+  poiId: z.union([z.string(), z.number(), z.null()]).optional(),
   title: z.string().min(1),
-  description: z.string().optional(),
-  time: z.string().optional(), // "HH:mm"
-  duration: z.union([z.string(), z.number()]).optional(),
-  estimatedCost: z.union([z.string(), z.number()]).optional(),
+  description: z.string().nullable().optional(),
+  time: z.string().nullable().optional(), // "HH:mm"
+  duration: z.union([z.string(), z.number(), z.null()]).optional(),
+  estimatedCost: z.union([z.string(), z.number(), z.null()]).optional(),
   actualCost: z.union([z.string(), z.number(), z.null()]).optional(),
   activityType: z
     .enum(["food", "sightseeing", "transport", "shopping", "hotel", "other"])
+    .nullable()
     .optional(),
-  expenseTypeId: z.union([z.string(), z.number()]).optional(),
-  latitude: z.union([z.string(), z.number()]).optional(),
-  longitude: z.union([z.string(), z.number()]).optional(),
-  address: z.string().optional(),
-  googlePlaceId: z.string().optional(),
-  destinationId: z.union([z.string(), z.number()]).optional(),
+  expenseTypeId: z.union([z.string(), z.number(), z.null()]).optional(),
+  latitude: z.union([z.string(), z.number(), z.null()]).optional(),
+  longitude: z.union([z.string(), z.number(), z.null()]).optional(),
+  address: z.string().nullable().optional(),
+  googlePlaceId: z.string().nullable().optional(),
+  destinationId: z.union([z.string(), z.number(), z.null()]).optional(),
   isCompleted: z.boolean().optional(),
   note: z.string().nullable().optional(),
-  notes: z.array(z.string()).optional(), // legacy
+  notes: z.array(z.string()).nullable().optional(), // legacy
 });
 
 export type ActivityInput = z.infer<typeof activityInputSchema>;
@@ -49,10 +50,10 @@ export type ActivityInput = z.infer<typeof activityInputSchema>;
 export const dayInputSchema = z.object({
   day: z.number().int().positive().optional(),
   dayIndex: z.number().int().positive().optional(),
-  dayId: z.union([z.string(), z.number()]).optional(),
-  id: z.union([z.string(), z.number()]).optional(),
-  title: z.string().optional(),
-  activities: z.array(activityInputSchema).optional(),
+  dayId: z.union([z.string(), z.number(), z.null()]).optional(),
+  id: z.union([z.string(), z.number(), z.null()]).optional(),
+  title: z.string().nullable().optional(),
+  activities: z.array(activityInputSchema).nullable().optional(),
 });
 
 export type DayInput = z.infer<typeof dayInputSchema>;
@@ -86,7 +87,9 @@ export type TripExpenseInput = z.infer<typeof tripExpenseInputSchema>;
 // ── Trip create ──
 
 export const createTripInputSchema = z.object({
-  title: z.string().min(1, "Title is required"),
+  // Optional — service auto-derives from `destination` / `destinations` if
+  // missing. FE doesn't always send it.
+  title: z.string().min(1).optional(),
   startDate: z.string().min(1, "startDate is required"),
   endDate: z.string().min(1, "endDate is required"),
   budget: z.union([z.string(), z.number()]).optional(),
@@ -94,9 +97,22 @@ export const createTripInputSchema = z.object({
   status: z.enum(["draft", "active", "completed"]).optional(),
   destination: z.string().optional(),
   destinationId: positiveInt.optional(),
+  // Multi-destination breakdown — service uses this to build a chained title
+  // ("Chuyến đi Đà Nẵng → Hội An → Huế") and to allocate days per city.
+  destinations: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        days: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
+  startingPoint: z.string().optional(),
+  totalBudget: z.number().nonnegative().optional(),
   ownerId: positiveInt.optional(),
   userId: positiveInt.optional(),
   preferences: z.array(z.string()).optional(),
+  generatedByAi: z.boolean().optional(),
   days: z.array(dayInputSchema).optional(),
 });
 

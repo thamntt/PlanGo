@@ -100,6 +100,7 @@ export function mapItinerary(i: any): Itinerary {
     resetCount: i.resetCount ?? i.reset_count ?? 0,
     isShared: i.isShared ?? i.is_shared ?? false,
     ownerName: i.ownerName,
+    generatedByAi: i.generatedByAi ?? i.generated_by_ai ?? false,
     createdAt: i.createdAt ?? i.created_at ?? new Date().toISOString(),
   };
 }
@@ -152,6 +153,10 @@ export function mapReview(r: any): Review {
   if (lvl) review.userReviewerLevel = lvl;
   const rc = r.userReviewCount ?? r.user_review_count;
   if (rc !== undefined && rc !== null) review.userReviewCount = Number(rc);
+  const hc = r.helpfulCount ?? r.helpful_count;
+  if (hc !== undefined && hc !== null) review.helpfulCount = Number(hc);
+  const vv = r.viewerVotedHelpful ?? r.viewer_voted_helpful;
+  if (vv !== undefined && vv !== null) review.viewerVotedHelpful = Boolean(vv);
 
   return review as Review;
 }

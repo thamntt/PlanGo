@@ -105,6 +105,9 @@ const Trips: React.FC = () => {
                   Người sở hữu
                 </th>
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Quy mô
+                </th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Tài chính
                 </th>
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
@@ -129,10 +132,15 @@ const Trips: React.FC = () => {
                           <span className="text-sm font-black text-slate-800 truncate">
                             {trip.title}
                           </span>
-                          <div className="flex items-center gap-1.5 text-slate-400">
+                          {trip.destination && (
+                            <span className="text-[10px] font-bold text-primary uppercase tracking-wider mt-0.5 truncate">
+                              {trip.destination}
+                            </span>
+                          )}
+                          <div className="flex items-center gap-1.5 text-slate-400 mt-0.5">
                             <Calendar size={12} />
                             <span className="text-xs font-bold truncate">
-                              {trip.startDate} - {trip.endDate}
+                              {trip.startDate} → {trip.endDate}
                             </span>
                           </div>
                         </div>
@@ -155,8 +163,22 @@ const Trips: React.FC = () => {
                           <span className="text-xs font-bold text-slate-700 truncate">
                             {owner?.fullName || "Không tên"}
                           </span>
-                          <span className="text-[10px] text-slate-400 font-medium">Người tạo</span>
+                          {(trip.companions?.length || 0) > 1 && (
+                            <span className="text-[10px] text-emerald-600 font-bold">
+                              +{(trip.companions?.length || 0) - 1} bạn đồng hành
+                            </span>
+                          )}
                         </div>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-black text-slate-700">
+                          {trip.days?.length || 0} ngày
+                        </span>
+                        <span className="text-xs font-bold text-slate-400">
+                          {trip.numPeople || 1} người
+                        </span>
                       </div>
                     </td>
                     <td className="px-8 py-6">
@@ -164,9 +186,16 @@ const Trips: React.FC = () => {
                         <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
                           <DollarSign size={14} />
                         </div>
-                        <span className="text-sm font-black text-slate-700 tracking-tight">
-                          {trip.budget ? trip.budget : formatVND(trip.totalBudget || 0)}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-black text-slate-700 tracking-tight">
+                            {formatVND(trip.totalBudget || 0)}
+                          </span>
+                          {(trip.spentAmount || 0) > 0 && (
+                            <span className="text-[10px] font-bold text-amber-600">
+                              Đã chi {formatVND(trip.spentAmount || 0)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-8 py-6 text-center">
@@ -177,7 +206,7 @@ const Trips: React.FC = () => {
               })}
               {filteredTrips.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-8 py-10 text-center text-slate-500 text-sm">
+                  <td colSpan={5} className="px-8 py-10 text-center text-slate-500 text-sm">
                     Không tìm thấy chuyến đi nào.
                   </td>
                 </tr>

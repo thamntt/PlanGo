@@ -14,6 +14,7 @@ export const userCommunityRepo = {
         userName: users.userName,
         fullName: users.fullName,
         avatarUrl: users.avatarUrl,
+        bio: users.bio,
         reviewerLevel: users.reviewerLevel,
         reviewCount: users.reviewCount,
         helpfulReceived: users.helpfulReceived,

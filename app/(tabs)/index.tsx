@@ -241,7 +241,7 @@ export default function ExploreScreen() {
   const destinations = destinationsQuery.data ?? [];
   const isLoading = destinationsQuery.isLoading;
 
-  // Search across name, address, tags
+  // Search across name, address, tags, and destination type ("Thành phố biển đảo"…)
   const filteredDestinations = useMemo(() => {
     return destinations.filter((d) => {
       if (!d.isActive) return false;
@@ -250,6 +250,7 @@ export default function ExploreScreen() {
       return (
         d.name.toLowerCase().includes(q) ||
         d.address.toLowerCase().includes(q) ||
+        d.category?.toLowerCase().includes(q) ||
         d.tags.some((tag) => tag.toLowerCase().includes(q))
       );
     });
@@ -600,6 +601,7 @@ export default function ExploreScreen() {
         onClose={() => setSearchOpen(false)}
         onSubmit={(q) => setSearch(q)}
         placeholder="Tìm điểm đến, thành phố, hoạt động..."
+        context="destination"
       />
     </View>
   );

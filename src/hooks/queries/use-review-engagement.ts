@@ -4,8 +4,9 @@
  * - threaded replies (GET/POST/DELETE)
  * - content reports (POST)
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api/query-client";
+import { queryKeys } from "./keys";
 
 async function unwrap<T>(res: Response): Promise<T> {
   const json = await res.json();
@@ -37,6 +38,9 @@ export function useVoteReview() {
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["reviewVotes", vars.reviewUserId, vars.reviewTripId] });
+      // Mark every cached reviews list as stale so the next mount fetches
+      // up-to-date helpfulCount / viewerVotedHelpful from the server.
+      qc.invalidateQueries({ queryKey: queryKeys.reviews() });
     },
   });
 }
@@ -50,68 +54,11 @@ export function useRemoveVote() {
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["reviewVotes", vars.reviewUserId, vars.reviewTripId] });
+      qc.invalidateQueries({ queryKey: queryKeys.reviews() });
     },
   });
 }
 
-// ──────────────────────────────────────────────────────────────
-// Replies
-// ──────────────────────────────────────────────────────────────
-
-export interface ReviewReply {
-  replyId: number;
-  parentReviewUserId: number;
-  parentReviewTripId: number;
-  authorId: number;
-  authorName: string;
-  authorAvatarUrl?: string | null;
-  content: string;
-  createdAt: string;
-}
-
-export function useReviewReplies(reviewUserId?: number, reviewTripId?: number) {
-  return useQuery<ReviewReply[]>({
-    queryKey: ["reviewReplies", reviewUserId, reviewTripId],
-    queryFn: async () => {
-      if (!reviewUserId || !reviewTripId) return [];
-      const res = await apiRequest("GET", `/api/reviews/${reviewUserId}/${reviewTripId}/replies`);
-      return unwrap<ReviewReply[]>(res);
-    },
-    enabled: !!reviewUserId && !!reviewTripId,
-    staleTime: 30 * 1000,
-  });
-}
-
-export function useCreateReply() {
-  const qc = useQueryClient();
-  return useMutation<
-    ReviewReply,
-    Error,
-    { reviewUserId: number; reviewTripId: number; content: string }
-  >({
-    mutationFn: async ({ reviewUserId, reviewTripId, content }) => {
-      const res = await apiRequest("POST", `/api/reviews/${reviewUserId}/${reviewTripId}/replies`, {
-        content,
-      });
-      return unwrap<ReviewReply>(res);
-    },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["reviewReplies", vars.reviewUserId, vars.reviewTripId] });
-    },
-  });
-}
-
-export function useDeleteReply() {
-  const qc = useQueryClient();
-  return useMutation<void, Error, { replyId: number; reviewUserId: number; reviewTripId: number }>({
-    mutationFn: async ({ replyId }) => {
-      await apiRequest("DELETE", `/api/reviews/replies/${replyId}`);
-    },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["reviewReplies", vars.reviewUserId, vars.reviewTripId] });
-    },
-  });
-}
 
 // ──────────────────────────────────────────────────────────────
 // Reports
@@ -139,7 +86,7 @@ export function useReportContent() {
     any,
     Error,
     {
-      contentType: "review" | "reply" | "blog" | "qa";
+      contentType: "review" | "blog" | "qa";
       contentRefId: string;
       reason: ReportReason;
       details?: string;

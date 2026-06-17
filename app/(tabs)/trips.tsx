@@ -14,6 +14,8 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Animated,
+  ActivityIndicator,
+  Share,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -29,9 +31,16 @@ import { useScrollToTop } from "@react-navigation/native";
 import { SearchOverlay } from "@/features/community/SearchOverlay";
 import { StickyFilterBar } from "@/features/community/StickyFilterBar";
 import { useTrips, useUpdateTrip, useDeleteTrip } from "@/hooks/queries/use-trips";
+import {
+  useReceivedInvitations,
+  useAcceptInvitation,
+  useDeclineInvitation,
+} from "@/hooks/queries/use-invitations";
+import { SkeletonCard } from "@/components/Skeleton";
 import { useDestinations } from "@/hooks/queries/use-destinations";
 import { useReviews, useCreateReview } from "@/hooks/queries/use-reviews";
 import { t } from "@/lib/i18n";
+import { useConfirm } from "@/contexts/ConfirmContext";
 import type { Itinerary, Destination } from "@/types";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -59,6 +68,19 @@ const STATUS_META: Record<
     icon: "checkmark-done-circle",
   },
 };
+
+// Format date for the card chip — accepts both "YYYY-MM-DD" (DB) and
+// "DD-MM-YYYY" (legacy form input). Returns "DD/MM".
+function formatDayMonth(d?: string): string {
+  if (!d) return "—";
+  // ISO yyyy-mm-dd
+  const iso = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}`;
+  // dd-mm-yyyy
+  const dmy = d.match(/^(\d{2})-(\d{2})-(\d{4})/);
+  if (dmy) return `${dmy[1]}/${dmy[2]}`;
+  return d.slice(0, 10);
+}
 
 // Distinguish "upcoming" (active but startDate > today) vs "active" (in-progress)
 function getDisplayStatus(item: Itinerary): "draft" | "upcoming" | "active" | "completed" {
@@ -188,7 +210,7 @@ function TripCard({
         <View style={cardStyles.stat}>
           <Ionicons name="calendar-outline" size={13} color={colors.textSecondary} />
           <Text style={[cardStyles.statText, { color: colors.textSecondary }]} numberOfLines={1}>
-            {item.startDate?.slice(0, 5)} → {item.endDate?.slice(0, 5)}
+            {formatDayMonth(item.startDate)} → {formatDayMonth(item.endDate)}
           </Text>
         </View>
         <View style={[cardStyles.statDivider, { backgroundColor: colors.divider }]} />
@@ -259,7 +281,12 @@ export default function TripsScreen() {
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
+  const { confirm } = useConfirm();
   const tripsQuery = useTrips(user ? { memberId: Number(user.id) } : undefined);
+  const receivedInvitesQuery = useReceivedInvitations();
+  const receivedInvitations = receivedInvitesQuery.data ?? [];
+  const acceptInvitationMut = useAcceptInvitation();
+  const declineInvitationMut = useDeclineInvitation();
   const updateTrip = useUpdateTrip();
   const deleteTrip = useDeleteTrip();
   const { data: destinations = [] } = useDestinations();
@@ -310,34 +337,30 @@ export default function TripsScreen() {
     );
   }, [itineraries, activeFilter, search]);
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const trip = itineraries.find((i) => i.id === id);
     const isJoinedTrip = trip && user && String(trip.userId) !== String(user.id);
     if (isJoinedTrip) {
-      const doLeave = () => {
-        const updated = (trip.companions || []).filter(
-          (c) => String(c.userId) !== String(user!.id),
-        );
-        updateTrip.mutate({ id, data: { companions: updated } });
-      };
-      if (Platform.OS === "web") {
-        if (window.confirm(t().itinerary.leaveTripMsg)) doLeave();
-      } else {
-        Alert.alert(t().itinerary.leaveTrip, t().itinerary.leaveTripMsg, [
-          { text: t().common.cancel, style: "cancel" },
-          { text: t().itinerary.leaveTrip, style: "destructive", onPress: doLeave },
-        ]);
-      }
+      const ok = await confirm({
+        title: t().itinerary.leaveTrip,
+        message: t().itinerary.leaveTripMsg,
+        destructive: true,
+        confirmText: t().itinerary.leaveTrip,
+        icon: "exit-outline",
+      });
+      if (!ok) return;
+      const updated = (trip!.companions || []).filter(
+        (c) => String(c.userId) !== String(user!.id),
+      );
+      updateTrip.mutate({ id, data: { companions: updated } });
     } else {
-      const doDelete = () => deleteTrip.mutate(id);
-      if (Platform.OS === "web") {
-        if (window.confirm(t().trips.deleteMessage)) doDelete();
-      } else {
-        Alert.alert(t().trips.deleteTitle, t().trips.deleteMessage, [
-          { text: t().common.cancel, style: "cancel" },
-          { text: t().common.delete, style: "destructive", onPress: doDelete },
-        ]);
-      }
+      const ok = await confirm({
+        title: t().trips.deleteTitle,
+        message: t().trips.deleteMessage,
+        destructive: true,
+        confirmText: t().common.delete,
+      });
+      if (ok) deleteTrip.mutate(id);
     }
   };
 
@@ -370,7 +393,6 @@ export default function TripsScreen() {
   };
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
-  const firstName = user?.fullName?.split(" ").slice(-1)[0] || "bạn";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -394,7 +416,7 @@ export default function TripsScreen() {
               destination={destObj}
               colors={colors}
               onPress={() => router.push({ pathname: "/itinerary/[id]", params: { id: item.id } })}
-              onMenu={() => handleDelete(item.id)}
+              onMenu={() => setMenuTarget(item)}
               isJoined={!!user && String(item.userId) !== String(user.id)}
               isReviewed={isReviewed}
             />
@@ -413,42 +435,155 @@ export default function TripsScreen() {
           <View>
             {/* Hero */}
             <View style={[styles.hero, { paddingTop: insets.top + webTopInset + 12 }]}>
-              <Text style={[styles.greeting, { color: colors.textSecondary }]}>
-                Xin chào, {firstName}
-              </Text>
               <Text style={[styles.heroTitle, { color: colors.text }]}>Chuyến đi của bạn</Text>
             </View>
 
-            {/* Stats row */}
-            <View style={styles.statsRow}>
-              <StatTile
-                icon="time"
-                label="Sắp tới"
-                value={stats.upcoming}
-                color="#3B82F6"
-                colors={colors}
-                active={activeFilter === "upcoming"}
-                onPress={() => setActiveFilter(activeFilter === "upcoming" ? "all" : "upcoming")}
-              />
-              <StatTile
-                icon="airplane"
-                label="Đang đi"
-                value={stats.active}
-                color="#10B981"
-                colors={colors}
-                active={activeFilter === "active"}
-                onPress={() => setActiveFilter(activeFilter === "active" ? "all" : "active")}
-              />
-              <StatTile
-                icon="checkmark-done-circle"
-                label="Đã đi"
-                value={stats.completed}
-                color="#8B5CF6"
-                colors={colors}
-                active={activeFilter === "completed"}
-                onPress={() => setActiveFilter(activeFilter === "completed" ? "all" : "completed")}
-              />
-            </View>
+            {/* Lời mời nhận được — only renders when there's at least one
+                pending invitation. Each row has Accept/Decline so the user
+                can act without leaving the Trips screen. */}
+            {receivedInvitations.length > 0 && (
+              <View style={inviteSectionStyles.wrap}>
+                <View style={inviteSectionStyles.header}>
+                  <Ionicons name="mail-unread" size={16} color={colors.primary} />
+                  <Text
+                    style={[
+                      inviteSectionStyles.headerText,
+                      { color: colors.primary },
+                    ]}
+                  >
+                    LỜI MỜI NHẬN ĐƯỢC ({receivedInvitations.length})
+                  </Text>
+                </View>
+                {receivedInvitations.map((inv) => {
+                  const busy =
+                    acceptInvitationMut.isPending ||
+                    declineInvitationMut.isPending;
+                  return (
+                    <View
+                      key={inv.id}
+                      style={[
+                        inviteSectionStyles.card,
+                        {
+                          backgroundColor: colors.card,
+                          borderColor: colors.cardBorder,
+                        },
+                      ]}
+                    >
+                      <View style={inviteSectionStyles.topRow}>
+                        {inv.inviterAvatarUrl ? (
+                          <Image
+                            source={{ uri: inv.inviterAvatarUrl }}
+                            style={inviteSectionStyles.avatar}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              inviteSectionStyles.avatar,
+                              { backgroundColor: colors.primary },
+                            ]}
+                          >
+                            <Text style={inviteSectionStyles.avatarText}>
+                              {(inv.inviterName ||
+                                inv.inviterUserName ||
+                                "?")
+                                .charAt(0)
+                                .toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              inviteSectionStyles.title,
+                              { color: colors.text },
+                            ]}
+                            numberOfLines={2}
+                          >
+                            <Text style={{ fontFamily: "Inter_700Bold" }}>
+                              {inv.inviterName ||
+                                inv.inviterUserName ||
+                                "Ai đó"}
+                            </Text>
+                            {" mời bạn tham gia "}
+                            <Text style={{ fontFamily: "Inter_700Bold" }}>
+                              "{inv.tripTitle || "chuyến đi"}"
+                            </Text>
+                          </Text>
+                          <Text
+                            style={[
+                              inviteSectionStyles.meta,
+                              { color: colors.textSecondary },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {inv.role === "editor"
+                              ? "Vai trò: Chỉnh sửa"
+                              : "Vai trò: Chỉ xem"}
+                            {inv.tripStartDate && inv.tripEndDate
+                              ? ` · ${inv.tripStartDate} → ${inv.tripEndDate}`
+                              : ""}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={inviteSectionStyles.actions}>
+                        <Pressable
+                          onPress={() => declineInvitationMut.mutate(inv.id)}
+                          disabled={busy}
+                          style={({ pressed }) => [
+                            inviteSectionStyles.btn,
+                            {
+                              backgroundColor: colors.inputBg,
+                              opacity: pressed || busy ? 0.6 : 1,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              inviteSectionStyles.btnText,
+                              { color: colors.text },
+                            ]}
+                          >
+                            Từ chối
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => {
+                            Haptics.notificationAsync(
+                              Haptics.NotificationFeedbackType.Success,
+                            );
+                            acceptInvitationMut.mutate(inv.id);
+                          }}
+                          disabled={busy}
+                          style={({ pressed }) => [
+                            inviteSectionStyles.btn,
+                            {
+                              backgroundColor: colors.primary,
+                              opacity: pressed || busy ? 0.6 : 1,
+                              flex: 1,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={14}
+                            color="#fff"
+                          />
+                          <Text
+                            style={[
+                              inviteSectionStyles.btnText,
+                              { color: "#fff" },
+                            ]}
+                          >
+                            Đồng ý tham gia
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
 
             {/* Search bar (tap → overlay) */}
             <Pressable
@@ -490,6 +625,10 @@ export default function TripsScreen() {
             >
               {FILTERS.map((f) => {
                 const isActive = activeFilter === f.key;
+                const count =
+                  f.key === "all"
+                    ? itineraries.length
+                    : (stats as Record<string, number>)[f.key] || 0;
                 return (
                   <Pressable
                     key={f.key}
@@ -512,7 +651,7 @@ export default function TripsScreen() {
                       color={isActive ? "#fff" : colors.textSecondary}
                     />
                     <Text style={[styles.filterText, { color: isActive ? "#fff" : colors.text }]}>
-                      {f.label}
+                      {f.label} ({count})
                     </Text>
                   </Pressable>
                 );
@@ -528,33 +667,41 @@ export default function TripsScreen() {
           </View>
         }
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <View style={[styles.emptyIcon, { backgroundColor: colors.primary + "15" }]}>
-              <MaterialCommunityIcons
-                name="bag-suitcase-outline"
-                size={44}
-                color={colors.primary}
-              />
+          tripsQuery.isLoading || tripsQuery.isPending ? (
+            <View style={{ paddingHorizontal: 20, gap: 14 }}>
+              <SkeletonCard height={132} />
+              <SkeletonCard height={132} />
+              <SkeletonCard height={132} />
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              {activeFilter === "all" ? "Chưa có chuyến đi nào" : "Không có chuyến đi"}
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
-              {activeFilter === "all"
-                ? "Hãy bắt đầu hành trình đầu tiên của bạn"
-                : "Thử filter khác hoặc tạo chuyến đi mới"}
-            </Text>
-            <Pressable
-              onPress={() => router.push("/create-trip")}
-              style={({ pressed }) => [
-                styles.emptyCta,
-                { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
-              ]}
-            >
-              <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.emptyCtaText}>Tạo chuyến đi mới</Text>
-            </Pressable>
-          </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={[styles.emptyIcon, { backgroundColor: colors.primary + "15" }]}>
+                <MaterialCommunityIcons
+                  name="bag-suitcase-outline"
+                  size={44}
+                  color={colors.primary}
+                />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                {activeFilter === "all" ? "Chưa có chuyến đi nào" : "Không có chuyến đi"}
+              </Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textTertiary }]}>
+                {activeFilter === "all"
+                  ? "Hãy bắt đầu hành trình đầu tiên của bạn"
+                  : "Thử filter khác hoặc tạo chuyến đi mới"}
+              </Text>
+              <Pressable
+                onPress={() => router.push("/create-trip")}
+                style={({ pressed }) => [
+                  styles.emptyCta,
+                  { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+                <Text style={styles.emptyCtaText}>Tạo chuyến đi mới</Text>
+              </Pressable>
+            </View>
+          )
         }
         ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
       />
@@ -708,54 +855,163 @@ export default function TripsScreen() {
         onClose={() => setSearchOpen(false)}
         onSubmit={(q) => setSearch(q)}
         placeholder="Tìm chuyến đi theo tên hoặc điểm đến..."
+        context="trip"
       />
+
+      <Modal
+        visible={!!menuTarget}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMenuTarget(null)}
+      >
+        {menuTarget && (() => {
+          const target = menuTarget;
+          const isOwnerTrip = String(target.userId) === String(user?.id);
+          // Editor members can mark status too — find the viewer's companion
+          // record to read their role. Owner is always editor for this check.
+          const viewerCompanion = (target.companions || []).find(
+            (c: any) => String(c.userId) === String(user?.id),
+          );
+          const viewerRole = (viewerCompanion as any)?.role as
+            | "owner"
+            | "editor"
+            | "viewer"
+            | undefined;
+          const canEditStatus = isOwnerTrip || viewerRole === "editor";
+          const status = target.status as "draft" | "active" | "completed";
+          const nextLabel =
+            status === "draft"
+              ? "Bắt đầu chuyến đi"
+              : status === "active"
+                ? "Đánh dấu đã hoàn thành"
+                : "Khởi tạo lại";
+          const nextIcon: keyof typeof Ionicons.glyphMap =
+            status === "draft"
+              ? "play-circle"
+              : status === "active"
+                ? "checkmark-circle"
+                : "refresh-circle";
+          const nextColor =
+            status === "draft"
+              ? colors.primary
+              : status === "active"
+                ? colors.success
+                : "#6366F1";
+          const nextStatus =
+            status === "draft" ? "active" : status === "active" ? "completed" : "draft";
+          return (
+            <Pressable
+              style={tripMenuStyles.overlay}
+              onPress={() => setMenuTarget(null)}
+            >
+              <Pressable
+                onPress={(e) => e.stopPropagation()}
+                style={[tripMenuStyles.sheet, { backgroundColor: colors.card }]}
+              >
+                <View style={tripMenuStyles.handle} />
+                <View style={tripMenuStyles.header}>
+                  <Text
+                    style={[tripMenuStyles.title, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {target.title}
+                  </Text>
+                  <Text style={[tripMenuStyles.sub, { color: colors.textTertiary }]}>
+                    {target.destination} · {target.startDate} → {target.endDate}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    setMenuTarget(null);
+                    // Open trip detail directly on the invite (share) modal
+                    // — replaces the old native Share sheet which only sent a
+                    // text message, not the actual invite flow.
+                    router.push({
+                      pathname: "/itinerary/[id]",
+                      params: { id: target.id, action: "invite" },
+                    });
+                  }}
+                  style={({ pressed }) => [
+                    tripMenuStyles.item,
+                    { opacity: pressed ? 0.6 : 1 },
+                  ]}
+                >
+                  <Ionicons name="person-add-outline" size={20} color={colors.text} />
+                  <Text style={[tripMenuStyles.itemText, { color: colors.text }]}>
+                    Mời bạn đồng hành
+                  </Text>
+                </Pressable>
+                {canEditStatus && (
+                  <Pressable
+                    onPress={() => {
+                      setMenuTarget(null);
+                      router.push({
+                        pathname: "/itinerary/[id]",
+                        params: { id: target.id, autoStatus: nextStatus },
+                      });
+                    }}
+                    style={({ pressed }) => [
+                      tripMenuStyles.item,
+                      { opacity: pressed ? 0.6 : 1 },
+                    ]}
+                  >
+                    <Ionicons name={nextIcon} size={20} color={nextColor} />
+                    <Text style={[tripMenuStyles.itemText, { color: colors.text }]}>
+                      {nextLabel}
+                    </Text>
+                  </Pressable>
+                )}
+                <View
+                  style={[tripMenuStyles.divider, { backgroundColor: colors.cardBorder }]}
+                />
+                {isOwnerTrip ? (
+                  <Pressable
+                    onPress={() => {
+                      const id = target.id;
+                      setMenuTarget(null);
+                      handleDelete(id);
+                    }}
+                    style={({ pressed }) => [
+                      tripMenuStyles.item,
+                      { opacity: pressed ? 0.6 : 1 },
+                    ]}
+                  >
+                    <Ionicons name="trash-outline" size={20} color={colors.error} />
+                    <Text style={[tripMenuStyles.itemText, { color: colors.error }]}>
+                      Xoá chuyến đi
+                    </Text>
+                  </Pressable>
+                ) : (
+                  // Non-owner members get "Rời chuyến đi" — handleDelete
+                  // already routes joined trips through the leave flow so we
+                  // reuse it; the label/icon make the intent clear.
+                  <Pressable
+                    onPress={() => {
+                      const id = target.id;
+                      setMenuTarget(null);
+                      handleDelete(id);
+                    }}
+                    style={({ pressed }) => [
+                      tripMenuStyles.item,
+                      { opacity: pressed ? 0.6 : 1 },
+                    ]}
+                  >
+                    <Ionicons name="exit-outline" size={20} color={colors.error} />
+                    <Text style={[tripMenuStyles.itemText, { color: colors.error }]}>
+                      Rời chuyến đi
+                    </Text>
+                  </Pressable>
+                )}
+              </Pressable>
+            </Pressable>
+          );
+        })()}
+      </Modal>
     </View>
   );
 }
 
 // ──────────────────────────────────────────────────────────────
-// Subcomponents
-// ──────────────────────────────────────────────────────────────
-
-function StatTile({
-  icon,
-  label,
-  value,
-  color,
-  colors,
-  active,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: number;
-  color: string;
-  colors: ThemeColors;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.statTile,
-        {
-          backgroundColor: colors.card,
-          borderColor: active ? color : colors.cardBorder,
-          borderWidth: active ? 2 : 1,
-          opacity: pressed ? 0.9 : 1,
-        },
-      ]}
-    >
-      <View style={[styles.statIcon, { backgroundColor: color + "1A" }]}>
-        <Ionicons name={icon} size={14} color={color} />
-      </View>
-      <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: colors.textTertiary }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 function MenuItem({
   icon,
   label,
@@ -801,32 +1057,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 6,
   },
-  greeting: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  heroTitle: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.4, marginTop: 2 },
-
-  statsRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 20,
-    marginTop: 16,
-  },
-  statTile: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 12,
-    alignItems: "center",
-    gap: 4,
-  },
-  statIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 2,
-  },
-  statValue: { fontSize: 20, fontFamily: "Inter_700Bold" },
-  statLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.3 },
+  heroTitle: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.4 },
 
   searchBar: {
     flexDirection: "row",
@@ -1039,4 +1270,87 @@ const cardStyles = StyleSheet.create({
     borderWidth: 1,
   },
   reviewHintText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+});
+
+const inviteSectionStyles = StyleSheet.create({
+  wrap: { marginHorizontal: 20, marginBottom: 12, gap: 10 },
+  header: { flexDirection: "row", alignItems: "center", gap: 6 },
+  headerText: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+  },
+  card: {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+  },
+  topRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { color: "#fff", fontSize: 15, fontFamily: "Inter_700Bold" },
+  title: { fontSize: 14, fontFamily: "Inter_500Medium", lineHeight: 19 },
+  meta: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 3 },
+  actions: { flexDirection: "row", gap: 8 },
+  btn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  btnText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+});
+
+const tripMenuStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.55)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    gap: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#D1D5DB",
+    alignSelf: "center",
+    marginBottom: 8,
+  },
+  header: { paddingHorizontal: 4, paddingBottom: 8, gap: 2 },
+  title: {
+    fontSize: 17,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -0.2,
+  },
+  sub: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  item: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+  },
+  itemText: { fontSize: 15, fontFamily: "Inter_600SemiBold", flex: 1 },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
 });

@@ -6,6 +6,14 @@ import { mapTripToFrontend } from "../../mappers/trip.mapper";
 import { parseCurrencyToNumeric } from "../../utils/currency";
 import { parseDateStringToISO } from "../../utils/date";
 import {
+  notifyTripStarted,
+  notifyTripCompleted,
+  notifyExpenseAdded,
+  notifyBudgetWarning,
+  notifyActivityCompleted,
+  notifyAiGenerated,
+} from "../../lib/notify";
+import {
   extractPlaceName,
   mapActivityTypeToExpenseId,
   mapExpenseIdToActivityType,
@@ -31,7 +39,22 @@ export async function listTrips(query: ListTripsQuery) {
   if (query.ownerId) items = await storage.getTripsByOwner(query.ownerId);
   else if (query.memberId) items = await storage.getTripsByMember(query.memberId);
   else items = await storage.getTrips();
-  return items.map(mapTripToFrontend);
+  // Isolate per-row mapping failures so one bad trip doesn't make the
+  // entire endpoint 500 (was causing the trips tab to render empty +
+  // companions to flicker between owner-only and full list).
+  return items
+    .map((trip) => {
+      try {
+        return mapTripToFrontend(trip);
+      } catch (err) {
+        logger.warn(
+          { err, tripId: trip?.tripId },
+          "Failed to map trip — skipping in list response",
+        );
+        return null;
+      }
+    })
+    .filter(Boolean);
 }
 
 export async function getTrip(id: number) {
@@ -64,6 +87,19 @@ export async function createTrip(input: CreateTripInput) {
     if (payload.budget) payload.budget = parseCurrencyToNumeric(payload.budget);
 
     if (payload.userId && !payload.ownerId) payload.ownerId = Number(payload.userId);
+
+    // Auto-derive title if FE didn't send one. For multi-destination trips,
+    // chain all city names with arrows (e.g. "Chuyến đi Đà Nẵng → Hội An → Huế").
+    if (!payload.title || !String(payload.title).trim()) {
+      const dests = Array.isArray(payload.destinations) ? payload.destinations : [];
+      if (dests.length > 1) {
+        payload.title = `Chuyến đi ${dests.map((d: any) => d.name).join(" → ")}`;
+      } else if (payload.destination) {
+        payload.title = `Chuyến đi ${payload.destination}`;
+      } else {
+        payload.title = "Chuyến đi mới";
+      }
+    }
 
     // Resolve destination name → id
     if (payload.destination && !payload.destinationId) {
@@ -101,6 +137,13 @@ export async function createTrip(input: CreateTripInput) {
     }
 
     const finalTrip = await storage.getTrip(trip.tripId);
+
+    // If this trip came from AI gen (FE sets `generatedByAi: true`), fire the
+    // ai_generated notification so it appears in the bell icon.
+    if (input.generatedByAi && payload.ownerId) {
+      notifyAiGenerated(payload.ownerId, payload.title, trip.tripId).catch(() => {});
+    }
+
     return mapTripToFrontend(finalTrip);
   });
 }
@@ -111,34 +154,37 @@ async function createTripDaysAndActivities(
   days: DayInput[],
   destinationId?: number,
 ) {
-  for (let i = 0; i < days.length; i++) {
-    const dayData = days[i];
-    let dayDate: string | undefined;
-    if (startDate) {
-      const d = new Date(startDate);
-      d.setDate(d.getDate() + (dayData.day ? dayData.day - 1 : i));
-      dayDate = d.toISOString().split("T")[0];
-    }
-
-    const createdDay = await storage.createItineraryDay({
-      tripId,
-      date: dayDate,
-      dayIndex: dayData.day || i + 1,
-      // @ts-ignore — title not in InsertItineraryDay type
-      title: dayData.title || `Ngày ${dayData.day || i + 1}`,
-    });
-
-    if (dayData.activities) {
-      let orderIndex = 0;
-      for (const activity of dayData.activities) {
-        try {
-          await createActivityItem(tripId, createdDay.dayId, activity, orderIndex++, destinationId);
-        } catch (err) {
-          logger.warn({ err, activity: activity.title }, "Failed to create itinerary item");
-        }
+  // Days run in parallel — each day's items also run in parallel inside.
+  // For a 3-day × 8-activity trip this drops save time from ~16s (sequential)
+  // to ~1-2s wall-clock on Neon edge.
+  await Promise.allSettled(
+    days.map(async (dayData, i) => {
+      let dayDate: string | undefined;
+      if (startDate) {
+        const d = new Date(startDate);
+        d.setDate(d.getDate() + (dayData.day ? dayData.day - 1 : i));
+        dayDate = d.toISOString().split("T")[0];
       }
-    }
-  }
+
+      const createdDay = await storage.createItineraryDay({
+        tripId,
+        date: dayDate,
+        dayIndex: dayData.day || i + 1,
+        // @ts-ignore — title not in InsertItineraryDay type
+        title: dayData.title || `Ngày ${dayData.day || i + 1}`,
+      });
+
+      if (!dayData.activities) return;
+      await Promise.allSettled(
+        dayData.activities.map((activity, orderIndex) =>
+          createActivityItem(tripId, createdDay.dayId, activity, orderIndex, destinationId).catch(
+            (err) =>
+              logger.warn({ err, activity: activity.title }, "Failed to create itinerary item"),
+          ),
+        ),
+      );
+    }),
+  );
 }
 
 async function createActivityItem(
@@ -156,7 +202,7 @@ async function createActivityItem(
         : parseCurrencyToNumeric(activity.estimatedCost)?.toString();
   }
 
-  const numDuration = normalizeDuration(activity.duration) ?? 60;
+  const numDuration = normalizeDuration(activity.duration ?? undefined) ?? 60;
   const resolvedPoiId = await resolvePoiForActivity(activity, destinationId);
 
   await storage.createItineraryItem({
@@ -164,7 +210,7 @@ async function createActivityItem(
     tripId,
     poiId: resolvedPoiId,
     customName: activity.title,
-    startTime: activity.time,
+    startTime: activity.time ?? undefined,
     duration: numDuration,
     orderIndex,
     note: null,
@@ -172,7 +218,7 @@ async function createActivityItem(
     status: activity.isCompleted ? "completed" : "pending",
     expenseTypeId: activity.expenseTypeId
       ? Number(activity.expenseTypeId)
-      : mapActivityTypeToExpenseId(activity.activityType),
+      : mapActivityTypeToExpenseId(activity.activityType ?? undefined),
     activityType:
       activity.activityType ||
       mapExpenseIdToActivityType(activity.expenseTypeId ? Number(activity.expenseTypeId) : null),
@@ -211,9 +257,9 @@ async function resolvePoiForActivity(
 
   await associatePreferencesToPoi(
     newPoi.poiId,
-    activity.activityType,
+    activity.activityType ?? undefined,
     activity.title,
-    activity.description,
+    activity.description ?? undefined,
   );
   return newPoi.poiId;
 }
@@ -240,6 +286,10 @@ export async function updateTrip(id: number, input: UpdateTripInput) {
     if (payload.endDate) payload.endDate = parseDateStringToISO(payload.endDate);
     if (payload.budget) payload.budget = parseCurrencyToNumeric(payload.budget);
 
+    // Capture prior status to detect transitions for notifications.
+    const prior = await storage.getTrip(id);
+    const priorStatus = prior?.status;
+
     const trip = await storage.updateTrip(id, payload);
     if (!trip) throw new AppError("TRIP_NOT_FOUND", "Trip not found");
 
@@ -250,6 +300,15 @@ export async function updateTrip(id: number, input: UpdateTripInput) {
 
     if (input.expenses && trip.status !== "completed") {
       await syncNestedExpenses(id, trip.ownerId, input.expenses);
+    }
+
+    // Fire trip-lifecycle notifications on status transition.
+    if (priorStatus !== trip.status) {
+      if (trip.status === "active") {
+        notifyTripStarted(id).catch(() => {});
+      } else if (trip.status === "completed") {
+        notifyTripCompleted(id).catch(() => {});
+      }
     }
 
     const finalTrip = await storage.getTrip(id);
@@ -304,13 +363,23 @@ async function syncNestedDays(tripId: number, days: DayInput[]) {
 
 async function syncNestedActivities(tripId: number, dayId: number, activities: ActivityInput[]) {
   const existingItems = await storage.getItineraryItemsByDay(dayId);
+  const existingById = new Map<number, any>();
+  for (const it of existingItems) existingById.set(it.itemId, it);
+
   const incomingIds = new Set<number>();
+  const completedTransitions: { title: string }[] = [];
   let orderIndex = 0;
 
   for (const act of activities) {
     const actId = act.id ? Number(act.id) : NaN;
     if (!isNaN(actId)) {
       incomingIds.add(actId);
+      const prior = existingById.get(actId);
+      const wasCompleted = prior?.status === "completed";
+      const willBeCompleted = !!act.isCompleted;
+      if (!wasCompleted && willBeCompleted) {
+        completedTransitions.push({ title: act.title || prior?.customName || "Hoạt động" });
+      }
       await updateExistingActivity(actId, act, orderIndex++);
     } else {
       try {
@@ -331,10 +400,16 @@ async function syncNestedActivities(tripId: number, dayId: number, activities: A
       }
     }
   }
+
+  // Fire activity_completed notifications (fire-and-forget). Capped to first 3
+  // per sync to avoid spamming when a batch save completes many at once.
+  for (const { title } of completedTransitions.slice(0, 3)) {
+    notifyActivityCompleted(tripId, title, 0, undefined).catch(() => {});
+  }
 }
 
 async function updateExistingActivity(actId: number, act: ActivityInput, orderIndex: number) {
-  const numDuration = normalizeDuration(act.duration);
+  const numDuration = normalizeDuration(act.duration ?? undefined);
   const updatePayload: Record<string, any> = {
     status: act.isCompleted ? "completed" : "pending",
     orderIndex,
@@ -346,21 +421,21 @@ async function updateExistingActivity(actId: number, act: ActivityInput, orderIn
   if (act.actualCost !== undefined) {
     updatePayload.actualCost = act.actualCost === null ? null : String(act.actualCost);
   }
-  if (act.expenseTypeId !== undefined) {
+  if (act.expenseTypeId !== undefined && act.expenseTypeId !== null) {
     const newExpId = act.expenseTypeId ? Number(act.expenseTypeId) : null;
-    updatePayload.expenseTypeId = newExpId || mapActivityTypeToExpenseId(act.activityType);
+    updatePayload.expenseTypeId = newExpId || mapActivityTypeToExpenseId(act.activityType ?? undefined);
   }
-  if (act.activityType !== undefined) {
+  if (act.activityType !== undefined && act.activityType !== null) {
     updatePayload.activityType =
       act.activityType ||
       mapExpenseIdToActivityType(act.expenseTypeId ? Number(act.expenseTypeId) : null);
   }
-  if (act.activityType !== undefined && act.expenseTypeId === undefined) {
+  if (act.activityType !== undefined && act.activityType !== null && act.expenseTypeId === undefined) {
     updatePayload.activityType = act.activityType || null;
     updatePayload.expenseTypeId = mapActivityTypeToExpenseId(act.activityType);
   }
 
-  if (act.notes !== undefined) {
+  if (act.notes !== undefined && act.notes !== null) {
     updatePayload.note = act.notes.length > 0 ? act.notes.join("\n---\n") : null;
   } else if (act.note !== undefined) {
     updatePayload.note = act.note || null;
@@ -504,5 +579,41 @@ export async function createTripExpense(tripId: number, body: any) {
   if (!trip) throw errors.notFound("Trip");
   if (trip.status === "completed")
     throw new AppError("TRIP_COMPLETED", "Cannot add expense to a completed trip");
-  return storage.createExpense({ ...body, tripId });
+  const created = await storage.createExpense({ ...body, tripId });
+
+  // Fire expense_added notification + check budget warning (fire-and-forget).
+  (async () => {
+    try {
+      const payerId = Number(body.paidBy || body.paidByUserId || trip.ownerId || 0);
+      const amount = Number(body.amount || 0);
+      const desc = body.description || body.title || "Khoản chi mới";
+      let payerName: string | undefined;
+      if (payerId) {
+        const payer = await storage.getUser(payerId).catch(() => null);
+        payerName = payer
+          ? (payer as any).fullName || (payer as any).userName
+          : undefined;
+      }
+      await notifyExpenseAdded(tripId, desc, amount, payerId, payerName);
+
+      // Budget warning: refetch all expenses to get accurate total, then check
+      // against trip budget. Fire once when crossing 80%/100% thresholds.
+      const budget = Number(trip.budget || 0);
+      if (budget > 0) {
+        const allExp = await storage.getExpensesByTrip(tripId);
+        const total = allExp.reduce((sum, e: any) => sum + Number(e.amount || 0), 0);
+        const pct = total / budget;
+        const priorPct = (total - amount) / budget;
+        const crossed80 = priorPct < 0.8 && pct >= 0.8;
+        const crossed100 = priorPct < 1.0 && pct >= 1.0;
+        if (crossed100 || crossed80) {
+          await notifyBudgetWarning(tripId, total, budget);
+        }
+      }
+    } catch (err) {
+      logger.warn({ err, tripId }, "Failed to fire expense notifications");
+    }
+  })();
+
+  return created;
 }

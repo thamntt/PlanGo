@@ -45,7 +45,7 @@ const Interests: React.FC = () => {
     setIsLoading(true);
     try {
       const data = await apiRequest("GET", "/api/preferences");
-      setInterests(data);
+      setInterests(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch interests:", error);
     } finally {

@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../../db";
 import {
   trips,
@@ -66,23 +66,46 @@ export const tripRepo = {
       db.select({ tripId: trips.tripId }).from(trips).where(eq(trips.ownerId, userId)),
     ]);
 
-    const visibleTripIds = new Set<number>([
-      ...memberRows.map((m) => m.tripId),
-      ...ownerTrips.map((t) => t.tripId),
-    ]);
-    if (visibleTripIds.size === 0) return [];
+    const visibleTripIds = Array.from(
+      new Set<number>([
+        ...memberRows.map((m) => m.tripId),
+        ...ownerTrips.map((t) => t.tripId),
+      ]),
+    );
+    if (visibleTripIds.length === 0) return [];
 
-    const allTrips = await db.query.trips.findMany({
+    // CRITICAL: filter BEFORE loading nested relations. Previously this fetched
+    // every trip in the DB then filtered in-memory — O(N) where N = total trips
+    // — which made the trips tab take ~60s once the table got large.
+    return db.query.trips.findMany({
+      where: inArray(trips.tripId, visibleTripIds),
       with: tripWith as any,
       orderBy: (trips, { desc }) => [desc(trips.createdAt)],
     });
-    return allTrips.filter((t) => visibleTripIds.has(t.tripId));
   },
 
   async getTripByInvitationToken(token: string) {
     return db.query.trips.findFirst({
       where: eq(trips.invitationToken, token),
       with: tripWith as any,
+    });
+  },
+
+  /**
+   * Lightweight variant for the share/join landing page. The joiner only needs
+   * trip header data + members (for "already joined" check) — NOT every day,
+   * activity, item, expense, or POI. The heavy `tripWith` makes the
+   * `/api/share/:code` call take 5-10s cold; this trims to ~200ms by skipping
+   * the nested days/items/expenses joins entirely.
+   */
+  async getTripByInvitationTokenLight(token: string) {
+    return db.query.trips.findFirst({
+      where: eq(trips.invitationToken, token),
+      with: {
+        members: { with: { user: true } },
+        destination: true,
+        owner: true,
+      },
     });
   },
 

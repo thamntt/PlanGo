@@ -166,6 +166,7 @@ export interface Review {
   rawId?: string; // ID thực trong DB, dùng để gọi API DELETE
   userId: string;
   userName: string;
+  userAvatarUrl?: string | null;
   destinationId: string;
   destinationName?: string;
   poiId?: string;
@@ -176,6 +177,8 @@ export interface Review {
   reviewType: "trip" | "item";
   rating: number;
   comment: string;
+  photos?: string[];
+  helpfulCount?: number;
   createdAt: string;
 }
 

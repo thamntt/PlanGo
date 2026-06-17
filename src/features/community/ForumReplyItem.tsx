@@ -9,6 +9,7 @@ import type { useThemeColors } from "@/constants/colors";
 import { AdminBadge } from "./AdminBadge";
 import { CommentActionSheet, type ActionItem } from "./CommentActionSheet";
 import { useToast } from "@/contexts/ToastContext";
+import { useConfirm } from "@/contexts/ConfirmContext";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -98,6 +99,7 @@ export function ForumReplyItem({
   const [postingReply, setPostingReply] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const toast = useToast();
+  const { confirm } = useConfirm();
 
   const handleSaveEdit = useCallback(async () => {
     const text = draft.trim();
@@ -136,33 +138,26 @@ export function ForumReplyItem({
     }
   }, [replyDraft, reply.replyId, onReply]);
 
-  const confirmDelete = useCallback(() => {
-    const doDel = () => onDelete(reply.replyId);
-    if (Platform.OS === "web") {
-      if (confirm("Xóa câu trả lời này?")) doDel();
-    } else {
-      Alert.alert("Xóa câu trả lời", "Câu trả lời sẽ bị xóa vĩnh viễn", [
-        { text: "Hủy", style: "cancel" },
-        { text: "Xóa", style: "destructive", onPress: doDel },
-      ]);
-    }
-  }, [reply.replyId, onDelete]);
+  const confirmDelete = useCallback(async () => {
+    const ok = await confirm({
+      title: "Xóa câu trả lời?",
+      message: "Câu trả lời sẽ bị xóa vĩnh viễn.",
+      destructive: true,
+      confirmText: "Xóa",
+    });
+    if (ok) onDelete(reply.replyId);
+  }, [reply.replyId, onDelete, confirm]);
 
-  const handleUnacceptPress = useCallback(() => {
+  const handleUnacceptPress = useCallback(async () => {
     if (!onUnaccept) return;
-    if (Platform.OS === "web") {
-      if (confirm("Bỏ chọn câu trả lời này?")) onUnaccept();
-    } else {
-      Alert.alert(
-        "Bỏ chọn câu trả lời",
-        "Bạn có chắc muốn bỏ chọn câu trả lời này? Câu hỏi sẽ chuyển về trạng thái Đang mở.",
-        [
-          { text: "Hủy", style: "cancel" },
-          { text: "Bỏ chọn", style: "destructive", onPress: onUnaccept },
-        ],
-      );
-    }
-  }, [onUnaccept]);
+    const ok = await confirm({
+      title: "Bỏ chọn câu trả lời?",
+      message: "Câu hỏi sẽ chuyển về trạng thái Đang mở.",
+      destructive: true,
+      confirmText: "Bỏ chọn",
+    });
+    if (ok) onUnaccept();
+  }, [onUnaccept, confirm]);
 
   return (
     <View style={styles.wrap}>

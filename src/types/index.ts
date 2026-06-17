@@ -184,6 +184,8 @@ export interface Itinerary {
   resetCount?: number;
   isShared: boolean;
   ownerName?: string;
+  /** Was this trip created via AI generation? Drives edit-form default mode. */
+  generatedByAi?: boolean;
   createdAt: string;
 }
 
@@ -210,6 +212,50 @@ export interface Review {
   photos?: string[];
   userReviewerLevel?: "newcomer" | "active" | "top" | "legend" | null;
   userReviewCount?: number;
+  helpfulCount?: number;
+  viewerVotedHelpful?: boolean;
+}
+
+export interface TripInvitation {
+  id: string;
+  tripId: string;
+  inviterUserId: string;
+  inviteeUserId: string;
+  role: "viewer" | "editor";
+  status: "pending" | "accepted" | "declined" | "cancelled";
+  message?: string | null;
+  createdAt: string;
+  respondedAt?: string | null;
+  // Joined / hydrated fields
+  tripTitle?: string | null;
+  tripStartDate?: string | null;
+  tripEndDate?: string | null;
+  tripStatus?: string | null;
+  tripInvitationToken?: string | null;
+  inviterName?: string | null;
+  inviterUserName?: string | null;
+  inviterAvatarUrl?: string | null;
+  inviteeName?: string | null;
+  inviteeUserName?: string | null;
+  inviteeAvatarUrl?: string | null;
+}
+
+export interface TripTask {
+  id: string;
+  tripId: string;
+  title: string;
+  description?: string | null;
+  category?: "prep" | "during" | "after" | null;
+  assigneeUserId?: string | null;
+  assigneeName?: string | null;
+  assigneeAvatarUrl?: string | null;
+  dueDate?: string | null;
+  isCompleted: boolean;
+  completedAt?: string | null;
+  completedByUserId?: string | null;
+  createdByUserId?: string | null;
+  orderIndex: number;
+  createdAt: string;
 }
 
 export interface Notification {

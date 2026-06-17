@@ -39,7 +39,7 @@ const Tags: React.FC = () => {
     setLoading(true);
     try {
       const res = await apiRequest("GET", "/api/blog/tags");
-      setTags(res.data || []);
+      setTags(Array.isArray(res) ? res : []);
     } catch (err) {
       console.error("Failed to fetch tags", err);
     } finally {

@@ -33,6 +33,27 @@ export function useDestinations(typeId?: number) {
   });
 }
 
+export interface PopularDestination {
+  destinationId: number;
+  name: string;
+  images: string[] | null;
+  tripCount: number;
+}
+
+export function usePopularDestinations(limit = 10) {
+  return useQuery<PopularDestination[]>({
+    queryKey: ["destinations", "popular", limit],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/destinations/popular?limit=${limit}`);
+      const data = await unwrap<any[]>(res);
+      return data ?? [];
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useDestination(id: string | number | undefined) {
   // Reject obviously invalid ids (router can yield the literal string "undefined")
   const validId =

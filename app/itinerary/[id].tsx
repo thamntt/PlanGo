@@ -34,11 +34,69 @@ import {
   usePoiTypes,
   useExpenseTypes,
   useCreateNotification,
+  useSendInvitation,
+  useSentInvitations,
+  useCancelInvitation,
+  useTripTasks,
+  useCreateTripTask,
+  useUpdateTripTask,
+  useDeleteTripTask,
+  useClearCompletedTasks,
   queryKeys,
 } from "@/hooks/queries";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import * as Clipboard from "expo-clipboard";
+import * as ImagePicker from "expo-image-picker";
+import { Skeleton } from "@/components/Skeleton";
+import { TasksTab } from "@/features/itinerary/components/TasksTab";
+import { TaskDueDatePicker } from "@/features/itinerary/components/TaskDueDatePicker";
+
+/**
+ * Parse a startDate from either ISO (yyyy-mm-dd) or VN (dd-mm-yyyy) format.
+ * The BE returns ISO; some legacy code paths use the VN display form. Doing
+ * `s.split("-")` and assuming dd-mm-yyyy silently produced garbage end dates
+ * when the input was actually yyyy-mm-dd — fixed here.
+ */
+function parseTripStartDate(raw: string | undefined | null): Date {
+  if (!raw) return new Date(NaN);
+  // ISO yyyy-mm-dd or yyyy-mm-ddTHH:MM:SS — extract first 10 chars.
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(parseInt(iso[1]), parseInt(iso[2]) - 1, parseInt(iso[3]));
+  // VN dd-mm-yyyy or dd/mm/yyyy
+  const vn = raw.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/);
+  if (vn) return new Date(parseInt(vn[3]), parseInt(vn[2]) - 1, parseInt(vn[1]));
+  return new Date(raw);
+}
+
+function formatDateVN(d: Date): string {
+  return `${d.getDate().toString().padStart(2, "0")}-${(d.getMonth() + 1)
+    .toString()
+    .padStart(2, "0")}-${d.getFullYear()}`;
+}
+
+/**
+ * Stable per-user color used wherever we don't have a real avatar. Matches
+ * the palette used by other surfaces (notifications, companions) so the
+ * "person color" stays consistent across screens.
+ */
+const TASK_AVATAR_COLORS = [
+  "#4F46E5",
+  "#0EA5E9",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#EC4899",
+  "#14B8A6",
+];
+function avatarColorFor(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+  return TASK_AVATAR_COLORS[Math.abs(hash) % TASK_AVATAR_COLORS.length];
+}
+import { LinearGradient } from "expo-linear-gradient";
+import { Image } from "expo-image";
 import type {
   ItineraryActivity,
   Review,
@@ -50,10 +108,12 @@ import type {
   ExpenseSplit,
   TripCompanion,
 } from "@/types";
-import { generateId, formatVND } from "@/lib/format";
+import { generateId, formatVND, formatVNDCompact } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { useConfirm } from "@/contexts/ConfirmContext";
 import { getApiUrl, getApiHeaders, apiRequest } from "@/lib/api/query-client";
 import RouteMap from "@/components/RouteMap";
+import { Swipeable } from "react-native-gesture-handler";
 import {
   getStatusLabel,
   getActivityTypeLabel,
@@ -70,13 +130,20 @@ import {
 import { TravelConnector } from "@/features/itinerary/components/TravelConnector";
 
 export default function ItineraryDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, initialTab, action, autoStatus } = useLocalSearchParams<{
+    id: string;
+    initialTab?: string;
+    action?: string;
+    autoStatus?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
+  const { confirm } = useConfirm();
   const colors = useThemeColors(isDark);
   const { user } = useAuth();
   const qc = useQueryClient();
-  const { data: itineraries = [] } = useTrips(user ? { memberId: Number(user.id) } : undefined);
+  const tripsQuery = useTrips(user ? { memberId: Number(user.id) } : undefined);
+  const { data: itineraries = [] } = tripsQuery;
   const { data: destinations = [] } = useDestinations();
   const { data: reviews = [] } = useReviews();
   const { data: pois = [] } = usePois();
@@ -136,8 +203,52 @@ export default function ItineraryDetailScreen() {
   }, [qc]);
 
   const itinerary = itineraries.find((i) => i.id === id);
-  const [activeTab, setActiveTab] = useState<"itinerary" | "expenses" | "companions">("itinerary");
+  // Trip-level checklist (Wanderlog-style). Only fetches once the trip id is
+  // resolved so we don't fire `/api/trips/undefined/tasks` on first render.
+  const tasksQuery = useTripTasks(itinerary?.id);
+  const tasks = tasksQuery.data ?? [];
+  const createTaskMut = useCreateTripTask(itinerary?.id || "");
+  const updateTaskMut = useUpdateTripTask(itinerary?.id || "");
+  const deleteTaskMut = useDeleteTripTask(itinerary?.id || "");
+  const clearCompletedTasksMut = useClearCompletedTasks(itinerary?.id || "");
+  // Invitations sent for this trip — used by the invite popup to surface
+  // "Đã mời" with accept/decline status of each invitee.
+  const sentInvitesQuery = useSentInvitations(itinerary?.id);
+  const sentInvitations = sentInvitesQuery.data ?? [];
+  const sendInvitationMut = useSendInvitation(itinerary?.id || "");
+  const cancelInvitationMut = useCancelInvitation(itinerary?.id);
+  const [activeTab, setActiveTab] = useState<
+    "itinerary" | "expenses" | "companions" | "tasks"
+  >(
+    initialTab === "expenses" ||
+      initialTab === "companions" ||
+      initialTab === "tasks"
+      ? (initialTab as any)
+      : "itinerary",
+  );
   const [expandedDay, setExpandedDay] = useState<number | null>(0);
+  const [collapsedDays, setCollapsedDays] = useState<Set<number>>(new Set());
+  const activitySwipeRefs = React.useRef<Record<string, Swipeable | null>>({});
+  const toggleDayCollapsed = useCallback((idx: number) => {
+    setCollapsedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }, []);
+
+  // When the inviter is sitting on the Companions tab, poll every 8s so a
+  // joiner appears within a few seconds without the inviter having to F5.
+  // We only poll on that tab (not always) to keep battery + bandwidth bounded.
+  useEffect(() => {
+    if (activeTab !== "companions") return;
+    const interval = setInterval(() => {
+      tripsQuery.refetch();
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [activeTab, tripsQuery]);
+
   const [noteModal, setNoteModal] = useState<{
     activityId: string;
     dayIdx: number;
@@ -201,10 +312,64 @@ export default function ItineraryDetailScreen() {
   const [editBudget, setEditBudget] = useState("");
   const [editNumPeople, setEditNumPeople] = useState("");
 
-  const [shareModal, setShareModal] = useState(false);
+  // Open the invite modal on the FIRST render when the URL param requests
+  // it. Doing this in initial state (not in a useEffect) means the modal
+  // shows up while the navigation animation is still playing — feels
+  // ~150ms faster than waiting for mount + effect tick.
+  const [shareModal, setShareModal] = useState(action === "invite");
+  // When the trips long-press menu sends us here with `autoStatus`, fire the
+  // status-change flow once the trip data is loaded. Used by "Bắt đầu" /
+  // "Đánh dấu hoàn thành" / "Khởi tạo lại" from the trip card menu so the
+  // user doesn't have to scroll down to the status pill.
+  const autoStatusFiredRef = React.useRef(false);
+  const handleStatusChangeRef = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => {
+    if (!autoStatus || autoStatusFiredRef.current) return;
+    if (!itinerary) return;
+    if (itinerary.status === autoStatus) {
+      autoStatusFiredRef.current = true;
+      return;
+    }
+    autoStatusFiredRef.current = true;
+    const t = setTimeout(() => {
+      handleStatusChangeRef.current?.();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [autoStatus, itinerary?.status]);
+  // ── Tasks state ──
+  const [taskFilter, setTaskFilter] = useState<"all" | "open" | "done">("open");
+  const [taskModal, setTaskModal] = useState<{
+    editId?: string;
+    title: string;
+    description: string;
+    category: "prep" | "during" | "after" | "";
+    assigneeUserId: string;
+    dueDate: string; // yyyy-mm-dd
+  } | null>(null);
+  const [taskAssigneeDropdown, setTaskAssigneeDropdown] = useState(false);
+  // Invite by username — calls /api/users/search + /api/trips/:id/invite-member
+  // (BE endpoints added in #135). Owner-only, direct add as viewer/editor.
+  const [inviteQuery, setInviteQuery] = useState("");
+  const [inviteResults, setInviteResults] = useState<
+    { userId: string; userName: string; fullName: string; avatarUrl?: string | null }[]
+  >([]);
+  const [inviteSearching, setInviteSearching] = useState(false);
+  const [inviteBusyUserId, setInviteBusyUserId] = useState<string | null>(null);
+  // Inline toast inside the share modal — Alert.alert can be hidden behind
+  // the bottom-sheet on some platforms so the user sees no feedback.
+  const [inviteToast, setInviteToast] = useState<{
+    kind: "success" | "info" | "error";
+    text: string;
+  } | null>(null);
+  // Local session list of people we've already invited from this device, so
+  // the user can see "Đã mời" until the proper invitation backend ships.
+  const [sessionInvitedIds, setSessionInvitedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [companionModal, setCompanionModal] = useState(false);
   const [sharePermission, setSharePermission] = useState<"editor" | "viewer">("viewer");
   const [activityDetailModal, setActivityDetailModal] = useState<ItineraryActivity | null>(null);
+  const [activityHeroIdx, setActivityHeroIdx] = useState(0);
   const [expandedReviewIds, setExpandedReviewIds] = useState<Set<string>>(new Set());
   const [showAllUserReviews, setShowAllUserReviews] = useState(false);
   const [reviewModal, setReviewModal] = useState<{
@@ -216,9 +381,37 @@ export default function ItineraryDetailScreen() {
   } | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
+  const [reviewPhotos, setReviewPhotos] = useState<string[]>([]);
   const [routeMapModal, setRouteMapModal] = useState<{ dayIdx: number } | null>(null);
+  const [activityMenu, setActivityMenu] = useState<{
+    activity: ItineraryActivity;
+    dayIdx: number;
+    actIdx: number;
+    total: number;
+  } | null>(null);
+  const [expenseSubtab, setExpenseSubtab] = useState<"overview" | "balance">(
+    "overview",
+  );
+  const [memberMenu, setMemberMenu] = useState<{
+    companion: TripCompanion;
+    member: { userId: string; userName: string; isOwner: boolean };
+  } | null>(null);
+  const [expenseMenu, setExpenseMenu] = useState<Expense | null>(null);
   const [addPlaceTab, setAddPlaceTab] = useState<"system" | "manual">("system");
   const [poiSearch, setPoiSearch] = useState("");
+  const [externalSearchResults, setExternalSearchResults] = useState<
+    {
+      placeId?: string;
+      name: string;
+      address?: string;
+      latitude?: number;
+      longitude?: number;
+      rating?: number;
+      reviewCount?: number;
+      source?: string;
+    }[]
+  >([]);
+  const [externalSearchLoading, setExternalSearchLoading] = useState(false);
   const [poiDestFilter, setPoiDestFilter] = useState("");
 
   // Inline editing state for expense summary table
@@ -268,7 +461,13 @@ export default function ItineraryDetailScreen() {
   const isOwner = String(user?.id) === String(itinerary?.userId ?? "");
   const companions = itinerary?.companions || [];
   const myCompanion = companions.find((c) => String(c.userId) === String(user?.id));
-  const isCompanion = !!myCompanion;
+  // Treat the viewer as a companion when (a) they appear in the companions
+  // list, OR (b) the trip showed up in their list at all and they aren't
+  // the owner. Catches the case where the BE companions array briefly
+  // misses the viewer (race during refetch / mapper drop) — without (b)
+  // the "Rời chuyến đi" button would disappear and the user would be
+  // stranded in a trip with no way to leave.
+  const isCompanion = !!myCompanion || (!isOwner && !!itinerary);
   const canShare = isOwner || isCompanion;
   const canShareAsEditor = isOwner || myCompanion?.role === "editor";
   const canEdit = isOwner || myCompanion?.role === "editor";
@@ -281,8 +480,18 @@ export default function ItineraryDetailScreen() {
     } else {
       apiRequest("GET", "/api/users")
         .then((res) => res.json())
-        .then((users: any[]) => {
-          const owner = users.find((u: any) => u.id === itinerary.userId);
+        .then((payload: any) => {
+          // BE wraps responses in `{status, message, data: [...] }` — read
+          // .data if present, otherwise treat payload as the array.
+          const users: any[] = Array.isArray(payload)
+            ? payload
+            : Array.isArray(payload?.data)
+              ? payload.data
+              : [];
+          const owner = users.find(
+            (u: any) =>
+              String(u.userId ?? u.id) === String(itinerary.userId),
+          );
           if (owner) setOwnerName(owner.fullName || owner.full_name || "");
         })
         .catch(() => {});
@@ -333,14 +542,32 @@ export default function ItineraryDetailScreen() {
   }, [itinerary?.shareCode, itinerary?.isShared]);
 
   const tripMembers = useMemo(() => {
-    const members: { userId: string; userName: string; isOwner: boolean }[] = [];
+    const members: {
+      userId: string;
+      userName: string;
+      isOwner: boolean;
+      avatarUrl?: string | null;
+    }[] = [];
     if (itinerary) {
       const name = itinerary.ownerName || ownerName || itinerary.userId;
-      members.push({ userId: itinerary.userId, userName: name, isOwner: true });
+      const ownerCompanion = (companions || []).find(
+        (c) => String(c.userId) === String(itinerary.userId),
+      );
+      members.push({
+        userId: itinerary.userId,
+        userName: name,
+        isOwner: true,
+        avatarUrl: (ownerCompanion as any)?.avatarUrl || null,
+      });
     }
     for (const c of companions) {
       if (!members.find((m) => m.userId === c.userId)) {
-        members.push({ userId: c.userId, userName: c.userName, isOwner: false });
+        members.push({
+          userId: c.userId,
+          userName: c.userName,
+          isOwner: false,
+          avatarUrl: (c as any).avatarUrl || null,
+        });
       }
     }
     return members;
@@ -418,6 +645,35 @@ export default function ItineraryDetailScreen() {
     }
   }, [activityDetailModal]);
 
+  const activityHeroImages = useMemo<string[]>(() => {
+    const act = activityDetailModal;
+    if (!act) return [];
+    const seen = new Set<string>();
+    const result: string[] = [];
+    const push = (url?: string | null) => {
+      if (!url || seen.has(url) || result.length >= 3) return;
+      seen.add(url);
+      result.push(url);
+    };
+    const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
+    const linkedDest = act.destinationId
+      ? destinations.find((d) => d.id === act.destinationId)
+      : destinations.find((d) => d.name === act.title);
+    push(act.thumbnail);
+    linkedPOI?.images?.slice(0, 3).forEach(push);
+    linkedDest?.images?.slice(0, 3).forEach(push);
+    return result;
+  }, [activityDetailModal, pois, destinations]);
+
+  useEffect(() => {
+    setActivityHeroIdx(0);
+    if (activityHeroImages.length < 2) return;
+    const id = setInterval(() => {
+      setActivityHeroIdx((i) => (i + 1) % activityHeroImages.length);
+    }, 4000);
+    return () => clearInterval(id);
+  }, [activityHeroImages.length, activityDetailModal?.id]);
+
   const filteredPOIs = useMemo(() => {
     let filtered = pois.filter((p) => p.isActive);
     if (poiDestFilter) {
@@ -432,15 +688,214 @@ export default function ItineraryDetailScreen() {
     return filtered.slice(0, 20);
   }, [pois, poiSearch, poiDestFilter]);
 
+  // Debounced username search for the invite picker. Runs only when the share
+  // modal is open AND the user is the owner — non-owners can't direct-invite.
+  useEffect(() => {
+    if (!shareModal || !isOwner) {
+      setInviteResults([]);
+      return;
+    }
+    const q = inviteQuery.trim();
+    if (q.length < 2) {
+      setInviteResults([]);
+      setInviteSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setInviteSearching(true);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await apiRequest(
+          "GET",
+          `/api/users/search?q=${encodeURIComponent(q)}`,
+        );
+        const json = await res.json();
+        const data = Array.isArray(json) ? json : json?.data || [];
+        if (!cancelled) {
+          // Exclude the owner + existing members from the result list.
+          const excludeIds = new Set<string>([
+            String(itinerary?.userId || ""),
+            ...companions.map((c) => String(c.userId)),
+          ]);
+          setInviteResults(
+            (data as any[])
+              .map((u) => ({
+                userId: String(u.userId ?? u.id ?? ""),
+                userName: u.userName ?? u.username ?? "",
+                fullName: u.fullName ?? u.full_name ?? "",
+                avatarUrl: u.avatarUrl ?? u.avatar_url ?? u.avatar ?? null,
+              }))
+              .filter((u) => u.userId && !excludeIds.has(u.userId))
+              .slice(0, 10),
+          );
+        }
+      } catch {
+        if (!cancelled) setInviteResults([]);
+      } finally {
+        if (!cancelled) setInviteSearching(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [inviteQuery, shareModal, isOwner, itinerary?.userId, companions]);
+
+  const showInviteToast = useCallback(
+    (kind: "success" | "info" | "error", text: string) => {
+      setInviteToast({ kind, text });
+      // Auto-dismiss after 3s so the modal doesn't stay cluttered.
+      setTimeout(() => {
+        setInviteToast((cur) =>
+          cur && cur.text === text && cur.kind === kind ? null : cur,
+        );
+      }, 3000);
+    },
+    [],
+  );
+
+  const handleInviteByUserId = useCallback(
+    async (target: { userId: string; userName: string; fullName: string }) => {
+      if (!itinerary?.id) return;
+      setInviteBusyUserId(target.userId);
+      const label = target.fullName || target.userName;
+      try {
+        // Use the new invitation flow — the invitee receives a notification
+        // and must accept before being added as a member. The previous
+        // direct-add endpoint is still available but bypasses consent.
+        const result = await sendInvitationMut.mutateAsync({
+          inviteeUserId: target.userId,
+          role: sharePermission,
+        });
+        if (result.alreadyMember) {
+          showInviteToast("info", `${label} đã có trong nhóm.`);
+        } else if (result.alreadySent) {
+          showInviteToast("info", `Đã gửi lời mời cho ${label}, chờ phản hồi.`);
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          showInviteToast(
+            "success",
+            `Đã gửi lời mời tới ${label} với vai trò ${
+              sharePermission === "editor" ? "chỉnh sửa" : "xem"
+            }.`,
+          );
+          setSessionInvitedIds((prev) => new Set(prev).add(target.userId));
+        }
+        setInviteQuery("");
+        setInviteResults([]);
+      } catch (err: any) {
+        showInviteToast("error", err?.message || "Không mời được. Thử lại sau.");
+      } finally {
+        setInviteBusyUserId(null);
+      }
+    },
+    [itinerary, sharePermission, qc],
+  );
+
+  // Unified search — when the user types in the "Thêm địa điểm" search box,
+  // debounce-fire /api/places/unified-search to surface external (Google /
+  // SerpAPI / Goong) results below the DB matches. The endpoint dedupes by
+  // googlePlaceId server-side so we don't show duplicates here.
+  useEffect(() => {
+    if (!addPlaceModal || addPlaceTab !== "system") return;
+    const q = poiSearch.trim();
+    if (q.length < 2) {
+      setExternalSearchResults([]);
+      setExternalSearchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setExternalSearchLoading(true);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await apiRequest(
+          "GET",
+          `/api/places/unified-search?q=${encodeURIComponent(q)}`,
+        );
+        const data = await res.json();
+        if (cancelled) return;
+        const external = Array.isArray(data?.external) ? data.external : [];
+        setExternalSearchResults(external);
+      } catch (err) {
+        if (!cancelled) setExternalSearchResults([]);
+      } finally {
+        if (!cancelled) setExternalSearchLoading(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [poiSearch, addPlaceModal, addPlaceTab]);
+
+  const addPlaceFromExternal = useCallback(
+    async (place: (typeof externalSearchResults)[number]) => {
+      if (!addPlaceModal || !itinerary) return;
+      const newDays = [...itinerary.days];
+      const activities = newDays[addPlaceModal.dayIdx].activities;
+      const lastActivity = activities.length > 0 ? activities[activities.length - 1] : null;
+      let nextTime = "09:00";
+      if (lastActivity) {
+        const lastMins = parseTimeToMinutes(lastActivity.time);
+        if (lastMins >= 0) {
+          nextTime = minutesToTime(
+            lastMins + parseDurationToMinutes(lastActivity.duration || "1 giờ"),
+          );
+        }
+      }
+      const newActivity: ItineraryActivity = {
+        id: generateId(),
+        time: nextTime,
+        title: place.name,
+        description: "",
+        duration: "1 giờ",
+        estimatedCost: 0,
+        isCompleted: false,
+        activityType: "sightseeing",
+        address: place.address || undefined,
+        latitude: typeof place.latitude === "number" ? place.latitude : undefined,
+        longitude: typeof place.longitude === "number" ? place.longitude : undefined,
+        rating: typeof place.rating === "number" ? place.rating : undefined,
+        reviewCount: typeof place.reviewCount === "number" ? place.reviewCount : undefined,
+        googlePlaceId: place.placeId || undefined,
+      } as ItineraryActivity;
+      activities.push(newActivity);
+      newDays[addPlaceModal.dayIdx].activities = sortActivitiesByTime(activities);
+      try {
+        await updateItinerary(itinerary.id, { days: newDays });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setAddPlaceModal(null);
+        setPoiSearch("");
+        setExternalSearchResults([]);
+      } catch (err) {
+        Alert.alert("Lỗi", "Không thể thêm địa điểm. Thử lại sau.");
+      }
+    },
+    [addPlaceModal, itinerary, updateItinerary],
+  );
+
   if (!itinerary) {
     return (
       <View
         style={[
           styles.container,
-          { backgroundColor: colors.background, justifyContent: "center", alignItems: "center" },
+          { backgroundColor: colors.background, paddingTop: insets.top + 16, paddingHorizontal: 20 },
         ]}
       >
-        <ActivityIndicator size="large" color={colors.primary} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <Skeleton width={36} height={36} radius={18} />
+          <View style={{ flex: 1, gap: 8 }}>
+            <Skeleton height={18} width="60%" />
+            <Skeleton height={12} width="40%" />
+          </View>
+        </View>
+        <View style={{ marginTop: 24, gap: 12 }}>
+          <Skeleton height={170} radius={14} />
+          <Skeleton height={64} radius={12} />
+          <Skeleton height={42} radius={10} />
+          <Skeleton height={42} radius={10} />
+          <Skeleton height={42} radius={10} />
+        </View>
       </View>
     );
   }
@@ -466,35 +921,58 @@ export default function ItineraryDetailScreen() {
   const handleGenerateLink = async () => {
     try {
       const code = itinerary.shareCode || generateShareCode();
-      // Update local itinerary first
-      await updateItinerary(itinerary.id, {
-        shareCode: code,
-        sharePermission: sharePermission,
-        isShared: true,
-      });
-      // Build the complete updated itinerary for server sync
-      const updatedItinerary = { ...itinerary, shareCode: code, sharePermission, isShared: true };
-      // Sync to server so other users can find this trip via share code
       const baseUrl = getApiUrl().replace(/\/$/, "");
-      const syncRes = await fetch(`${baseUrl}/api/share`, {
-        method: "POST",
-        headers: { ...getApiHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ shareCode: code, itinerary: updatedItinerary }),
-      });
-      if (!syncRes.ok) {
-        console.warn("Share sync failed:", syncRes.status, await syncRes.text());
-      }
-      // Build the share link
       const shareBaseUrl =
         Platform.OS === "web" ? `${window.location.protocol}//${window.location.host}` : baseUrl;
       const link = `${shareBaseUrl}/join/${code}`;
-      await Clipboard.setStringAsync(link);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // ── Open native share sheet IMMEDIATELY (zero perceived wait) ──
+      // The previous flow awaited two server roundtrips before showing the
+      // toast — user saw nothing for 1-3s, then a toast much later. Now we
+      // do clipboard + native share first, then sync server in the background.
       if (Platform.OS === "web") {
+        await Clipboard.setStringAsync(link);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         alert(txt.linkCopied);
       } else {
-        Alert.alert(txt.linkCopied, link);
+        try {
+          await Share.share({
+            title: itinerary.title,
+            message: `Cùng tham gia chuyến đi "${itinerary.title}" trên PlanGo!\n${link}`,
+            url: link,
+          });
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {
+          // User cancelled — also stash in clipboard as fallback
+          await Clipboard.setStringAsync(link);
+        }
       }
+
+      // ── Fire-and-forget server sync ──
+      // Always sync so the joiner side can resolve this code. If shareCode is
+      // brand new the joiner couldn't load before this finishes, but the
+      // server roundtrip typically completes in 200-500ms — long before any
+      // recipient opens the link.
+      const updatedItinerary = {
+        ...itinerary,
+        shareCode: code,
+        sharePermission,
+        isShared: true,
+      };
+      updateItinerary(itinerary.id, {
+        shareCode: code,
+        sharePermission: sharePermission,
+        isShared: true,
+      }).catch((err) => console.warn("Share local update failed:", err));
+      fetch(`${baseUrl}/api/share`, {
+        method: "POST",
+        headers: { ...getApiHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ shareCode: code, itinerary: updatedItinerary }),
+      })
+        .then((r) => {
+          if (!r.ok) console.warn("Share sync failed:", r.status);
+        })
+        .catch((err) => console.warn("Share sync error:", err));
     } catch (e: any) {
       console.error("handleGenerateLink error:", e);
       if (Platform.OS === "web") {
@@ -507,43 +985,49 @@ export default function ItineraryDetailScreen() {
 
   const getServerUrl = () => getApiUrl().replace(/\/$/, "");
 
-  const handleRemoveCompanion = (companion: TripCompanion) => {
+  const handleRemoveCompanion = async (companion: TripCompanion) => {
     const doRemove = async () => {
-      const updated = companions.filter((c) => c.userId !== companion.userId);
-      await updateItinerary(itinerary.id, { companions: updated });
-      // Sync to server
+      // Hit the dedicated share/companion endpoint FIRST (it's the only one
+      // that actually persists membership changes). The legacy
+      // `updateItinerary({companions})` call was a no-op on the server but
+      // triggered an optimistic write + refetch race that made the
+      // Companions tab flicker between the new and old lists.
       if (itinerary.shareCode) {
         try {
           await fetch(`${getServerUrl()}/api/share/companion`, {
             method: "DELETE",
             headers: { ...getApiHeaders(), "Content-Type": "application/json" },
-            body: JSON.stringify({ shareCode: itinerary.shareCode, userId: companion.userId }),
+            body: JSON.stringify({
+              shareCode: itinerary.shareCode,
+              userId: companion.userId,
+            }),
           });
         } catch (e) {
           console.log("Failed to sync companion removal:", e);
         }
       }
+      // Refresh detail + lists so the new membership state shows everywhere.
+      qc.invalidateQueries({ queryKey: queryKeys.tripDetail(itinerary.id) });
+      qc.invalidateQueries({ queryKey: ["trips", "list"] });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     };
-    if (Platform.OS === "web") {
-      if (window.confirm(txt.removeCompanionMsg(companion.userName))) doRemove();
-    } else {
-      Alert.alert(txt.removeCompanion, txt.removeCompanionMsg(companion.userName), [
-        { text: t().common.cancel, style: "cancel" },
-        { text: t().common.delete, style: "destructive", onPress: doRemove },
-      ]);
-    }
+    const ok = await confirm({
+      title: txt.removeCompanion,
+      message: txt.removeCompanionMsg(companion.userName),
+      destructive: true,
+      confirmText: t().common.delete,
+    });
+    if (ok) await doRemove();
   };
 
   const handleChangeCompanionRole = async (
     companion: TripCompanion,
     newRole: "editor" | "viewer",
   ) => {
-    const updated = companions.map((c) =>
-      c.userId === companion.userId ? { ...c, role: newRole } : c,
-    );
-    await updateItinerary(itinerary.id, { companions: updated });
-    // Sync to server
+    // Same fix as removal — call the persistence endpoint first, then let
+    // a single invalidate refresh the cache. The previous optimistic
+    // updateItinerary path raced with the refetch and made the role chip
+    // flicker between old and new values.
     if (itinerary.shareCode) {
       try {
         await fetch(`${getServerUrl()}/api/share/companion`, {
@@ -559,36 +1043,41 @@ export default function ItineraryDetailScreen() {
         console.log("Failed to sync role change:", e);
       }
     }
+    qc.invalidateQueries({ queryKey: queryKeys.tripDetail(itinerary.id) });
+    qc.invalidateQueries({ queryKey: ["trips", "list"] });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
-  const handleLeaveTrip = () => {
+  const handleLeaveTrip = async () => {
     const doLeave = async () => {
-      const updated = companions.filter((c) => String(c.userId) !== String(user?.id));
-      await updateItinerary(itinerary.id, { companions: updated });
-      // Sync to server
+      // Persistence first, then a single invalidate. Same race-fix as
+      // handleRemoveCompanion / handleChangeCompanionRole.
       if (itinerary.shareCode && user) {
         try {
           await fetch(`${getServerUrl()}/api/share/companion`, {
             method: "DELETE",
             headers: { ...getApiHeaders(), "Content-Type": "application/json" },
-            body: JSON.stringify({ shareCode: itinerary.shareCode, userId: user.id }),
+            body: JSON.stringify({
+              shareCode: itinerary.shareCode,
+              userId: user.id,
+            }),
           });
         } catch (e) {
           console.log("Failed to sync leave to server:", e);
         }
       }
+      qc.invalidateQueries({ queryKey: ["trips", "list"] });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.canGoBack() ? router.back() : router.replace("/(tabs)/trips");
     };
-    if (Platform.OS === "web") {
-      if (window.confirm(txt.leaveTripMsg)) doLeave();
-    } else {
-      Alert.alert(txt.leaveTrip, txt.leaveTripMsg, [
-        { text: t().common.cancel, style: "cancel" },
-        { text: txt.leaveTrip, style: "destructive", onPress: doLeave },
-      ]);
-    }
+    const ok = await confirm({
+      title: txt.leaveTrip,
+      message: txt.leaveTripMsg,
+      destructive: true,
+      confirmText: txt.leaveTrip,
+      icon: "exit-outline",
+    });
+    if (ok) await doLeave();
   };
 
   const openGoogleMaps = (opts: {
@@ -660,7 +1149,7 @@ export default function ItineraryDetailScreen() {
     }
   };
 
-  const handleStatusChange = () => {
+  const handleStatusChange: () => Promise<void> = async () => {
     const nextStatus =
       itinerary.status === "draft"
         ? "active"
@@ -668,24 +1157,52 @@ export default function ItineraryDetailScreen() {
           ? "completed"
           : "draft";
 
-    // Block start if today < startDate
+    // Warn (not block) if user is starting before the trip's scheduled startDate.
+    // Vietnamese travelers sometimes leave early — we don't block, but we ask
+    // confirmation so a stray tap doesn't silently flip status weeks early.
+    // Parse handles both dd-mm-yyyy (FE format) and yyyy-mm-dd (ISO fallback).
     if (nextStatus === "active") {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const startParts = itinerary.startDate.split("/");
-      const start =
-        startParts.length === 3
-          ? new Date(parseInt(startParts[2]), parseInt(startParts[1]) - 1, parseInt(startParts[0]))
-          : new Date(itinerary.startDate);
-      start.setHours(0, 0, 0, 0);
-      if (today < start) {
-        const msg = `Chỉ có thể bắt đầu chuyến đi từ ngày ${itinerary.startDate}`;
-        if (Platform.OS === "web") {
-          window.alert(msg);
-        } else {
-          Alert.alert("", msg);
+      const parseTripDate = (raw: string): Date | null => {
+        if (!raw) return null;
+        const dmy = raw.match(/^(\d{2})-(\d{2})-(\d{4})/);
+        if (dmy) {
+          return new Date(
+            parseInt(dmy[3], 10),
+            parseInt(dmy[2], 10) - 1,
+            parseInt(dmy[1], 10),
+          );
         }
-        return;
+        const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (ymd) {
+          return new Date(
+            parseInt(ymd[1], 10),
+            parseInt(ymd[2], 10) - 1,
+            parseInt(ymd[3], 10),
+          );
+        }
+        const d = new Date(raw);
+        return isNaN(d.getTime()) ? null : d;
+      };
+      const start = parseTripDate(itinerary.startDate);
+      if (start) {
+        start.setHours(0, 0, 0, 0);
+        if (today < start) {
+          const daysLeft = Math.ceil(
+            (start.getTime() - today.getTime()) / (24 * 60 * 60 * 1000),
+          );
+          const ok = await confirm({
+            title: "Bắt đầu chuyến đi sớm?",
+            message:
+              daysLeft === 1
+                ? `Ngày khởi hành dự kiến là ngày mai (${itinerary.startDate}). Bạn vẫn muốn bắt đầu ngay?`
+                : `Ngày khởi hành dự kiến còn ${daysLeft} ngày nữa (${itinerary.startDate}). Bạn vẫn muốn bắt đầu ngay?`,
+            confirmText: "Vẫn bắt đầu",
+            cancelText: "Đổi ý",
+          });
+          if (!ok) return;
+        }
       }
     }
 
@@ -738,6 +1255,9 @@ export default function ItineraryDetailScreen() {
     const doChange = async () => {
       await updateItinerary(itinerary.id, { status: nextStatus });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Server-side notifyTripStarted/notifyTripCompleted also fans out to
+      // all members on status transition; this client-side call is the safety
+      // net so the owner always sees the event even if the server fails.
       if (nextStatus === "active") {
         await addNotification({
           userId: itinerary.userId,
@@ -745,7 +1265,7 @@ export default function ItineraryDetailScreen() {
           message: `${itinerary.title} đã bắt đầu!`,
           type: "info",
           itineraryId: itinerary.id,
-        });
+        }).catch(() => {});
       } else if (nextStatus === "completed") {
         await addNotification({
           userId: itinerary.userId,
@@ -753,7 +1273,7 @@ export default function ItineraryDetailScreen() {
           message: `${itinerary.title} đã hoàn thành!`,
           type: "success",
           itineraryId: itinerary.id,
-        });
+        }).catch(() => {});
         // Auto-open destination review modal
         const dest = destinations.find(
           (d) => d.name.toLowerCase() === itinerary.destination.toLowerCase(),
@@ -770,6 +1290,7 @@ export default function ItineraryDetailScreen() {
         if (dest && !alreadyReviewed) {
           setReviewRating(5);
           setReviewComment("");
+          setReviewPhotos([]);
           setReviewModal({
             activityId: "",
             dayIdx: 0,
@@ -788,26 +1309,21 @@ export default function ItineraryDetailScreen() {
       ]);
     }
   };
+  // Keep the ref pointed at the latest handleStatusChange so the autoStatus
+  // useEffect can fire it without depending on it directly (which would
+  // re-trigger on every state change).
+  handleStatusChangeRef.current = handleStatusChange;
 
-  const handleDelete = () => {
-    if (Platform.OS === "web") {
-      if (window.confirm(t().itinerary.deleteConfirm)) {
-        deleteItinerary(itinerary.id);
-        router.back();
-      }
-    } else {
-      Alert.alert(t().itinerary.deleteTrip, t().itinerary.deleteConfirm, [
-        { text: t().common.cancel, style: "cancel" },
-        {
-          text: t().common.delete,
-          style: "destructive",
-          onPress: () => {
-            deleteItinerary(itinerary.id);
-            router.back();
-          },
-        },
-      ]);
-    }
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: t().itinerary.deleteTrip,
+      message: t().itinerary.deleteConfirm,
+      destructive: true,
+      confirmText: t().common.delete,
+    });
+    if (!ok) return;
+    deleteItinerary(itinerary.id);
+    router.back();
   };
 
   const handleEdit = () => {
@@ -990,7 +1506,9 @@ export default function ItineraryDetailScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Attempt notifications
+      // Belt-and-braces — server-side already fires activity_completed +
+      // budget_warning via syncNestedActivities + createTripExpense, but keep
+      // the client-side calls as a fallback in case the server triggers fail.
       try {
         await addNotification({
           userId: itinerary.userId,
@@ -999,7 +1517,6 @@ export default function ItineraryDetailScreen() {
           type: "info",
           itineraryId: itinerary.id,
         });
-
         if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
           await addNotification({
             userId: itinerary.userId,
@@ -1030,10 +1547,16 @@ export default function ItineraryDetailScreen() {
             .replace(/\s*\[activity:[^\]]+\]/, "")
             .replace(/\s*\[resetBefore:\d+\]/, ""),
         );
+        setReviewPhotos(
+          Array.isArray((existingReview as any).photos)
+            ? ((existingReview as any).photos as string[])
+            : [],
+        );
       }
     } else {
       setReviewRating(5);
       setReviewComment("");
+      setReviewPhotos([]);
     }
     setReviewModal({
       activityId,
@@ -1089,6 +1612,7 @@ export default function ItineraryDetailScreen() {
       }
     }
 
+    const photosPayload = reviewPhotos.length > 0 ? reviewPhotos : null;
     if (reviewModal.editReviewId) {
       await updateReview(reviewModal.editReviewId, {
         userId: user!.id,
@@ -1097,7 +1621,8 @@ export default function ItineraryDetailScreen() {
         poiId,
         poiName,
         type: "item",
-      });
+        photos: photosPayload,
+      } as any);
     } else {
       await addReview({
         userId: user!.id,
@@ -1110,25 +1635,55 @@ export default function ItineraryDetailScreen() {
         itineraryId: reviewModal.activityId || poiId ? undefined : id,
         rating: reviewRating,
         comment: taggedComment,
-      });
+        photos: photosPayload,
+      } as any);
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setReviewModal(null);
+    setReviewPhotos([]);
   };
 
-  const handleDeleteActivityReview = (reviewId: string) => {
-    const doDelete = async () => {
-      await deleteReview(reviewId, { userId: user!.id, type: "item" });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    };
-    if (Platform.OS === "web") {
-      if (window.confirm(txt.deleteReviewConfirm)) doDelete();
-    } else {
-      Alert.alert(txt.deleteReview, txt.deleteReviewConfirm, [
-        { text: t().common.cancel, style: "cancel" },
-        { text: t().common.delete, style: "destructive", onPress: doDelete },
-      ]);
+  const pickReviewPhoto = useCallback(async () => {
+    if (reviewPhotos.length >= 10) {
+      Alert.alert("Đã đủ", "Tối đa 10 ảnh cho mỗi đánh giá.");
+      return;
     }
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Cần quyền truy cập", "Vui lòng cho phép truy cập thư viện ảnh");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.6,
+      base64: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const a = result.assets[0];
+      const dataUri = a.base64
+        ? `data:image/${a.uri.split(".").pop() === "png" ? "png" : "jpeg"};base64,${a.base64}`
+        : a.uri;
+      setReviewPhotos((prev) => [...prev, dataUri]);
+      Haptics.selectionAsync();
+    }
+  }, [reviewPhotos]);
+
+  const removeReviewPhoto = useCallback((index: number) => {
+    setReviewPhotos((prev) => prev.filter((_, i) => i !== index));
+    Haptics.selectionAsync();
+  }, []);
+
+  const handleDeleteActivityReview = async (reviewId: string) => {
+    const ok = await confirm({
+      title: txt.deleteReview,
+      message: txt.deleteReviewConfirm,
+      destructive: true,
+      confirmText: t().common.delete,
+    });
+    if (!ok) return;
+    await deleteReview(reviewId, { userId: user!.id, type: "item" });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const getActivityNotes = (activity: ItineraryActivity): string[] => {
@@ -1142,7 +1697,12 @@ export default function ItineraryDetailScreen() {
   };
 
   const saveNote = async () => {
-    if (!noteModal || !noteModal.note.trim()) return;
+    if (!noteModal) return;
+    if (!noteModal.note.trim()) {
+      if (Platform.OS === "web") window.alert("Vui lòng nhập ghi chú trước khi lưu.");
+      else Alert.alert("Trống", "Vui lòng nhập ghi chú trước khi lưu.");
+      return;
+    }
     const newDays = [...itinerary.days];
     const activity = newDays[noteModal.dayIdx].activities.find(
       (a) => a.id === noteModal.activityId,
@@ -1156,30 +1716,34 @@ export default function ItineraryDetailScreen() {
       }
       activity.notes = currentNotes;
       activity.note = undefined;
-      await updateItinerary(itinerary.id, { days: newDays });
+      try {
+        await updateItinerary(itinerary.id, { days: newDays });
+      } catch (err: any) {
+        if (Platform.OS === "web")
+          window.alert(`Không lưu được ghi chú: ${err?.message || "lỗi mạng"}`);
+        else Alert.alert("Không lưu được", err?.message || "Vui lòng thử lại");
+        return;
+      }
     }
     setNoteModal(null);
   };
 
   const deleteNote = async (dayIdx: number, activityId: string, noteIndex: number) => {
-    const doDelete = async () => {
-      const newDays = [...itinerary.days];
-      const activity = newDays[dayIdx].activities.find((a) => a.id === activityId);
-      if (activity) {
-        const currentNotes = getActivityNotes(activity);
-        currentNotes.splice(noteIndex, 1);
-        activity.notes = currentNotes;
-        activity.note = undefined;
-        await updateItinerary(itinerary.id, { days: newDays });
-      }
-    };
-    if (Platform.OS === "web") {
-      if (window.confirm(t().itinerary.deleteNoteConfirm)) doDelete();
-    } else {
-      Alert.alert(t().itinerary.deleteNote, t().itinerary.deleteNoteConfirm, [
-        { text: t().common.cancel, style: "cancel" },
-        { text: t().common.delete, style: "destructive", onPress: doDelete },
-      ]);
+    const ok = await confirm({
+      title: t().itinerary.deleteNote,
+      message: t().itinerary.deleteNoteConfirm,
+      destructive: true,
+      confirmText: t().common.delete,
+    });
+    if (!ok) return;
+    const newDays = [...itinerary.days];
+    const activity = newDays[dayIdx].activities.find((a) => a.id === activityId);
+    if (activity) {
+      const currentNotes = getActivityNotes(activity);
+      currentNotes.splice(noteIndex, 1);
+      activity.notes = currentNotes;
+      activity.note = undefined;
+      await updateItinerary(itinerary.id, { days: newDays });
     }
   };
 
@@ -1287,17 +1851,29 @@ export default function ItineraryDetailScreen() {
       }
 
       const newSpent = recalcSpent(newDays, newExpenses);
-      await updateItinerary(itinerary.id, {
-        days: newDays,
-        expenses: newExpenses,
-        spentAmount: newSpent,
-      });
-      if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
-        if (Platform.OS === "web") {
-          window.alert(t().itinerary.budgetWarning);
-        } else {
-          Alert.alert(t().notifications.budgetWarning, t().itinerary.budgetWarning);
+      try {
+        await updateItinerary(itinerary.id, {
+          days: newDays,
+          expenses: newExpenses,
+          spentAmount: newSpent,
+        });
+        if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
+          if (Platform.OS === "web") {
+            window.alert(t().itinerary.budgetWarning);
+          } else {
+            Alert.alert(t().notifications.budgetWarning, t().itinerary.budgetWarning);
+          }
         }
+      } catch (err: any) {
+        // Server validation failed — keep modal open and surface the error so
+        // user can fix instead of silently losing the input.
+        console.error("saveCost failed:", err);
+        if (Platform.OS === "web") {
+          window.alert(`Không lưu được chi phí: ${err?.message || "lỗi mạng"}`);
+        } else {
+          Alert.alert("Không lưu được", err?.message || "Vui lòng thử lại");
+        }
+        return; // keep modal open
       }
     }
     setCostModal(null);
@@ -1344,12 +1920,24 @@ export default function ItineraryDetailScreen() {
       currentEnd = nextStart + parseDurationToMinutes(sortedActivities[i].duration || "1 giờ");
     }
 
-    await updateItinerary(itinerary.id, { days: newDays });
+    try {
+      await updateItinerary(itinerary.id, { days: newDays });
+    } catch (err: any) {
+      if (Platform.OS === "web")
+        window.alert(`Không lưu được giờ: ${err?.message || "lỗi mạng"}`);
+      else Alert.alert("Không lưu được", err?.message || "Vui lòng thử lại");
+      return;
+    }
     setTimeModal(null);
   };
 
   const addPlaceToDay = async () => {
-    if (!addPlaceModal || !placeTitle.trim()) return;
+    if (!addPlaceModal) return;
+    if (!placeTitle.trim()) {
+      if (Platform.OS === "web") window.alert("Vui lòng nhập tên địa điểm.");
+      else Alert.alert("Thiếu thông tin", "Vui lòng nhập tên địa điểm.");
+      return;
+    }
     const newDays = [...itinerary.days];
     const activities = newDays[addPlaceModal.dayIdx].activities;
     const lastActivity = activities.length > 0 ? activities[activities.length - 1] : null;
@@ -1380,7 +1968,14 @@ export default function ItineraryDetailScreen() {
     };
     activities.push(newActivity);
     newDays[addPlaceModal.dayIdx].activities = sortActivitiesByTime(activities);
-    await updateItinerary(itinerary.id, { days: newDays });
+    try {
+      await updateItinerary(itinerary.id, { days: newDays });
+    } catch (err: any) {
+      if (Platform.OS === "web")
+        window.alert(`Không thêm được địa điểm: ${err?.message || "lỗi mạng"}`);
+      else Alert.alert("Không lưu được", err?.message || "Vui lòng thử lại");
+      return;
+    }
     setPlaceTitle("");
     setPlaceDuration("1 giờ");
     setPlaceCost("");
@@ -1393,20 +1988,17 @@ export default function ItineraryDetailScreen() {
   };
 
   const deleteActivity = async (dayIdx: number, activityId: string) => {
-    const doDelete = async () => {
-      const newDays = [...itinerary.days];
-      newDays[dayIdx].activities = newDays[dayIdx].activities.filter((a) => a.id !== activityId);
-      const newSpent = recalcSpent(newDays, expenses);
-      await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
-    };
-    if (Platform.OS === "web") {
-      if (window.confirm(t().itinerary.deleteActivityConfirm)) doDelete();
-    } else {
-      Alert.alert(t().itinerary.deleteActivity, t().itinerary.deleteActivityConfirm, [
-        { text: t().common.cancel, style: "cancel" },
-        { text: t().common.delete, style: "destructive", onPress: doDelete },
-      ]);
-    }
+    const ok = await confirm({
+      title: t().itinerary.deleteActivity,
+      message: t().itinerary.deleteActivityConfirm,
+      destructive: true,
+      confirmText: t().common.delete,
+    });
+    if (!ok) return;
+    const newDays = [...itinerary.days];
+    newDays[dayIdx].activities = newDays[dayIdx].activities.filter((a) => a.id !== activityId);
+    const newSpent = recalcSpent(newDays, expenses);
+    await updateItinerary(itinerary.id, { days: newDays, spentAmount: newSpent });
   };
 
   const moveActivity = async (dayIdx: number, activityIdx: number, direction: "up" | "down") => {
@@ -1513,11 +2105,23 @@ export default function ItineraryDetailScreen() {
   const saveEditInfo = async () => {
     const newBudget = parseInt(editBudget.replace(/[^0-9]/g, ""), 10) || itinerary.totalBudget;
     const newPeople = parseInt(editNumPeople, 10) || itinerary.numPeople;
-    await updateItinerary(itinerary.id, {
-      totalBudget: newBudget,
-      budget: formatVND(newBudget),
-      numPeople: newPeople,
-    });
+    if (newPeople <= 0) {
+      if (Platform.OS === "web") window.alert("Số người phải lớn hơn 0.");
+      else Alert.alert("Sai giá trị", "Số người phải lớn hơn 0.");
+      return;
+    }
+    try {
+      await updateItinerary(itinerary.id, {
+        totalBudget: newBudget,
+        budget: formatVND(newBudget),
+        numPeople: newPeople,
+      });
+    } catch (err: any) {
+      if (Platform.OS === "web")
+        window.alert(`Không cập nhật được: ${err?.message || "lỗi mạng"}`);
+      else Alert.alert("Không cập nhật được", err?.message || "Vui lòng thử lại");
+      return;
+    }
     setEditInfoModal(false);
   };
 
@@ -1548,15 +2152,31 @@ export default function ItineraryDetailScreen() {
   };
 
   const addOrEditExpense = async () => {
-    if (!expenseModal || !expenseTitle.trim() || !expenseAmount.trim()) return;
+    if (!expenseModal) return;
+    const showErr = (msg: string) => {
+      if (Platform.OS === "web") window.alert(msg);
+      else Alert.alert("Thiếu thông tin", msg);
+    };
+    // Block edits when the trip is finalised — previously you could still
+    // mutate expenses after marking the trip "completed", which corrupted
+    // the post-trip statistics block.
+    if (itinerary.status === "completed") {
+      return showErr(
+        "Chuyến đi đã hoàn thành — bỏ trạng thái hoàn thành nếu muốn sửa chi phí.",
+      );
+    }
+    if (!expenseTitle.trim()) return showErr("Vui lòng nhập tên khoản chi.");
+    if (!expenseAmount.trim()) return showErr("Vui lòng nhập số tiền.");
     const amount = parseInt(expenseAmount.replace(/[^0-9]/g, ""), 10) || 0;
-    if (amount <= 0) return;
+    if (amount <= 0) return showErr("Số tiền phải lớn hơn 0.");
 
-    if (expenseSplitType !== "none" && !expensePaidByUserId) return;
+    if (expenseSplitType !== "none" && !expensePaidByUserId) {
+      return showErr("Vui lòng chọn người đã trả khoản này.");
+    }
 
     if (expenseSplitType !== "none") {
       const checkedCount = Object.values(expenseSplitChecked).filter(Boolean).length;
-      if (checkedCount === 0) return;
+      if (checkedCount === 0) return showErr("Vui lòng chọn ít nhất 1 người chia.");
     }
 
     if (expenseSplitType === "custom") {
@@ -1624,11 +2244,19 @@ export default function ItineraryDetailScreen() {
     }
 
     const newSpent = recalcSpent(newDays, newExpenses);
-    await updateItinerary(itinerary.id, {
-      days: newDays,
-      expenses: newExpenses,
-      spentAmount: newSpent,
-    });
+    try {
+      await updateItinerary(itinerary.id, {
+        days: newDays,
+        expenses: newExpenses,
+        spentAmount: newSpent,
+      });
+    } catch (err: any) {
+      // Save failed — keep the modal open so user can fix instead of losing input.
+      const msg = err?.message || "Vui lòng thử lại.";
+      if (Platform.OS === "web") window.alert(`Không lưu được khoản chi: ${msg}`);
+      else Alert.alert("Không lưu được", msg);
+      return;
+    }
 
     if (newSpent > (itinerary.totalBudget || 0) && itinerary.totalBudget > 0) {
       await addNotification({
@@ -1637,7 +2265,7 @@ export default function ItineraryDetailScreen() {
         message: t().notifications.budgetExceeded(formatVND(itinerary.totalBudget - newSpent)),
         type: "warning",
         itineraryId: itinerary.id,
-      });
+      }).catch(() => {});
     }
 
     resetExpenseModal();
@@ -1658,36 +2286,32 @@ export default function ItineraryDetailScreen() {
   };
 
   const deleteExpense = async (expenseId: string) => {
-    const doDelete = async () => {
-      const deletedExpense = expenses.find((e) => e.id === expenseId);
-      const newExpenses = expenses.filter((e) => e.id !== expenseId);
-      // If this expense was linked to an activity, clear actualCost and paidBy on that activity
-      const newDays = [...itinerary.days];
-      if (deletedExpense?.activityId) {
-        for (const day of newDays) {
-          const act = day.activities.find((a) => a.id === deletedExpense.activityId);
-          if (act) {
-            act.actualCost = 0;
-            act.paidBy = undefined;
-            break;
-          }
+    const ok = await confirm({
+      title: t().itinerary.deleteExpense,
+      message: t().itinerary.deleteExpenseConfirm,
+      destructive: true,
+      confirmText: t().common.delete,
+    });
+    if (!ok) return;
+    const deletedExpense = expenses.find((e) => e.id === expenseId);
+    const newExpenses = expenses.filter((e) => e.id !== expenseId);
+    const newDays = [...itinerary.days];
+    if (deletedExpense?.activityId) {
+      for (const day of newDays) {
+        const act = day.activities.find((a) => a.id === deletedExpense.activityId);
+        if (act) {
+          act.actualCost = 0;
+          act.paidBy = undefined;
+          break;
         }
       }
-      const newSpent = recalcSpent(newDays, newExpenses);
-      await updateItinerary(itinerary.id, {
-        days: newDays,
-        expenses: newExpenses,
-        spentAmount: newSpent,
-      });
-    };
-    if (Platform.OS === "web") {
-      if (window.confirm(t().itinerary.deleteExpenseConfirm)) doDelete();
-    } else {
-      Alert.alert(t().itinerary.deleteExpense, t().itinerary.deleteExpenseConfirm, [
-        { text: t().common.cancel, style: "cancel" },
-        { text: t().common.delete, style: "destructive", onPress: doDelete },
-      ]);
     }
+    const newSpent = recalcSpent(newDays, newExpenses);
+    await updateItinerary(itinerary.id, {
+      days: newDays,
+      expenses: newExpenses,
+      spentAmount: newSpent,
+    });
   };
 
   const openEditExpense = (expense: Expense) => {
@@ -1715,7 +2339,12 @@ export default function ItineraryDetailScreen() {
   };
 
   const saveExpenseNote = async () => {
-    if (!expenseNoteModal || !expenseNoteModal.note.trim()) return;
+    if (!expenseNoteModal) return;
+    if (!expenseNoteModal.note.trim()) {
+      if (Platform.OS === "web") window.alert("Vui lòng nhập ghi chú trước khi lưu.");
+      else Alert.alert("Trống", "Vui lòng nhập ghi chú trước khi lưu.");
+      return;
+    }
     const newExpenses = [...expenses];
     const expense = newExpenses.find((e) => e.id === expenseNoteModal.expenseId);
     if (expense) {
@@ -1726,7 +2355,14 @@ export default function ItineraryDetailScreen() {
         notes.push(expenseNoteModal.note.trim());
       }
       expense.notes = notes;
-      await updateItinerary(itinerary.id, { expenses: newExpenses });
+      try {
+        await updateItinerary(itinerary.id, { expenses: newExpenses });
+      } catch (err: any) {
+        if (Platform.OS === "web")
+          window.alert(`Không lưu được ghi chú: ${err?.message || "lỗi mạng"}`);
+        else Alert.alert("Không lưu được", err?.message || "Vui lòng thử lại");
+        return;
+      }
     }
     setExpenseNoteModal(null);
   };
@@ -1740,59 +2376,148 @@ export default function ItineraryDetailScreen() {
         await updateItinerary(itinerary.id, { expenses: newExpenses });
       }
     };
-    if (Platform.OS === "web") {
-      if (window.confirm(t().itinerary.deleteNoteConfirm)) doDelete();
-    } else {
-      Alert.alert(t().itinerary.deleteNote, t().itinerary.deleteNoteConfirm, [
-        { text: t().common.cancel, style: "cancel" },
-        { text: t().common.delete, style: "destructive", onPress: doDelete },
-      ]);
-    }
+    const ok = await confirm({
+      title: t().itinerary.deleteNote,
+      message: t().itinerary.deleteNoteConfirm,
+      destructive: true,
+      confirmText: t().common.delete,
+    });
+    if (ok) await doDelete();
   };
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const txt = t().itinerary;
 
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + webTopInset + 8 }]}>
-        <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/trips"))}
-        >
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
-          {itinerary.title}
-        </Text>
-        <View style={styles.headerActions}>
-          {canShare && itinerary.status !== "completed" && (
-            <Pressable
-              onPress={() => {
-                setSharePermission(
-                  canShareAsEditor ? itinerary.sharePermission || "viewer" : "viewer",
-                );
-                setShareModal(true);
-              }}
-              hitSlop={8}
-            >
-              <Ionicons name="person-add-outline" size={22} color={colors.primary} />
-            </Pressable>
-          )}
-          {/* <Pressable onPress={handleShare} hitSlop={8}>
-            <Ionicons name="share-outline" size={22} color={colors.primary} />
-          </Pressable> */}
-          {isOwner ? (
-            <Pressable onPress={handleDelete} hitSlop={8}>
-              <Ionicons name="trash-outline" size={22} color={colors.error} />
-            </Pressable>
-          ) : isCompanion ? (
-            <Pressable onPress={handleLeaveTrip} hitSlop={8}>
-              <Ionicons name="log-out-outline" size={22} color={colors.error} />
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
+  const tripHeroImages = useMemo<string[]>(() => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    const pushUnique = (url?: string | null) => {
+      if (!url || seen.has(url)) return;
+      seen.add(url);
+      result.push(url);
+    };
 
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/[^a-z0-9]/g, "")
+        .trim();
+    const findDestByName = (name: string) => {
+      const target = normalize(name);
+      if (!target) return undefined;
+      return destinations.find((d) => normalize(d.name) === target);
+    };
+
+    const matchedDests = new Map<string, (typeof destinations)[number]>();
+    for (const day of itinerary.days) {
+      for (const act of day.activities) {
+        if (act.destinationId) {
+          const dest = destinations.find((d) => d.id === act.destinationId);
+          if (dest) matchedDests.set(dest.id, dest);
+        }
+      }
+    }
+    const tripDestNames = (itinerary.destination || "")
+      .split(/[,→\->|/]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const name of tripDestNames) {
+      const dest = findDestByName(name);
+      if (dest) matchedDests.set(dest.id, dest);
+    }
+    for (const day of itinerary.days) {
+      const dest = findDestByName(day.title || "");
+      if (dest) matchedDests.set(dest.id, dest);
+      for (const act of day.activities) {
+        const d = findDestByName(act.title || "");
+        if (d) matchedDests.set(d.id, d);
+      }
+    }
+    for (const dest of matchedDests.values()) {
+      if (dest?.images?.length) {
+        dest.images.slice(0, 3).forEach(pushUnique);
+      }
+    }
+
+    if (result.length === 0) {
+      for (const day of itinerary.days) {
+        for (const act of day.activities) {
+          if (act.poiId) {
+            const poi = pois.find((p) => p.id === act.poiId);
+            poi?.images?.slice(0, 3).forEach(pushUnique);
+          }
+          pushUnique(act.thumbnail);
+          if (result.length >= 6) return result;
+        }
+      }
+    }
+    return result;
+  }, [itinerary.days, itinerary.destination, pois, destinations]);
+
+  const [tripHeroIdx, setTripHeroIdx] = useState(0);
+  useEffect(() => {
+    if (tripHeroImages.length < 2) {
+      setTripHeroIdx(0);
+      return;
+    }
+    setTripHeroIdx(0);
+    const id = setInterval(() => {
+      setTripHeroIdx((i) => (i + 1) % tripHeroImages.length);
+    }, 4000);
+    return () => clearInterval(id);
+  }, [tripHeroImages.length]);
+
+  const tripHeroGradient: [string, string] = useMemo(() => {
+    const palette: Array<[string, string]> = [
+      ["#3B82F6", "#8B5CF6"],
+      ["#F59E0B", "#EF4444"],
+      ["#10B981", "#06B6D4"],
+      ["#EC4899", "#8B5CF6"],
+      ["#6366F1", "#A855F7"],
+    ];
+    let hash = 0;
+    for (let i = 0; i < itinerary.title.length; i++) {
+      hash = ((hash << 5) - hash + itinerary.title.charCodeAt(i)) | 0;
+    }
+    return palette[Math.abs(hash) % palette.length];
+  }, [itinerary.title]);
+
+  const tripDateRange = useMemo(() => {
+    const fmt = (s: string) => {
+      if (!s) return "—";
+      const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return `${iso[3]}/${iso[2]}`;
+      const dmy = s.match(/^(\d{2})-(\d{2})-(\d{4})/);
+      if (dmy) return `${dmy[1]}/${dmy[2]}`;
+      return s.slice(0, 10);
+    };
+    return `${fmt(itinerary.startDate)} → ${fmt(itinerary.endDate)}`;
+  }, [itinerary.startDate, itinerary.endDate]);
+
+  const tripStatusMeta = useMemo(() => {
+    switch (itinerary.status) {
+      case "active":
+        return { color: "#10B981", icon: "play-circle" as const, label: getStatusLabel("active") };
+      case "completed":
+        return {
+          color: "#6B7280",
+          icon: "checkmark-circle" as const,
+          label: getStatusLabel("completed"),
+        };
+      default:
+        return { color: colors.accent, icon: "create" as const, label: getStatusLabel("draft") };
+    }
+  }, [itinerary.status, colors.accent]);
+
+  // Use a pure-white surface inside the trip detail screen — user reported
+  // the default slate-50 background looks "đục" (slightly off-white) and
+  // wanted a cleaner page. Cards still pop because they have a 1px border.
+  const detailBg = isDark ? colors.background : "#FFFFFF";
+  return (
+    <View style={[styles.container, { backgroundColor: detailBg }]}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -1804,114 +2529,286 @@ export default function ItineraryDetailScreen() {
           />
         }
       >
-        <View
-          style={[
-            styles.summaryCard,
-            { backgroundColor: colors.card, borderColor: colors.cardBorder },
-          ]}
-        >
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryItem}>
-              <Ionicons name="location-outline" size={18} color={colors.primary} />
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-                {txt.destination}
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {itinerary.destination}
-              </Text>
+        <View style={styles.tripHero}>
+          {tripHeroImages.length > 0 ? (
+            <Image
+              source={{ uri: tripHeroImages[tripHeroIdx] }}
+              style={styles.tripHeroImage}
+              contentFit="cover"
+              transition={350}
+            />
+          ) : (
+            <LinearGradient
+              colors={tripHeroGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.tripHeroImage}
+            >
+              <Ionicons name="map" size={72} color="rgba(255,255,255,0.3)" />
+            </LinearGradient>
+          )}
+          <LinearGradient
+            colors={["rgba(0,0,0,0.35)", "rgba(0,0,0,0.0)", "rgba(0,0,0,0.75)"]}
+            locations={[0, 0.45, 1]}
+            style={StyleSheet.absoluteFillObject}
+          />
+          {tripHeroImages.length > 1 && (
+            <View style={styles.tripHeroDots}>
+              {tripHeroImages.map((_, i) => (
+                <Pressable key={i} onPress={() => setTripHeroIdx(i)} hitSlop={6}>
+                  <View
+                    style={[
+                      styles.tripHeroDot,
+                      i === tripHeroIdx && styles.tripHeroDotActive,
+                    ]}
+                  />
+                </Pressable>
+              ))}
             </View>
-            <View style={styles.summaryItem}>
-              <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-                {txt.dates}
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {itinerary.startDate} - {itinerary.endDate}
-              </Text>
+          )}
+
+          <View style={[styles.tripHeroTopRow, { paddingTop: insets.top + webTopInset + 8 }]}>
+            <Pressable
+              onPress={() =>
+                router.canGoBack() ? router.back() : router.replace("/(tabs)/trips")
+              }
+              hitSlop={6}
+              style={({ pressed }) => [styles.tripHeroBtn, { opacity: pressed ? 0.8 : 1 }]}
+            >
+              <Ionicons name="arrow-back" size={20} color="#111827" />
+            </Pressable>
+            <View style={styles.tripHeroActions}>
+              {canEdit && itinerary.status === "draft" && (
+                <Pressable
+                  onPress={handleEdit}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.tripHeroBtn, { opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <Ionicons name="create-outline" size={19} color="#111827" />
+                </Pressable>
+              )}
+              {canShare && itinerary.status !== "completed" && (
+                <Pressable
+                  onPress={() => {
+                    setSharePermission(
+                      canShareAsEditor ? itinerary.sharePermission || "viewer" : "viewer",
+                    );
+                    setShareModal(true);
+                  }}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.tripHeroBtn, { opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <Ionicons name="person-add-outline" size={19} color="#111827" />
+                </Pressable>
+              )}
+              {isOwner ? (
+                <Pressable
+                  onPress={handleDelete}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.tripHeroBtn, { opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <Ionicons name="trash-outline" size={19} color="#EF4444" />
+                </Pressable>
+              ) : isCompanion ? (
+                <Pressable
+                  onPress={handleLeaveTrip}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.tripHeroBtn, { opacity: pressed ? 0.8 : 1 }]}
+                >
+                  <Ionicons name="log-out-outline" size={19} color="#EF4444" />
+                </Pressable>
+              ) : null}
             </View>
           </View>
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryItem}>
-              <Ionicons name="people-outline" size={18} color={colors.primary} />
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-                {txt.travelers}
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {itinerary.numPeople}
-              </Text>
+
+          <View style={styles.tripHeroFooter}>
+            <View style={styles.tripHeroChipRow}>
+              <View
+                style={[styles.tripHeroStatusChip, { backgroundColor: tripStatusMeta.color }]}
+              >
+                <Ionicons name={tripStatusMeta.icon} size={11} color="#fff" />
+                <Text style={styles.tripHeroStatusText}>{tripStatusMeta.label}</Text>
+              </View>
+              {itinerary.generatedByAi && (
+                <View style={styles.tripHeroAiChip}>
+                  <Ionicons name="sparkles" size={11} color="#fff" />
+                  <Text style={styles.tripHeroStatusText}>AI</Text>
+                </View>
+              )}
             </View>
-            {itinerary.startingPoint ? (
-              <View style={styles.summaryItem}>
-                <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-                  {txt.startingPoint}
-                </Text>
-                <Text style={[styles.summaryValue, { color: colors.text }]}>
-                  {itinerary.startingPoint}
+            <Text style={styles.tripHeroTitle} numberOfLines={2}>
+              {itinerary.title}
+            </Text>
+            <View style={styles.tripHeroMetaRow}>
+              <View style={styles.tripHeroMetaItem}>
+                <Ionicons name="location" size={13} color="rgba(255,255,255,0.92)" />
+                <Text style={styles.tripHeroMetaText} numberOfLines={1}>
+                  {itinerary.destination}
                 </Text>
               </View>
-            ) : null}
+              <View style={styles.tripHeroMetaDot} />
+              <View style={styles.tripHeroMetaItem}>
+                <Ionicons name="calendar" size={13} color="rgba(255,255,255,0.92)" />
+                <Text style={styles.tripHeroMetaText}>{tripDateRange}</Text>
+              </View>
+            </View>
           </View>
         </View>
 
+        <View style={styles.flatBlock}>
+          <View style={styles.flatStatsRow}>
+            <View style={styles.flatStatItem}>
+              <Text
+                style={[styles.flatStatValue, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {itinerary.days.length}
+              </Text>
+              <Text
+                style={[styles.flatStatLabel, { color: colors.textTertiary }]}
+                numberOfLines={1}
+              >
+                NGÀY
+              </Text>
+            </View>
+            <View style={[styles.flatStatDivider, { backgroundColor: colors.cardBorder }]} />
+            <View style={styles.flatStatItem}>
+              <Text
+                style={[styles.flatStatValue, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {itinerary.numPeople}
+              </Text>
+              <Text
+                style={[styles.flatStatLabel, { color: colors.textTertiary }]}
+                numberOfLines={1}
+              >
+                NGƯỜI
+              </Text>
+            </View>
+            <View style={[styles.flatStatDivider, { backgroundColor: colors.cardBorder }]} />
+            <View style={styles.flatStatItem}>
+              <Text
+                style={[styles.flatStatValue, { color: colors.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {totalEstimated > 0 ? formatVNDCompact(totalEstimated) : "—"}
+              </Text>
+              <Text
+                style={[styles.flatStatLabel, { color: colors.textTertiary }]}
+                numberOfLines={1}
+              >
+                DỰ KIẾN
+              </Text>
+            </View>
+            <View style={[styles.flatStatDivider, { backgroundColor: colors.cardBorder }]} />
+            <View style={styles.flatStatItem}>
+              <Text
+                style={[styles.flatStatValue, { color: colors.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {itinerary.totalBudget > 0
+                  ? formatVNDCompact(itinerary.totalBudget)
+                  : "—"}
+              </Text>
+              <Text
+                style={[styles.flatStatLabel, { color: colors.textTertiary }]}
+                numberOfLines={1}
+              >
+                NGÂN SÁCH
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {itinerary.startingPoint ? (
+          <View style={[styles.flatRow, { borderTopColor: colors.cardBorder }]}>
+            <Ionicons name="navigate" size={16} color={colors.primary} />
+            <Text style={[styles.flatRowLabel, { color: colors.textTertiary }]}>
+              Xuất phát
+            </Text>
+            <Text
+              style={[styles.flatRowValue, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {itinerary.startingPoint}
+            </Text>
+          </View>
+        ) : null}
+
         {itinerary.totalBudget > 0 && (
-          <View
-            style={[
-              styles.budgetCard,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync();
+              setActiveTab("expenses");
+            }}
+            style={({ pressed }) => [
+              styles.budgetCompactV2,
+              { borderTopColor: colors.cardBorder, opacity: pressed ? 0.7 : 1 },
             ]}
           >
-            <View style={styles.budgetHeader}>
-              <Text style={[styles.budgetTitle, { color: colors.text }]}>{txt.budgetProgress}</Text>
-              {canEdit && itinerary.status === "draft" && (
-                <Pressable
-                  onPress={() => {
-                    setEditBudget(itinerary.totalBudget.toString());
-                    setEditNumPeople(itinerary.numPeople.toString());
-                    setEditInfoModal(true);
-                  }}
-                  hitSlop={8}
-                >
-                  <Ionicons name="create-outline" size={18} color={colors.primary} />
-                </Pressable>
-              )}
-            </View>
-            <View style={styles.budgetRow}>
-              <View style={styles.budgetItem}>
-                <Text style={[styles.budgetLabel, { color: colors.textSecondary }]}>
-                  {txt.totalBudget}
-                </Text>
-                <Text style={[styles.budgetAmount, { color: colors.text }]}>
-                  {formatVND(itinerary.totalBudget)}
-                </Text>
-              </View>
-              <View style={styles.budgetItem}>
-                <Text style={[styles.budgetLabel, { color: colors.textSecondary }]}>
-                  {txt.spent}
-                </Text>
-                <Text style={[styles.budgetAmount, { color: colors.accent }]}>
-                  {formatVND(totalSpent)}
-                </Text>
-              </View>
-              <View style={styles.budgetItem}>
-                <Text style={[styles.budgetLabel, { color: colors.textSecondary }]}>
-                  {txt.remaining}
-                </Text>
+            <View style={styles.budgetCompactTopRow}>
+              <Text style={[styles.budgetCompactLabel, { color: colors.textTertiary }]}>
+                NGÂN SÁCH
+              </Text>
+              <View style={styles.budgetCompactPctWrap}>
                 <Text
                   style={[
-                    styles.budgetAmount,
-                    { color: remaining >= 0 ? colors.success : colors.error },
+                    styles.budgetCompactPercentV2,
+                    {
+                      color:
+                        budgetPercent > 90
+                          ? colors.error
+                          : budgetPercent > 70
+                            ? colors.warning
+                            : colors.success,
+                    },
                   ]}
                 >
-                  {formatVND(Math.abs(remaining))}
-                  {remaining < 0 ? " ⚠️" : ""}
+                  {budgetPercent.toFixed(0)}%
                 </Text>
               </View>
             </View>
-            <View style={[styles.progressBar, { backgroundColor: colors.inputBg }]}>
+            <Text
+              style={[styles.budgetCompactValueV2, { color: colors.text }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.55}
+            >
+              {formatVND(totalSpent)}
+              <Text
+                style={[styles.budgetCompactValueSlash, { color: colors.textTertiary }]}
+              >
+                {" / "}
+                {formatVND(itinerary.totalBudget)}
+              </Text>
+            </Text>
+            <Text
+              style={[
+                styles.budgetCompactRemaining,
+                {
+                  color: remaining >= 0 ? colors.success : colors.error,
+                  marginTop: -2,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {remaining >= 0 ? "Còn " : "Vượt "}
+              {formatVND(Math.abs(remaining))}
+            </Text>
+            <View
+              style={[
+                styles.budgetCompactTrackV2,
+                { backgroundColor: colors.inputBg },
+              ]}
+            >
               <View
                 style={[
-                  styles.progressFill,
+                  styles.budgetCompactFill,
                   {
                     width: `${Math.min(budgetPercent, 100)}%` as any,
                     backgroundColor:
@@ -1924,72 +2821,56 @@ export default function ItineraryDetailScreen() {
                 ]}
               />
             </View>
-            <Text style={[styles.budgetEstimate, { color: colors.textTertiary }]}>
-              {txt.estimatedCost}: {formatVND(totalEstimated)}
-            </Text>
-          </View>
+          </Pressable>
         )}
 
-        <View style={styles.statusRow}>
-          <View
-            style={[
-              styles.statusBadge,
+        {canEdit && (() => {
+          const accent =
+            itinerary.status === "draft"
+              ? colors.primary
+              : itinerary.status === "active"
+                ? colors.success
+                : "#6366F1";
+          return (
+          <Pressable
+            onPress={handleStatusChange}
+            style={({ pressed }) => [
+              styles.flatStatusRow,
               {
-                backgroundColor:
-                  itinerary.status === "active"
-                    ? "#10B981"
-                    : itinerary.status === "completed"
-                      ? "#6B7280"
-                      : colors.accent,
+                // Solid accent so the button reads as actionable instead of
+                // looking "trong suốt"/passive. White text on top.
+                backgroundColor: accent,
+                borderColor: accent,
+                opacity: pressed ? 0.85 : 1,
+                shadowColor: accent,
+                shadowOpacity: 0.25,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 3,
               },
             ]}
           >
-            <Text style={styles.statusBadgeText}>{getStatusLabel(itinerary.status)}</Text>
-          </View>
-        </View>
-
-        {canEdit && (
-          <View style={styles.actionRow}>
-            <Pressable
-              onPress={handleStatusChange}
-              style={({ pressed }) => [
-                styles.actionButton,
-                { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
-              ]}
-            >
-              <Ionicons
-                name={
-                  itinerary.status === "draft"
-                    ? "play"
-                    : itinerary.status === "active"
-                      ? "checkmark-circle"
-                      : "refresh"
-                }
-                size={18}
-                color="#fff"
-              />
-              <Text style={styles.actionButtonText}>
-                {itinerary.status === "draft"
-                  ? txt.startTrip
+            <Ionicons
+              name={
+                itinerary.status === "draft"
+                  ? "play-circle"
                   : itinerary.status === "active"
-                    ? txt.complete
-                    : txt.reset}
-              </Text>
-            </Pressable>
-            {itinerary.status === "draft" && (
-              <Pressable
-                onPress={handleEdit}
-                style={({ pressed }) => [
-                  styles.actionButton,
-                  { backgroundColor: colors.accent, opacity: pressed ? 0.9 : 1 },
-                ]}
-              >
-                <Ionicons name="create-outline" size={18} color="#fff" />
-                <Text style={styles.actionButtonText}>{txt.editTrip}</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
+                    ? "checkmark-circle"
+                    : "refresh-circle"
+              }
+              size={22}
+              color="#fff"
+            />
+            <Text style={[styles.flatStatusText, { color: "#fff" }]}>
+              {itinerary.status === "draft"
+                ? txt.startTrip
+                : itinerary.status === "active"
+                  ? txt.complete
+                  : txt.reset}
+            </Text>
+          </Pressable>
+          );
+        })()}
 
         {itinerary.preferences.length > 0 && (
           <View style={styles.prefRow}>
@@ -2001,201 +2882,223 @@ export default function ItineraryDetailScreen() {
           </View>
         )}
 
-        <View style={styles.tabBar}>
-          <Pressable
-            onPress={() => setActiveTab("itinerary")}
-            style={[
-              styles.tabBtn,
-              activeTab === "itinerary" && {
-                borderBottomColor: colors.primary,
-                borderBottomWidth: 2,
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={[styles.tabBar, { borderBottomColor: colors.cardBorder }]}
+          contentContainerStyle={styles.tabBarInner}
+        >
+          {(
+            [
+              {
+                key: "itinerary" as const,
+                icon: "calendar" as const,
+                label: txt.tabItinerary,
+                count: itinerary.days.length,
               },
-            ]}
-          >
-            <Ionicons
-              name="map-outline"
-              size={16}
-              color={activeTab === "itinerary" ? colors.primary : colors.textTertiary}
-            />
-            <Text
-              style={[
-                styles.tabBtnText,
-                { color: activeTab === "itinerary" ? colors.primary : colors.textTertiary },
-              ]}
-            >
-              {txt.tabItinerary}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setActiveTab("expenses")}
-            style={[
-              styles.tabBtn,
-              activeTab === "expenses" && {
-                borderBottomColor: colors.primary,
-                borderBottomWidth: 2,
+              {
+                key: "expenses" as const,
+                icon: "wallet" as const,
+                label: txt.tabExpenses,
+                count: expenses.length,
               },
-            ]}
-          >
-            <Ionicons
-              name="wallet-outline"
-              size={16}
-              color={activeTab === "expenses" ? colors.primary : colors.textTertiary}
-            />
-            <Text
-              style={[
-                styles.tabBtnText,
-                { color: activeTab === "expenses" ? colors.primary : colors.textTertiary },
-              ]}
-            >
-              {txt.tabExpenses}
-            </Text>
-            {expenses.length > 0 && (
-              <View style={[styles.tabBadge, { backgroundColor: colors.accent }]}>
-                <Text style={styles.tabBadgeText}>{expenses.length}</Text>
-              </View>
-            )}
-          </Pressable>
-          <Pressable
-            onPress={() => setActiveTab("companions")}
-            style={[
-              styles.tabBtn,
-              activeTab === "companions" && {
-                borderBottomColor: colors.primary,
-                borderBottomWidth: 2,
+              {
+                key: "companions" as const,
+                icon: "people" as const,
+                label: txt.companions,
+                count: companions.length,
               },
-            ]}
-          >
-            <Ionicons
-              name="people-outline"
-              size={16}
-              color={activeTab === "companions" ? colors.primary : colors.textTertiary}
-            />
-            <Text
-              style={[
-                styles.tabBtnText,
-                { color: activeTab === "companions" ? colors.primary : colors.textTertiary },
-              ]}
-            >
-              {txt.companions}
-            </Text>
-            {companions.length > 0 && (
-              <View style={[styles.tabBadge, { backgroundColor: colors.primary }]}>
-                <Text style={styles.tabBadgeText}>{companions.length}</Text>
-              </View>
-            )}
-          </Pressable>
-        </View>
+              {
+                key: "tasks" as const,
+                icon: "checkbox" as const,
+                label: "Việc cần làm",
+                count: tasks.filter((t) => !t.isCompleted).length,
+              },
+            ]
+          ).map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <Pressable
+                key={tab.key}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setActiveTab(tab.key);
+                }}
+                style={({ pressed }) => [
+                  styles.tabBtn,
+                  { opacity: !isActive && pressed ? 0.6 : 1 },
+                ]}
+              >
+                <View style={styles.tabBtnRow}>
+                  <Text
+                    style={[
+                      styles.tabBtnText,
+                      { color: isActive ? colors.text : colors.textTertiary },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {tab.label}
+                  </Text>
+                  {tab.count > 0 && (
+                    <Text
+                      style={[
+                        styles.tabBtnCount,
+                        {
+                          color: isActive ? "#fff" : colors.textSecondary,
+                          backgroundColor: isActive
+                            ? colors.primary
+                            : colors.inputBg,
+                        },
+                      ]}
+                    >
+                      {tab.count}
+                    </Text>
+                  )}
+                </View>
+                {isActive && (
+                  <View
+                    style={[
+                      styles.tabBtnUnderline,
+                      { backgroundColor: colors.primary },
+                    ]}
+                  />
+                )}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         {activeTab === "itinerary" && (
           <>
-            {itinerary.days.map((day, dayIdx) => (
-              <View key={day.day}>
-                <Pressable
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    setExpandedDay(expandedDay === dayIdx ? null : dayIdx);
-                  }}
-                >
-                  <View
-                    style={[
-                      styles.dayCard,
-                      { backgroundColor: colors.card, borderColor: colors.cardBorder },
+            {itinerary.days.map((day, dayIdx) => {
+              const displayTitle =
+                (day.title || "")
+                  .replace(/^Ngày\s*\d+\s*[-–]?\s*/i, "")
+                  .trim() || `Lịch trình ngày ${day.day}`;
+              const hasMap = day.activities.some(
+                (a) => a.latitude != null && a.longitude != null,
+              );
+              const dayEstCost = day.activities.reduce(
+                (s, a) => s + (a.estimatedCost || 0),
+                0,
+              );
+              const tripDateOffset = (() => {
+                const m = (itinerary.startDate || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+                if (!m) return "";
+                const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+                d.setDate(d.getDate() + (day.day - 1));
+                return `${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1)
+                  .toString()
+                  .padStart(2, "0")}`;
+              })();
+              const isCollapsed = collapsedDays.has(dayIdx);
+              return (
+                <View key={day.day} style={styles.flatDayBlock}>
+                  <Pressable
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      toggleDayCollapsed(dayIdx);
+                    }}
+                    style={({ pressed }) => [
+                      styles.flatDayHead,
+                      {
+                        borderBottomColor: colors.cardBorder,
+                        opacity: pressed ? 0.85 : 1,
+                      },
                     ]}
                   >
-                    <View style={styles.dayHeader}>
-                      <View style={[styles.dayBadge, { backgroundColor: colors.primary }]}>
-                        <Text style={styles.dayBadgeText}>Ngày {day.day}</Text>
-                      </View>
-                      {(() => {
-                        const displayTitle = (day.title || "")
-                          .replace(/^Ngày\s*\d+\s*[-–]?\s*/i, "")
-                          .trim();
-                        return displayTitle ? (
-                          <Text style={[styles.dayTitle, { color: colors.text }]}>
-                            {displayTitle}
-                          </Text>
-                        ) : null;
-                      })()}
-                      <Ionicons
-                        name={expandedDay === dayIdx ? "chevron-up" : "chevron-down"}
-                        size={20}
-                        color={colors.textTertiary}
-                      />
-                    </View>
-                  </View>
-                </Pressable>
-
-                {expandedDay === dayIdx &&
-                  canEdit &&
-                  (itinerary.status === "draft" || itinerary.status === "active") && (
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        gap: 8,
-                        marginTop: 6,
-                        marginBottom: 2,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <Pressable
-                        onPress={() => autoSortDay(dayIdx)}
-                        style={({ pressed }) => [
-                          {
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 4,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            borderRadius: 8,
-                            backgroundColor: colors.primary + "12",
-                            opacity: pressed ? 0.8 : 1,
-                          },
-                        ]}
+                    <Ionicons
+                      name={isCollapsed ? "chevron-forward" : "chevron-down"}
+                      size={18}
+                      color={colors.textTertiary}
+                    />
+                    <View style={{ flex: 1 }}>
+                      {/* Make the day label pop with a warm orange accent —
+                          user wanted "tươi sáng hơn", not the teal primary. */}
+                      <Text style={[styles.flatDayLabel, { color: colors.accent }]}>
+                        NGÀY {day.day}
+                        {tripDateOffset ? ` • ${tripDateOffset}` : ""}
+                      </Text>
+                      <Text
+                        style={[styles.flatDayTitle, { color: colors.text }]}
+                        numberOfLines={2}
                       >
-                        <Ionicons name="swap-vertical" size={14} color={colors.primary} />
-                        <Text
-                          style={{
-                            fontSize: 12,
-                            fontFamily: "Inter_500Medium",
-                            color: colors.primary,
-                          }}
-                        >
-                          {txt.autoSort}
-                        </Text>
-                      </Pressable>
-                      {day.activities.some((a) => a.latitude != null && a.longitude != null) && (
-                        <Pressable
-                          onPress={() => setRouteMapModal({ dayIdx })}
-                          style={({ pressed }) => [
-                            {
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 4,
-                              paddingHorizontal: 10,
-                              paddingVertical: 6,
-                              borderRadius: 8,
-                              backgroundColor: colors.accent + "12",
-                              opacity: pressed ? 0.8 : 1,
-                            },
-                          ]}
-                        >
-                          <Ionicons name="map-outline" size={14} color={colors.accent} />
-                          <Text
-                            style={{
-                              fontSize: 12,
-                              fontFamily: "Inter_500Medium",
-                              color: colors.accent,
-                            }}
-                          >
-                            {txt.viewRouteMap}
-                          </Text>
-                        </Pressable>
-                      )}
+                        {displayTitle}
+                      </Text>
+                      <Text
+                        style={[styles.flatDayMeta, { color: colors.textTertiary }]}
+                        numberOfLines={1}
+                      >
+                        {day.activities.length} hoạt động
+                        {dayEstCost > 0 ? ` • ${formatVND(dayEstCost)}` : ""}
+                      </Text>
                     </View>
-                  )}
+                  </Pressable>
 
-                {expandedDay === dayIdx && (
-                  <View style={styles.activitiesList}>
+                  {!isCollapsed && (hasMap || canEdit) &&
+                    (itinerary.status === "draft" || itinerary.status === "active" || hasMap) && (
+                      <View style={styles.dayQuickActions}>
+                        {hasMap && (
+                          <Pressable
+                            onPress={() => setRouteMapModal({ dayIdx })}
+                            hitSlop={4}
+                            style={({ pressed }) => [
+                              styles.dayQuickAction,
+                              {
+                                backgroundColor: colors.primary + "10",
+                                opacity: pressed ? 0.7 : 1,
+                              },
+                            ]}
+                          >
+                            <Ionicons name="map" size={14} color={colors.primary} />
+                            <Text
+                              style={[
+                                styles.dayQuickActionText,
+                                { color: colors.primary },
+                              ]}
+                            >
+                              Xem bản đồ
+                            </Text>
+                          </Pressable>
+                        )}
+                        {canEdit &&
+                          (itinerary.status === "draft" ||
+                            itinerary.status === "active") &&
+                          day.activities.length > 1 && (
+                            <Pressable
+                              onPress={() => autoSortDay(dayIdx)}
+                              hitSlop={4}
+                              style={({ pressed }) => [
+                                styles.dayQuickAction,
+                                {
+                                  // Bright accent-tinted background so the
+                                  // button reads as actionable (was washed-
+                                  // out gray and looked disabled).
+                                  backgroundColor: colors.accent + "18",
+                                  opacity: pressed ? 0.7 : 1,
+                                },
+                              ]}
+                            >
+                              <Ionicons
+                                name="sparkles"
+                                size={14}
+                                color={colors.accent}
+                              />
+                              <Text
+                                style={[
+                                  styles.dayQuickActionText,
+                                  { color: colors.accent },
+                                ]}
+                              >
+                                Tự sắp xếp
+                              </Text>
+                            </Pressable>
+                          )}
+                      </View>
+                    )}
+
+                  {!isCollapsed && (
+                <View style={styles.activitiesList}>
                     {day.activities.map((activity, actIdx) => (
                       <React.Fragment key={activity.id}>
                         {actIdx > 0 && (
@@ -2205,93 +3108,215 @@ export default function ItineraryDetailScreen() {
                             colors={colors}
                           />
                         )}
+                        <Swipeable
+                          enabled={
+                            canEdit &&
+                            (itinerary.status === "draft" ||
+                              itinerary.status === "active")
+                          }
+                          renderLeftActions={() => {
+                            if (itinerary.status !== "active") return null;
+                            return (
+                              <View
+                                style={[
+                                  styles.swipeLeftAction,
+                                  {
+                                    backgroundColor: activity.isCompleted
+                                      ? colors.textTertiary
+                                      : colors.success,
+                                  },
+                                ]}
+                              >
+                                <Ionicons
+                                  name={
+                                    activity.isCompleted
+                                      ? "ellipse-outline"
+                                      : "checkmark-circle"
+                                  }
+                                  size={24}
+                                  color="#fff"
+                                />
+                                <Text style={styles.swipeActionText}>
+                                  {activity.isCompleted ? "Bỏ đánh dấu" : "Hoàn thành"}
+                                </Text>
+                              </View>
+                            );
+                          }}
+                          renderRightActions={() => {
+                            const canDel =
+                              canEdit &&
+                              (itinerary.status === "draft" ||
+                                (itinerary.status === "active" && !activity.isCompleted));
+                            if (!canDel) return null;
+                            return (
+                              <View
+                                style={[
+                                  styles.swipeRightAction,
+                                  { backgroundColor: colors.error },
+                                ]}
+                              >
+                                <Ionicons name="trash" size={24} color="#fff" />
+                                <Text style={styles.swipeActionText}>Xoá</Text>
+                              </View>
+                            );
+                          }}
+                          onSwipeableWillOpen={(direction) => {
+                            if (direction === "left" && itinerary.status === "active") {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              toggleActivityComplete(dayIdx, activity.id);
+                              setTimeout(() => activitySwipeRefs.current[activity.id]?.close(), 250);
+                            } else if (direction === "right") {
+                              const canDel =
+                                canEdit &&
+                                (itinerary.status === "draft" ||
+                                  (itinerary.status === "active" && !activity.isCompleted));
+                              if (canDel) {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                deleteActivity(dayIdx, activity.id);
+                              } else {
+                                setTimeout(() => activitySwipeRefs.current[activity.id]?.close(), 250);
+                              }
+                            }
+                          }}
+                          ref={(r) => {
+                            if (r) activitySwipeRefs.current[activity.id] = r;
+                          }}
+                          friction={1.6}
+                          overshootLeft={false}
+                          overshootRight={false}
+                          leftThreshold={60}
+                          rightThreshold={60}
+                          // Match the page background so the swipe action
+                          // panel (green / red) stays hidden behind the row
+                          // until the user actually drags. Transparent here
+                          // let the action color leak through and looked
+                          // washed-out.
+                          containerStyle={{ backgroundColor: detailBg }}
+                        >
                         <View
                           style={[
                             styles.activityCard,
                             {
-                              backgroundColor: colors.card,
-                              borderColor: activity.isCompleted
-                                ? colors.success + "50"
-                                : colors.cardBorder,
+                              backgroundColor: detailBg,
+                              borderBottomColor: colors.cardBorder,
                             },
                           ]}
                         >
                           <View style={styles.activityTop}>
-                            {itinerary.status === "active" && canEdit && (
-                              <Pressable
-                                onPress={() => toggleActivityComplete(dayIdx, activity.id)}
-                                style={[
-                                  styles.checkbox,
-                                  {
-                                    borderColor: activity.isCompleted
-                                      ? colors.success
-                                      : colors.textTertiary,
-                                    backgroundColor: activity.isCompleted
-                                      ? colors.success
-                                      : "transparent",
-                                  },
-                                ]}
-                              >
-                                {activity.isCompleted && (
-                                  <Ionicons name="checkmark" size={14} color="#fff" />
-                                )}
-                              </Pressable>
-                            )}
-                            {itinerary.status === "completed" && activity.isCompleted && (
-                              <View
-                                style={[
-                                  styles.checkbox,
-                                  { borderColor: colors.success, backgroundColor: colors.success },
-                                ]}
-                              >
-                                <Ionicons name="checkmark" size={14} color="#fff" />
-                              </View>
-                            )}
-                            <View style={{ flex: 1 }}>
-                              <View style={styles.activityTitleRow}>
-                                <Pressable
-                                  onPress={() => {
-                                    const canEditTime =
-                                      canEdit &&
-                                      (itinerary.status === "draft" ||
-                                        (itinerary.status === "active" && !activity.isCompleted));
-                                    if (canEditTime)
-                                      setTimeModal({
-                                        activityId: activity.id,
-                                        dayIdx,
-                                        time: activity.time,
-                                      });
-                                  }}
-                                >
+                            {(() => {
+                              const t = activity.activityType || "";
+                              const catTone: Record<string, { bg: string; icon: any }> = {
+                                food: { bg: "#F59E0B", icon: "restaurant" },
+                                restaurant: { bg: "#F59E0B", icon: "restaurant" },
+                                cafe: { bg: "#F97316", icon: "cafe" },
+                                attraction: { bg: "#3B82F6", icon: "camera" },
+                                sightseeing: { bg: "#3B82F6", icon: "camera" },
+                                hotel: { bg: "#EC4899", icon: "bed" },
+                                accommodation: { bg: "#EC4899", icon: "bed" },
+                                transport: { bg: "#10B981", icon: "car" },
+                                transit: { bg: "#10B981", icon: "car" },
+                                shopping: { bg: "#A855F7", icon: "bag" },
+                              };
+                              const tone = catTone[t] || {
+                                bg: colors.textTertiary,
+                                icon: "ellipse",
+                              };
+                              const canToggle =
+                                itinerary.status === "active" && canEdit;
+                              const showCheck =
+                                (itinerary.status === "active" ||
+                                  itinerary.status === "completed") &&
+                                activity.isCompleted;
+                              return (
+                                <View style={styles.activityRail}>
                                   <Text
                                     style={[
-                                      styles.activityTime,
-                                      {
-                                        color: colors.primary,
-                                        textDecorationLine:
-                                          canEdit &&
-                                          (itinerary.status === "draft" ||
-                                            (itinerary.status === "active" &&
-                                              !activity.isCompleted))
-                                            ? "underline"
-                                            : "none",
-                                      },
+                                      styles.activityRailNum,
+                                      { color: colors.textTertiary },
                                     ]}
                                   >
-                                    {activity.time}
+                                    {actIdx + 1}
                                   </Text>
-                                </Pressable>
-                                <View style={[styles.typeBadge, { backgroundColor: colors.tagBg }]}>
-                                  <Ionicons
-                                    name={getActivityTypeIcon(activity.activityType) as any}
-                                    size={12}
-                                    color={colors.tagText}
-                                  />
-                                  <Text style={[styles.typeText, { color: colors.tagText }]}>
-                                    {getActivityTypeLabel(activity.activityType)}
-                                  </Text>
+                                  {canToggle ? (
+                                    <Pressable
+                                      onPress={() => {
+                                        Haptics.impactAsync(
+                                          Haptics.ImpactFeedbackStyle.Light,
+                                        );
+                                        toggleActivityComplete(dayIdx, activity.id);
+                                      }}
+                                      hitSlop={10}
+                                      style={({ pressed }) => [
+                                        styles.activityCatDot,
+                                        {
+                                          backgroundColor: activity.isCompleted
+                                            ? colors.success
+                                            : tone.bg,
+                                          opacity: pressed ? 0.7 : 1,
+                                        },
+                                      ]}
+                                    >
+                                      <Ionicons
+                                        name={
+                                          activity.isCompleted
+                                            ? "checkmark"
+                                            : (tone.icon as any)
+                                        }
+                                        size={14}
+                                        color="#fff"
+                                      />
+                                    </Pressable>
+                                  ) : (
+                                    <View
+                                      style={[
+                                        styles.activityCatDot,
+                                        {
+                                          backgroundColor: showCheck
+                                            ? colors.success
+                                            : tone.bg,
+                                        },
+                                      ]}
+                                    >
+                                      <Ionicons
+                                        name={
+                                          showCheck ? "checkmark" : (tone.icon as any)
+                                        }
+                                        size={14}
+                                        color="#fff"
+                                      />
+                                    </View>
+                                  )}
                                 </View>
-                              </View>
+                              );
+                            })()}
+                            <View style={{ flex: 1 }}>
+                              <Pressable
+                                onPress={() => {
+                                  const canEditTime =
+                                    canEdit &&
+                                    (itinerary.status === "draft" ||
+                                      (itinerary.status === "active" && !activity.isCompleted));
+                                  if (canEditTime)
+                                    setTimeModal({
+                                      activityId: activity.id,
+                                      dayIdx,
+                                      time: activity.time,
+                                    });
+                                }}
+                                hitSlop={4}
+                              >
+                                <Text
+                                  style={[
+                                    styles.activityTimeFlat,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                >
+                                  {activity.time}
+                                  {activity.duration
+                                    ? ` · ${formatDuration(activity.duration)}`
+                                    : ""}
+                                </Text>
+                              </Pressable>
                               <Pressable
                                 onPress={() => {
                                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -2302,124 +3327,191 @@ export default function ItineraryDetailScreen() {
                               >
                                 <Text
                                   style={[
-                                    styles.activityTitle,
+                                    styles.activityTitleFlat,
                                     {
                                       color: activity.isCompleted
-                                        ? colors.textSecondary
-                                        : colors.primary,
+                                        ? colors.textTertiary
+                                        : colors.text,
                                       textDecorationLine: activity.isCompleted
                                         ? "line-through"
                                         : "none",
                                     },
                                   ]}
+                                  numberOfLines={2}
                                 >
                                   {activity.title}
-                                  <Text
-                                    style={{
-                                      fontSize: 12,
-                                      color: activity.isCompleted
-                                        ? colors.textTertiary
-                                        : colors.primary,
-                                    }}
-                                  >
-                                    {" "}
-                                    ›
-                                  </Text>
                                 </Text>
                               </Pressable>
-                              <Text style={[styles.activityDesc, { color: colors.textSecondary }]}>
-                                {activity.description}
-                              </Text>
-                              {activity.rating ? (
-                                <View
-                                  style={{
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    gap: 4,
-                                    marginTop: 2,
-                                  }}
-                                >
-                                  <Ionicons name="star" size={12} color="#F5A623" />
-                                  <Text
-                                    style={{
-                                      fontSize: 12,
-                                      fontFamily: "Inter_600SemiBold",
-                                      color: "#F5A623",
-                                    }}
-                                  >
-                                    {activity.rating.toFixed(1)}
-                                  </Text>
-                                  <Text
-                                    style={{
-                                      fontSize: 11,
-                                      fontFamily: "Inter_400Regular",
-                                      color: colors.textTertiary,
-                                    }}
-                                  >
-                                    Google Maps
-                                  </Text>
-                                </View>
-                              ) : null}
-                              {activity.duration ? (
+                              {!!activity.address && (
                                 <Text
-                                  style={[styles.activityDuration, { color: colors.textTertiary }]}
+                                  style={[
+                                    styles.activityAddrFlat,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                  numberOfLines={1}
                                 >
-                                  {formatDuration(activity.duration)}
+                                  {activity.address}
                                 </Text>
-                              ) : null}
+                              )}
+                              {(() => {
+                                const linkedPOI = activity.poiId
+                                  ? pois.find((p) => p.id === activity.poiId)
+                                  : null;
+                                const openHrs =
+                                  activity.openHours || linkedPOI?.openHours || "";
+                                const chips: Array<{
+                                  key: string;
+                                  icon: any;
+                                  color: string;
+                                  bg: string;
+                                  text: string;
+                                }> = [];
+                                if (activity.rating && activity.rating > 0) {
+                                  chips.push({
+                                    key: "rating",
+                                    icon: "star",
+                                    color: "#B45309",
+                                    bg: "#FEF3C7",
+                                    text: `${activity.rating.toFixed(1)}${
+                                      activity.reviewCount
+                                        ? ` (${activity.reviewCount})`
+                                        : ""
+                                    }`,
+                                  });
+                                }
+                                if (openHrs) {
+                                  chips.push({
+                                    key: "hours",
+                                    icon: "time",
+                                    color: "#BE185D",
+                                    bg: "#FCE7F3",
+                                    text: openHrs,
+                                  });
+                                }
+                                if (activity.estimatedCost > 0) {
+                                  chips.push({
+                                    key: "cost",
+                                    icon: "cash",
+                                    color: "#047857",
+                                    bg: "#D1FAE5",
+                                    text: formatVND(activity.estimatedCost),
+                                  });
+                                }
+                                if (chips.length === 0) return null;
+                                return (
+                                  <View style={styles.activityChipsRow}>
+                                    {chips.map((c) => (
+                                      <View
+                                        key={c.key}
+                                        style={[
+                                          styles.activityChip,
+                                          { backgroundColor: c.bg },
+                                        ]}
+                                      >
+                                        <Ionicons name={c.icon} size={10} color={c.color} />
+                                        <Text
+                                          style={[styles.activityChipText, { color: c.color }]}
+                                          numberOfLines={1}
+                                        >
+                                          {c.text}
+                                        </Text>
+                                      </View>
+                                    ))}
+                                  </View>
+                                );
+                              })()}
                             </View>
-                          </View>
-
-                          <View style={styles.costRow}>
-                            {activity.estimatedCost > 0 && (
-                              <Text style={[styles.costText, { color: colors.textSecondary }]}>
-                                {txt.estimatedCost}: {formatVND(activity.estimatedCost)}
-                              </Text>
-                            )}
-                            {activity.actualCost !== undefined && activity.actualCost > 0 && (
-                              <Text style={[styles.costText, { color: colors.accent }]}>
-                                {txt.actualCost}: {formatVND(activity.actualCost)}
-                              </Text>
-                            )}
-                            {activity.paidBy && (
-                              <Text style={[styles.paidByText, { color: colors.textTertiary }]}>
-                                {txt.paidBy}: {activity.paidBy}
-                              </Text>
-                            )}
-                          </View>
-
-                          {activity.address ? (
-                            <Pressable
-                              onPress={() => {
-                                const url =
-                                  activity.googleMapsUrl ||
-                                  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity.title + " " + activity.address)}`;
-                                Linking.openURL(url);
-                              }}
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                gap: 4,
-                                paddingHorizontal: 12,
-                                paddingBottom: 8,
-                              }}
-                            >
-                              <Ionicons name="location-outline" size={13} color={colors.primary} />
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  fontFamily: "Inter_400Regular",
-                                  color: colors.primary,
-                                  flex: 1,
-                                  textDecorationLine: "underline",
+                            {(() => {
+                              const linkedPOI = activity.poiId
+                                ? pois.find((p) => p.id === activity.poiId)
+                                : null;
+                              const linkedDest = activity.destinationId
+                                ? destinations.find((d) => d.id === activity.destinationId)
+                                : null;
+                              const thumb =
+                                activity.thumbnail ||
+                                linkedPOI?.images?.[0] ||
+                                linkedDest?.images?.[0];
+                              if (!thumb) return null;
+                              return (
+                                <Image
+                                  source={{ uri: thumb }}
+                                  style={styles.activityThumb}
+                                  contentFit="cover"
+                                  transition={150}
+                                />
+                              );
+                            })()}
+                            {(canEdit ||
+                              (activity.latitude != null && activity.longitude != null)) && (
+                              <Pressable
+                                onPress={() => {
+                                  Haptics.selectionAsync();
+                                  setActivityMenu({
+                                    activity,
+                                    dayIdx,
+                                    actIdx,
+                                    total: day.activities.length,
+                                  });
                                 }}
-                                numberOfLines={1}
+                                hitSlop={8}
+                                style={({ pressed }) => [
+                                  styles.activityMenuBtn,
+                                  { opacity: pressed ? 0.6 : 1 },
+                                ]}
                               >
-                                {activity.address}
-                              </Text>
-                              <Ionicons name="open-outline" size={11} color={colors.primary} />
-                            </Pressable>
-                          ) : null}
+                                <Ionicons
+                                  name="ellipsis-vertical"
+                                  size={18}
+                                  color={colors.textTertiary}
+                                />
+                              </Pressable>
+                            )}
+                          </View>
+
+                          {itinerary.status !== "draft" &&
+                            ((activity.actualCost !== undefined &&
+                              activity.actualCost > 0) ||
+                              activity.paidBy) && (
+                              <View style={styles.activityActualRow}>
+                                {activity.actualCost !== undefined &&
+                                  activity.actualCost > 0 && (
+                                    <View style={styles.activityActualChip}>
+                                      <Ionicons
+                                        name="cash"
+                                        size={11}
+                                        color={colors.accent}
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.activityActualText,
+                                          { color: colors.accent },
+                                        ]}
+                                      >
+                                        Thực chi {formatVND(activity.actualCost)}
+                                      </Text>
+                                    </View>
+                                  )}
+                                {activity.paidBy && (
+                                  <View style={styles.activityActualChip}>
+                                    <Ionicons
+                                      name="person"
+                                      size={11}
+                                      color={colors.textSecondary}
+                                    />
+                                    <Text
+                                      style={[
+                                        styles.activityActualText,
+                                        { color: colors.textSecondary },
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {activity.paidBy}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            )}
 
                           {(() => {
                             const actReview = getActivityReview(activity.id);
@@ -2624,240 +3716,131 @@ export default function ItineraryDetailScreen() {
                           {getActivityNotes(activity).length > 0 && (
                             <View style={styles.notesContainer}>
                               {getActivityNotes(activity).map((noteItem, noteIdx) => (
-                                <View
+                                // Notion / Wanderlog-style sticky note: warm
+                                // amber paper background, thick left accent
+                                // bar, "Ghi chú" eyebrow label, tap row to
+                                // edit, trailing trash for delete. The old
+                                // inline icon row read like form chrome
+                                // rather than content.
+                                <Pressable
                                   key={noteIdx}
-                                  style={[styles.noteBox, { backgroundColor: colors.inputBg }]}
+                                  onPress={() => {
+                                    if (!canEdit) return;
+                                    Haptics.selectionAsync();
+                                    setNoteModal({
+                                      activityId: activity.id,
+                                      dayIdx,
+                                      note: noteItem,
+                                      editIndex: noteIdx,
+                                    });
+                                  }}
+                                  style={({ pressed }) => [
+                                    styles.noteSticky,
+                                    {
+                                      backgroundColor: "#FEF3C7",
+                                      opacity: pressed && canEdit ? 0.85 : 1,
+                                    },
+                                  ]}
                                 >
-                                  <Ionicons
-                                    name="document-text-outline"
-                                    size={14}
-                                    color={colors.textSecondary}
-                                  />
-                                  <Text style={[styles.noteText, { color: colors.textSecondary }]}>
+                                  <View style={styles.noteStickyHead}>
+                                    <Ionicons
+                                      name="bookmark"
+                                      size={11}
+                                      color="#B45309"
+                                    />
+                                    <Text style={styles.noteStickyLabel}>
+                                      GHI CHÚ
+                                    </Text>
+                                    {canEdit && (
+                                      <Pressable
+                                        onPress={(e) => {
+                                          e.stopPropagation();
+                                          deleteNote(dayIdx, activity.id, noteIdx);
+                                        }}
+                                        hitSlop={8}
+                                        style={{ marginLeft: "auto", padding: 2 }}
+                                      >
+                                        <Ionicons
+                                          name="trash-outline"
+                                          size={13}
+                                          color="#B45309"
+                                        />
+                                      </Pressable>
+                                    )}
+                                  </View>
+                                  <Text style={styles.noteStickyText}>
                                     {noteItem}
                                   </Text>
-                                  {canEdit && (
-                                    <>
-                                      <Pressable
-                                        onPress={() =>
-                                          setNoteModal({
-                                            activityId: activity.id,
-                                            dayIdx,
-                                            note: noteItem,
-                                            editIndex: noteIdx,
-                                          })
-                                        }
-                                        hitSlop={6}
-                                      >
-                                        <Ionicons
-                                          name="create-outline"
-                                          size={14}
-                                          color={colors.primary}
-                                        />
-                                      </Pressable>
-                                      <Pressable
-                                        onPress={() => deleteNote(dayIdx, activity.id, noteIdx)}
-                                        hitSlop={6}
-                                      >
-                                        <Ionicons
-                                          name="close-circle-outline"
-                                          size={14}
-                                          color={colors.error}
-                                        />
-                                      </Pressable>
-                                    </>
-                                  )}
-                                </View>
+                                </Pressable>
                               ))}
                             </View>
                           )}
 
-                          <View style={styles.activityActions}>
-                            {/* Notes: all statuses */}
-                            {canEdit && (
+                          {itinerary.status !== "draft" &&
+                            canEdit &&
+                            activity.isCompleted &&
+                            !getActivityReview(activity.id) && (
                               <Pressable
-                                onPress={() =>
-                                  setNoteModal({ activityId: activity.id, dayIdx, note: "" })
-                                }
-                                style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
+                                onPress={() => openReviewModal(activity.id, dayIdx)}
+                                style={({ pressed }) => [
+                                  styles.activityReviewCta,
+                                  {
+                                    borderColor: colors.primary + "40",
+                                    opacity: pressed ? 0.7 : 1,
+                                  },
+                                ]}
                               >
                                 <Ionicons
-                                  name="document-text-outline"
+                                  name="star-outline"
                                   size={14}
                                   color={colors.primary}
                                 />
-                              </Pressable>
-                            )}
-                            {/* Cost: draft=estimated only, active=both/actual, completed=locked */}
-                            {canEdit &&
-                              (() => {
-                                if (itinerary.status === "draft") return true;
-                                if (itinerary.status === "active") return true;
-                                return false;
-                              })() && (
-                                <Pressable
-                                  onPress={() => {
-                                    setCostPaidByDropdown(false);
-                                    setCostModal({
-                                      activityId: activity.id,
-                                      dayIdx,
-                                      cost: (activity.actualCost || 0).toString(),
-                                      estimatedCost: (activity.estimatedCost || 0).toString(),
-                                      paidBy: activity.paidBy || user?.fullName || "",
-                                      activityTitle: activity.title,
-                                      expenseTypeId: activity.expenseTypeId,
-                                      type: activity.activityType || "other",
-                                    });
-                                  }}
-                                  style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                                >
-                                  <Ionicons name="cash-outline" size={14} color={colors.accent} />
-                                </Pressable>
-                              )}
-                            {/* Time: draft or active unchecked */}
-                            {canEdit &&
-                              (itinerary.status === "draft" ||
-                                (itinerary.status === "active" && !activity.isCompleted)) && (
-                                <Pressable
-                                  onPress={() =>
-                                    setTimeModal({
-                                      activityId: activity.id,
-                                      dayIdx,
-                                      time: activity.time,
-                                    })
-                                  }
-                                  style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                                >
-                                  <Ionicons name="time-outline" size={14} color={colors.primary} />
-                                </Pressable>
-                              )}
-                            {activity.latitude != null && activity.longitude != null && (
-                              <>
-                                <Pressable
-                                  onPress={() =>
-                                    openGoogleMaps({
-                                      lat: activity.latitude,
-                                      lng: activity.longitude,
-                                      address: activity.address,
-                                      name: activity.title,
-                                      googlePlaceId: activity.googlePlaceId,
-                                    })
-                                  }
-                                  style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                                >
-                                  <Ionicons name="map-outline" size={14} color={colors.success} />
-                                </Pressable>
-                                <Pressable
-                                  onPress={() =>
-                                    openGrab(activity.latitude, activity.longitude, activity.title)
-                                  }
-                                  style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                                >
-                                  <Ionicons name="car-outline" size={14} color="#00B14F" />
-                                </Pressable>
-                              </>
-                            )}
-                            {/* Reorder: draft or active unchecked */}
-                            {canEdit &&
-                              (itinerary.status === "draft" ||
-                                (itinerary.status === "active" && !activity.isCompleted)) &&
-                              actIdx > 0 && (
-                                <Pressable
-                                  onPress={() => moveActivity(dayIdx, actIdx, "up")}
-                                  style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                                >
-                                  <Ionicons
-                                    name="arrow-up"
-                                    size={14}
-                                    color={colors.textSecondary}
-                                  />
-                                </Pressable>
-                              )}
-                            {canEdit &&
-                              (itinerary.status === "draft" ||
-                                (itinerary.status === "active" && !activity.isCompleted)) &&
-                              actIdx < day.activities.length - 1 && (
-                                <Pressable
-                                  onPress={() => moveActivity(dayIdx, actIdx, "down")}
-                                  style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                                >
-                                  <Ionicons
-                                    name="arrow-down"
-                                    size={14}
-                                    color={colors.textSecondary}
-                                  />
-                                </Pressable>
-                              )}
-                            {/* Delete: draft or active unchecked */}
-                            {canEdit &&
-                              (itinerary.status === "draft" ||
-                                (itinerary.status === "active" && !activity.isCompleted)) && (
-                                <Pressable
-                                  onPress={() => deleteActivity(dayIdx, activity.id)}
-                                  style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}
-                                >
-                                  <Ionicons name="trash-outline" size={14} color={colors.error} />
-                                </Pressable>
-                              )}
-                            {/* Review: only if trip is not draft, user can edit (not viewer), and activity is completed */}
-                            {itinerary.status !== "draft" &&
-                              canEdit &&
-                              activity.isCompleted &&
-                              !getActivityReview(activity.id) && (
-                                <Pressable
-                                  onPress={() => openReviewModal(activity.id, dayIdx)}
+                                <Text
                                   style={[
-                                    styles.miniBtn,
-                                    { backgroundColor: colors.primary + "15" },
+                                    styles.activityReviewCtaText,
+                                    { color: colors.primary },
                                   ]}
                                 >
-                                  <Ionicons name="star-outline" size={14} color={colors.primary} />
-                                </Pressable>
-                              )}
-                          </View>
+                                  Đánh giá địa điểm này
+                                </Text>
+                              </Pressable>
+                            )}
                         </View>
+                        </Swipeable>
                       </React.Fragment>
                     ))}
 
-                    {/* Add place: draft or active */}
                     {canEdit && (itinerary.status === "draft" || itinerary.status === "active") && (
                       <Pressable
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                           setAddPlaceModal({ dayIdx });
                         }}
-                        style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
+                        style={({ pressed }) => [
+                          styles.addPlaceFlat,
+                          { opacity: pressed ? 0.6 : 1 },
+                        ]}
                       >
-                        <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
-                        <Text style={[styles.addExpenseText, { color: colors.primary }]}>
+                        <Ionicons name="add" size={18} color={colors.primary} />
+                        <Text style={[styles.addPlaceFlatText, { color: colors.primary }]}>
                           {txt.addPlace}
                         </Text>
                       </Pressable>
                     )}
-                    {/* Delete day: draft or active, only if no completed activities */}
                     {canEdit &&
                       (itinerary.status === "draft" || itinerary.status === "active") &&
                       itinerary.days.length > 1 &&
                       !day.activities.some((a) => a.isCompleted) && (
                         <Pressable
-                          onPress={() => {
+                          onPress={async () => {
                             const doDelete = async () => {
                               const newDays = itinerary.days
                                 .filter((_, i) => i !== dayIdx)
                                 .map((d, i) => ({ ...d, day: i + 1, title: `Ngày ${i + 1}` }));
-                              // Recalculate endDate
-                              const startParts = itinerary.startDate.split("-");
-                              const startDate =
-                                startParts.length === 3
-                                  ? new Date(
-                                      parseInt(startParts[2]),
-                                      parseInt(startParts[1]) - 1,
-                                      parseInt(startParts[0]),
-                                    )
-                                  : new Date(itinerary.startDate);
+                              const startDate = parseTripStartDate(itinerary.startDate);
                               const newEnd = new Date(startDate);
                               newEnd.setDate(newEnd.getDate() + newDays.length - 1);
-                              const endStr = `${newEnd.getDate().toString().padStart(2, "0")}-${(newEnd.getMonth() + 1).toString().padStart(2, "0")}-${newEnd.getFullYear()}`;
+                              const endStr = formatDateVN(newEnd);
                               const newSpent = recalcSpent(newDays, expenses);
                               await updateItinerary(itinerary.id, {
                                 days: newDays,
@@ -2866,31 +3849,34 @@ export default function ItineraryDetailScreen() {
                               });
                               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                             };
-                            if (Platform.OS === "web") {
-                              if (window.confirm(`Xóa ${day.title}?`)) doDelete();
-                            } else {
-                              Alert.alert("Xóa ngày", `Xóa ${day.title}?`, [
-                                { text: t().common.cancel, style: "cancel" },
-                                {
-                                  text: t().common.delete,
-                                  style: "destructive",
-                                  onPress: doDelete,
-                                },
-                              ]);
-                            }
+                            const ok = await confirm({
+                              title: "Xóa ngày?",
+                              message: `Bạn có chắc muốn xóa ${day.title} cùng tất cả hoạt động bên trong?`,
+                              destructive: true,
+                              confirmText: t().common.delete,
+                            });
+                            if (ok) doDelete();
                           }}
-                          style={[styles.addExpenseBtn, { borderColor: colors.error + "50" }]}
+                          style={({ pressed }) => [
+                            styles.removeDayFlat,
+                            { opacity: pressed ? 0.6 : 1 },
+                          ]}
                         >
-                          <Ionicons name="remove-circle-outline" size={18} color={colors.error} />
-                          <Text style={[styles.addExpenseText, { color: colors.error }]}>
-                            Xóa {day.title}
+                          <Ionicons
+                            name="trash-outline"
+                            size={14}
+                            color={colors.error}
+                          />
+                          <Text style={[styles.removeDayFlatText, { color: colors.error }]}>
+                            Xóa ngày {day.day}
                           </Text>
                         </Pressable>
                       )}
                   </View>
-                )}
-              </View>
-            ))}
+                  )}
+                </View>
+              );
+            })}
             {/* Add Day button: draft or active trips */}
             {canEdit && (itinerary.status === "draft" || itinerary.status === "active") && (
               <Pressable
@@ -2900,26 +3886,22 @@ export default function ItineraryDetailScreen() {
                     ...itinerary.days,
                     { day: newDayNum, title: `Ngày ${newDayNum}`, activities: [] },
                   ];
-                  // Recalculate endDate
-                  const startParts = itinerary.startDate.split("-");
-                  const startDate =
-                    startParts.length === 3
-                      ? new Date(
-                          parseInt(startParts[2]),
-                          parseInt(startParts[1]) - 1,
-                          parseInt(startParts[0]),
-                        )
-                      : new Date(itinerary.startDate);
+                  const startDate = parseTripStartDate(itinerary.startDate);
                   const newEnd = new Date(startDate);
                   newEnd.setDate(newEnd.getDate() + newDays.length - 1);
-                  const endStr = `${newEnd.getDate().toString().padStart(2, "0")}-${(newEnd.getMonth() + 1).toString().padStart(2, "0")}-${newEnd.getFullYear()}`;
+                  const endStr = formatDateVN(newEnd);
                   await updateItinerary(itinerary.id, { days: newDays, endDate: endStr });
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }}
-                style={[styles.addExpenseBtn, { borderColor: colors.primary + "50", marginTop: 8 }]}
+                style={({ pressed }) => [
+                  styles.addDayDashed,
+                  { borderColor: colors.primary + "55", opacity: pressed ? 0.7 : 1 },
+                ]}
               >
-                <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
-                <Text style={[styles.addExpenseText, { color: colors.primary }]}>Thêm ngày</Text>
+                <Ionicons name="add" size={18} color={colors.primary} />
+                <Text style={[styles.addDayDashedText, { color: colors.primary }]}>
+                  Thêm ngày mới
+                </Text>
               </Pressable>
             )}
           </>
@@ -2927,8 +3909,235 @@ export default function ItineraryDetailScreen() {
 
         {activeTab === "expenses" && (
           <View style={styles.expensesTab}>
-            {/* ═══ EXPENSE SUMMARY TABLE (completed only) ═══ */}
-            {itinerary.status === "completed" &&
+            <View
+              style={[
+                styles.expSubtab,
+                { backgroundColor: colors.inputBg },
+              ]}
+            >
+              {(["overview", "balance"] as const).map((k) => {
+                const active = expenseSubtab === k;
+                const label = k === "overview" ? "Tổng quan" : "Chia tiền";
+                return (
+                  <Pressable
+                    key={k}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setExpenseSubtab(k);
+                    }}
+                    style={({ pressed }) => [
+                      styles.expSubtabBtn,
+                      active && {
+                        backgroundColor: colors.card,
+                        shadowColor: "#000",
+                        shadowOpacity: 0.06,
+                        shadowRadius: 4,
+                        shadowOffset: { width: 0, height: 1 },
+                        elevation: 2,
+                      },
+                      { opacity: !active && pressed ? 0.7 : 1 },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.expSubtabText,
+                        {
+                          color: active ? colors.text : colors.textSecondary,
+                        },
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {expenseSubtab === "overview" && (() => {
+              const totalBudgetExp = itinerary.totalBudget || 0;
+              const remainingExp = totalBudgetExp - totalSpent;
+              const pctExp = totalBudgetExp > 0 ? (totalSpent / totalBudgetExp) * 100 : 0;
+              const catColors: Record<string, { bg: string; fg: string; label: string }> = {
+                food: { bg: "#FEF3C7", fg: "#B45309", label: "Ăn uống" },
+                restaurant: { bg: "#FEF3C7", fg: "#B45309", label: "Ăn uống" },
+                transport: { bg: "#DBEAFE", fg: "#1D4ED8", label: "Di chuyển" },
+                transit: { bg: "#DBEAFE", fg: "#1D4ED8", label: "Di chuyển" },
+                hotel: { bg: "#EDE9FE", fg: "#5B21B6", label: "Lưu trú" },
+                accommodation: { bg: "#EDE9FE", fg: "#5B21B6", label: "Lưu trú" },
+                sightseeing: { bg: "#D1FAE5", fg: "#047857", label: "Tham quan" },
+                attraction: { bg: "#D1FAE5", fg: "#047857", label: "Tham quan" },
+                shopping: { bg: "#FCE7F3", fg: "#BE185D", label: "Mua sắm" },
+                other: { bg: "#F3F4F6", fg: "#374151", label: "Khác" },
+              };
+              const catTotals: Record<string, number> = {};
+              for (const day of itinerary.days) {
+                for (const a of day.activities) {
+                  const k = a.activityType || "other";
+                  catTotals[k] = (catTotals[k] || 0) + (a.actualCost || 0);
+                }
+              }
+              for (const e of expenses) {
+                const k = e.type || "other";
+                catTotals[k] = (catTotals[k] || 0) + e.amount;
+              }
+              const catList = Object.entries(catTotals)
+                .filter(([, v]) => v > 0)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 4);
+              const catSum = catList.reduce((s, [, v]) => s + v, 0);
+              return (
+                <View style={styles.expHero}>
+                  <View style={styles.expHeroTopV2}>
+                    <Text style={[styles.expHeroLabel, { color: colors.textTertiary }]}>
+                      TỔNG ĐÃ CHI
+                    </Text>
+                    {totalBudgetExp > 0 && (
+                      <View
+                        style={[
+                          styles.expHeroPctChip,
+                          {
+                            backgroundColor:
+                              pctExp > 90
+                                ? colors.error + "18"
+                                : pctExp > 70
+                                  ? colors.warning + "18"
+                                  : colors.success + "18",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.expHeroPctText,
+                            {
+                              color:
+                                pctExp > 90
+                                  ? colors.error
+                                  : pctExp > 70
+                                    ? colors.warning
+                                    : colors.success,
+                            },
+                          ]}
+                        >
+                          {pctExp.toFixed(0)}%
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      // Toggle full VND view (TODO: actual modal — for now just haptic)
+                    }}
+                  >
+                    <Text
+                      style={[styles.expHeroValueV2, { color: colors.text }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.55}
+                    >
+                      {formatVND(totalSpent)}
+                      {totalBudgetExp > 0 && (
+                        <Text
+                          style={[styles.expHeroValueSlash, { color: colors.textTertiary }]}
+                        >
+                          {" / "}
+                          {formatVND(totalBudgetExp)}
+                        </Text>
+                      )}
+                    </Text>
+                  </Pressable>
+                  {totalBudgetExp > 0 && (
+                    <>
+                      <View
+                        style={[styles.expHeroTrackV2, { backgroundColor: colors.inputBg }]}
+                      >
+                        <View
+                          style={[
+                            styles.expHeroFill,
+                            {
+                              width: `${Math.min(pctExp, 100)}%` as any,
+                              backgroundColor:
+                                pctExp > 90
+                                  ? colors.error
+                                  : pctExp > 70
+                                    ? colors.warning
+                                    : colors.success,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <View style={styles.expHeroFootRow}>
+                        <Text
+                          style={[
+                            styles.expHeroFootText,
+                            { color: colors.textTertiary },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {remainingExp >= 0 ? "Còn lại " : "Vượt "}
+                          <Text
+                            style={{
+                              fontFamily: "Inter_700Bold",
+                              color: remainingExp >= 0 ? colors.success : colors.error,
+                            }}
+                          >
+                            {formatVND(Math.abs(remainingExp))}
+                          </Text>
+                        </Text>
+                      </View>
+                    </>
+                  )}
+                  {catList.length > 0 && (
+                    <View style={styles.expCatList}>
+                      {catList.map(([key, val]) => {
+                        const tone =
+                          catColors[key] ||
+                          { bg: colors.primary + "18", fg: colors.primary, label: key };
+                        const pct = catSum > 0 ? (val / catSum) * 100 : 0;
+                        return (
+                          <View key={key} style={styles.expCatRow}>
+                            <View style={[styles.expCatDot, { backgroundColor: tone.fg }]} />
+                            <Text
+                              style={[
+                                styles.expCatLabel,
+                                { color: colors.textSecondary },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {tone.label}
+                            </Text>
+                            <View
+                              style={[
+                                styles.expCatBarTrack,
+                                { backgroundColor: colors.inputBg },
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.expCatBarFill,
+                                  {
+                                    width: `${pct}%` as any,
+                                    backgroundColor: tone.fg,
+                                  },
+                                ]}
+                              />
+                            </View>
+                            <Text
+                              style={[styles.expCatValue, { color: colors.text }]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.6}
+                            >
+                              {formatVND(val)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+            {expenseSubtab === "overview" && itinerary.status === "completed" &&
               (() => {
                 // Calculate stats
                 const allActivities = itinerary.days.flatMap((day, dayIdx) =>
@@ -3797,7 +5006,7 @@ export default function ItineraryDetailScreen() {
                 );
               })()}
 
-            {expenses.length === 0 ? (
+            {expenseSubtab === "overview" && (expenses.length === 0 ? (
               <View style={styles.emptyExpenses}>
                 <Ionicons name="wallet-outline" size={48} color={colors.textTertiary} />
                 <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
@@ -3808,65 +5017,324 @@ export default function ItineraryDetailScreen() {
                 </Text>
               </View>
             ) : (
-              expenses.map((expense: Expense) => (
-                <View
-                  key={expense.id}
-                  style={[
-                    styles.expenseCard,
-                    { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                  ]}
-                >
-                  <View style={styles.expenseTop}>
-                    <Ionicons
-                      name={getActivityTypeIcon(expense.type) as any}
-                      size={20}
-                      color={colors.textSecondary}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.expenseTitle, { color: colors.text }]}>
-                        {expense.title}
-                      </Text>
-                      <View style={styles.expenseMeta}>
-                        <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}>
-                          {new Date(expense.createdAt).toLocaleDateString("vi-VN")} •{" "}
-                          {getActivityTypeLabel(
-                            expense.expenseTypeId?.toString() || expense.type,
-                            expenseTypes,
-                          )}
+              (() => {
+                const sorted = [...expenses].sort(
+                  (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+                );
+                const dayKey = (d: string) => {
+                  const dt = new Date(d);
+                  return `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+                };
+                const fmtDayHeader = (d: string) => {
+                  const dt = new Date(d);
+                  const today = new Date();
+                  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+                  const yest = new Date(today);
+                  yest.setDate(yest.getDate() - 1);
+                  const yestKey = `${yest.getFullYear()}-${yest.getMonth()}-${yest.getDate()}`;
+                  const dKey = dayKey(d);
+                  const dow = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"][dt.getDay()];
+                  const abs = `${dt.getDate().toString().padStart(2, "0")}/${(dt.getMonth() + 1).toString().padStart(2, "0")}`;
+                  if (dKey === todayKey) return `Hôm nay · ${dow} ${abs}`;
+                  if (dKey === yestKey) return `Hôm qua · ${dow} ${abs}`;
+                  return `${dow} ${abs}`;
+                };
+                let lastDayKey = "";
+                return sorted.map((expense: Expense, idx) => {
+                  const expColorMap: Record<string, { bg: string; fg: string }> = {
+                    food: { bg: "#FEF3C7", fg: "#B45309" },
+                    restaurant: { bg: "#FEF3C7", fg: "#B45309" },
+                    shopping: { bg: "#FCE7F3", fg: "#BE185D" },
+                    transport: { bg: "#DBEAFE", fg: "#1D4ED8" },
+                    sightseeing: { bg: "#D1FAE5", fg: "#047857" },
+                    hotel: { bg: "#EDE9FE", fg: "#5B21B6" },
+                    accommodation: { bg: "#EDE9FE", fg: "#5B21B6" },
+                  };
+                  const tone = expColorMap[expense.type] || {
+                    bg: colors.primary + "15",
+                    fg: colors.primary,
+                  };
+                  const myId = String(user?.id || "");
+                  const isPayer = String(expense.paidByUserId || "") === myId;
+                  const mySplit = expense.splits?.find(
+                    (sp) => String(sp.userId) === myId,
+                  );
+                  let myDelta = 0;
+                  if (isPayer && expense.splits && expense.splits.length > 0) {
+                    myDelta = expense.amount - (mySplit?.amount || 0);
+                  } else if (!isPayer && mySplit) {
+                    myDelta = -(mySplit.amount || 0);
+                  }
+                  const curKey = dayKey(expense.createdAt);
+                  const showHeader = curKey !== lastDayKey;
+                  if (showHeader) {
+                    lastDayKey = curKey;
+                  }
+                  const daySubtotal = sorted
+                    .filter((e) => dayKey(e.createdAt) === curKey)
+                    .reduce((s, e) => s + e.amount, 0);
+                  return (
+                    <React.Fragment key={expense.id}>
+                      {showHeader && (
+                        <View
+                          style={[
+                            styles.expDayHeader,
+                            { borderBottomColor: colors.cardBorder },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.expDayHeaderLabel,
+                              { color: colors.textTertiary },
+                            ]}
+                          >
+                            {fmtDayHeader(expense.createdAt)}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.expDayHeaderTotal,
+                              { color: colors.textSecondary },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {formatVND(daySubtotal)}
+                          </Text>
+                        </View>
+                      )}
+                      {(() => {
+                        return (
+                  <View
+                    key={expense.id}
+                    style={[
+                      styles.expenseCard,
+                      { borderBottomColor: colors.cardBorder },
+                    ]}
+                  >
+                    <View style={styles.expenseTopV2}>
+                      <View style={[styles.expenseIconCircle, { backgroundColor: tone.bg }]}>
+                        <Ionicons
+                          name={getActivityTypeIcon(expense.type) as any}
+                          size={18}
+                          color={tone.fg}
+                        />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                          style={[styles.expenseTitle, { color: colors.text }]}
+                          numberOfLines={1}
+                        >
+                          {expense.title}
                         </Text>
-                        {expense.paidBy && (
+                        <View style={styles.expenseMetaV2}>
                           <Text style={[styles.expenseMetaText, { color: colors.textTertiary }]}>
-                            {" "}
-                            • {txt.paidBy}: {expense.paidBy}
+                            {new Date(expense.createdAt).toLocaleDateString("vi-VN")}
+                          </Text>
+                          <View
+                            style={[
+                              styles.expenseChip,
+                              { backgroundColor: tone.bg },
+                            ]}
+                          >
+                            <Text style={[styles.expenseChipText, { color: tone.fg }]}>
+                              {getActivityTypeLabel(
+                                expense.expenseTypeId?.toString() || expense.type,
+                                expenseTypes,
+                              )}
+                            </Text>
+                          </View>
+                          {expense.splitType && expense.splitType !== "none" && (
+                            <View
+                              style={[
+                                styles.expenseChip,
+                                { backgroundColor: colors.primary + "15" },
+                              ]}
+                            >
+                              <Ionicons
+                                name="people-outline"
+                                size={10}
+                                color={colors.primary}
+                              />
+                              <Text
+                                style={[styles.expenseChipText, { color: colors.primary }]}
+                              >
+                                {expense.splitType === "equal" ? txt.splitEqual : txt.splitCustom}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        {expense.paidBy && (
+                          <Text
+                            style={[styles.expensePaidBy, { color: colors.textTertiary }]}
+                            numberOfLines={1}
+                          >
+                            {txt.paidBy}: {expense.paidBy}
                           </Text>
                         )}
-                        {expense.splitType && expense.splitType !== "none" && (
-                          <Text style={[styles.expenseMetaText, { color: colors.primary }]}>
-                            {" "}
-                            • {expense.splitType === "equal" ? txt.splitEqual : txt.splitCustom}
+                      </View>
+                      <View style={{ alignItems: "flex-end", gap: 2 }}>
+                        <Text
+                          style={[styles.expenseAmount, { color: colors.text }]}
+                          numberOfLines={1}
+                        >
+                          {formatVND(expense.amount)}
+                        </Text>
+                        {myDelta !== 0 && (
+                          <Text
+                            style={[
+                              styles.expenseDeltaText,
+                              {
+                                color: myDelta > 0 ? colors.success : colors.error,
+                              },
+                            ]}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.7}
+                          >
+                            {myDelta > 0 ? "Bạn cho mượn " : "Bạn nợ "}
+                            {formatVND(Math.abs(myDelta))}
                           </Text>
                         )}
                       </View>
                     </View>
-                    <Text style={[styles.expenseAmount, { color: colors.text }]}>
-                      {formatVND(expense.amount)}
-                    </Text>
-                  </View>
 
-                  {expense.splits && expense.splits.length > 0 && (
-                    <View style={styles.splitDetails}>
-                      {expense.splits.map((sp: ExpenseSplit) => (
-                        <View key={sp.userId} style={styles.splitDetailRow}>
-                          <Text style={[styles.splitDetailName, { color: colors.textSecondary }]}>
-                            {sp.userName}
-                          </Text>
-                          <Text style={[styles.splitDetailAmount, { color: colors.accent }]}>
-                            {formatVND(sp.amount)}
-                          </Text>
+                  {expense.splits && expense.splits.length > 0 && (() => {
+                    const splits = expense.splits;
+                    const palette = [
+                      "#4F46E5",
+                      "#0EA5E9",
+                      "#10B981",
+                      "#F59E0B",
+                      "#EF4444",
+                      "#8B5CF6",
+                      "#EC4899",
+                    ];
+                    const hashColor = (s: string) => {
+                      let h = 0;
+                      for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+                      return palette[Math.abs(h) % palette.length];
+                    };
+                    const allEqual = splits.every((sp) => sp.amount === splits[0].amount);
+                    const visible = splits.slice(0, 3);
+                    const extra = Math.max(splits.length - 3, 0);
+                    return (
+                      <Pressable
+                        onPress={() => setExpenseMenu(expense)}
+                        style={({ pressed }) => [
+                          styles.splitSummary,
+                          { opacity: pressed ? 0.85 : 1 },
+                        ]}
+                      >
+                        <View style={styles.splitAvatarStack}>
+                          {visible.map((sp, idx) => {
+                            // Prefer the real profile avatar from the trip
+                            // members list so the same person appears
+                            // identically everywhere; fall back to a
+                            // stable hash-colored initial.
+                            const member = tripMembers.find(
+                              (m) => String(m.userId) === String(sp.userId),
+                            );
+                            const avatarUrl = (member as any)?.avatarUrl as
+                              | string
+                              | null
+                              | undefined;
+                            return avatarUrl ? (
+                              <Image
+                                key={sp.userId}
+                                source={{ uri: avatarUrl }}
+                                style={[
+                                  styles.splitAvatar,
+                                  {
+                                    marginLeft: idx === 0 ? 0 : -8,
+                                    borderColor: colors.card,
+                                  },
+                                ]}
+                                contentFit="cover"
+                              />
+                            ) : (
+                              <View
+                                key={sp.userId}
+                                style={[
+                                  styles.splitAvatar,
+                                  {
+                                    backgroundColor: hashColor(sp.userName),
+                                    marginLeft: idx === 0 ? 0 : -8,
+                                    borderColor: colors.card,
+                                  },
+                                ]}
+                              >
+                                <Text style={styles.splitAvatarText}>
+                                  {(sp.userName || "?").charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                          {extra > 0 && (
+                            <View
+                              style={[
+                                styles.splitAvatar,
+                                {
+                                  backgroundColor: colors.textTertiary,
+                                  marginLeft: -8,
+                                  borderColor: colors.card,
+                                },
+                              ]}
+                            >
+                              <Text style={styles.splitAvatarText}>+{extra}</Text>
+                            </View>
+                          )}
                         </View>
-                      ))}
-                    </View>
-                  )}
+                        <Text
+                          style={[styles.splitSummaryText, { color: colors.textSecondary }]}
+                          numberOfLines={1}
+                        >
+                          {(() => {
+                            const type = expense.splitType as
+                              | "none"
+                              | "equal"
+                              | "custom"
+                              | undefined;
+                            const totalMembers =
+                              (itinerary.companions?.length ?? 0) + 1;
+                            const splitCount = splits.length;
+                            const includesAll = splitCount >= totalMembers;
+                            const min = Math.min(...splits.map((s) => s.amount));
+                            const max = Math.max(...splits.map((s) => s.amount));
+                            const sum = splits.reduce((s, p) => s + p.amount, 0);
+                            const expectedEqual = Math.round(sum / splitCount);
+                            const trulyEqual = splits.every(
+                              (sp) => Math.abs(sp.amount - expectedEqual) <= 1,
+                            );
+                            const whoLabel = includesAll
+                              ? `${splitCount} người`
+                              : `${splitCount}/${totalMembers} người`;
+                            // CASE 1 — Không chia
+                            if (!type || type === "none" || splitCount === 0) {
+                              return "Không chia · 1 người chịu";
+                            }
+                            // CASE 2 — Chia đều, gồm tất cả thành viên
+                            if (type === "equal") {
+                              return `Chia đều ${whoLabel} · ${formatVND(splits[0].amount)}/người`;
+                            }
+                            // CASE 3 — Chia cá nhân, các trường hợp con:
+                            // 3a) hết người, số tiền bằng nhau → giống "chia đều"
+                            // 3b) hết người, số tiền khác nhau → "Chia cá nhân X người · min → max"
+                            // 3c) ko hết người (chỉ chọn 1 vài), bằng nhau → "Chỉ X/Y người · 100k/người"
+                            // 3d) ko hết người, khác nhau → "Chỉ X/Y người · min → max"
+                            if (type === "custom") {
+                              if (trulyEqual) {
+                                return `Chia cá nhân ${whoLabel} · ${formatVND(splits[0].amount)}/người`;
+                              }
+                              return `Chia cá nhân ${whoLabel} · ${formatVND(min)} → ${formatVND(max)}`;
+                            }
+                            // Legacy fallback
+                            return trulyEqual
+                              ? `Chia ${whoLabel} · ${formatVND(splits[0].amount)}/người`
+                              : `Chia ${whoLabel} · ${formatVND(min)} → ${formatVND(max)}`;
+                          })()}
+                        </Text>
+                      </Pressable>
+                    );
+                  })()}
 
                   {expense.notes && expense.notes.length > 0 && (
                     <View style={styles.notesContainer}>
@@ -3914,33 +5382,52 @@ export default function ItineraryDetailScreen() {
                     </View>
                   )}
 
-                  {canEdit && itinerary.status !== "completed" && (
-                    <View style={styles.expenseActions}>
-                      <Pressable
-                        onPress={() => setExpenseNoteModal({ expenseId: expense.id, note: "" })}
-                        style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                      >
-                        <Ionicons name="document-text-outline" size={14} color={colors.primary} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => openEditExpense(expense)}
-                        style={[styles.miniBtn, { backgroundColor: colors.inputBg }]}
-                      >
-                        <Ionicons name="create-outline" size={14} color={colors.accent} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => deleteExpense(expense.id)}
-                        style={[styles.miniBtn, { backgroundColor: colors.error + "15" }]}
-                      >
-                        <Ionicons name="trash-outline" size={14} color={colors.error} />
-                      </Pressable>
-                    </View>
+                  {canEdit && (
+                    // Always show the ⋯ button (even when the trip is
+                    // completed). Read actions like "Xem ghi chú" stay
+                    // useful; write actions are guarded at save time so the
+                    // user still sees a tap target instead of an empty row.
+                    <Pressable
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setExpenseMenu(expense);
+                      }}
+                      hitSlop={12}
+                      style={({ pressed }) => [
+                        styles.expenseMenuBtn,
+                        { opacity: pressed ? 0.5 : 1 },
+                      ]}
+                    >
+                      <Ionicons
+                        name="ellipsis-horizontal"
+                        size={18}
+                        color={colors.textSecondary}
+                      />
+                    </Pressable>
                   )}
-                </View>
-              ))
-            )}
+                  </View>
+                        );
+                      })()}
+                    </React.Fragment>
+                  );
+                });
+              })()
+            ))}
 
-            {(() => {
+            {expenseSubtab === "balance" && expenses.filter(
+              (e) => e.splits && e.splits.length > 0 && e.paidByUserId,
+            ).length === 0 && (
+              <View style={styles.emptyExpenses}>
+                <Ionicons name="git-compare-outline" size={48} color={colors.textTertiary} />
+                <Text style={[styles.emptyTitle, { color: colors.textSecondary }]}>
+                  Chưa có khoản chia tiền
+                </Text>
+                <Text style={[styles.emptyHint, { color: colors.textTertiary }]}>
+                  Khi nhóm có chi phí chia, số dư giữa các thành viên sẽ hiện ở đây
+                </Text>
+              </View>
+            )}
+            {expenseSubtab === "balance" && (() => {
               const expensesWithSplits = expenses.filter(
                 (e) => e.splits && e.splits.length > 0 && e.paidByUserId,
               );
@@ -4041,71 +5528,126 @@ export default function ItineraryDetailScreen() {
                 }
               };
 
-              // Debt reminder handler
+              // Debt reminder handler — wrap each send in try/catch so one
+              // failing recipient doesn't silently kill the whole batch.
               const handleDebtReminder = async () => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                if (settlements.length === 0) {
+                  const msg = "Không có khoản nợ nào để nhắc.";
+                  if (Platform.OS === "web") window.alert(msg);
+                  else Alert.alert("", msg);
+                  return;
+                }
                 let sentCount = 0;
+                let failedCount = 0;
                 for (const s of settlements) {
-                  // Send notification to the debtor
-                  await addNotification({
-                    userId: s.from,
-                    title: txt.debtReminderTitle,
-                    message: txt.debtReminderMsg(
-                      s.fromName,
-                      s.toName,
-                      formatVND(s.amount),
-                      itinerary.title,
-                    ),
-                    type: "warning",
-                    itineraryId: itinerary.id,
-                  });
-                  // Also send notification to the creditor
-                  await addNotification({
-                    userId: s.to,
-                    title: txt.debtReminderTitle,
-                    message: `${s.fromName} đã được nhắc nhở thanh toán ${formatVND(s.amount)} cho bạn từ chuyến đi "${itinerary.title}"`,
-                    type: "info",
-                    itineraryId: itinerary.id,
-                  });
-                  sentCount++;
+                  try {
+                    await addNotification({
+                      userId: s.from,
+                      title: txt.debtReminderTitle,
+                      message: txt.debtReminderMsg(
+                        s.fromName,
+                        s.toName,
+                        formatVND(s.amount),
+                        itinerary.title,
+                      ),
+                      type: "warning",
+                      itineraryId: itinerary.id,
+                    });
+                    await addNotification({
+                      userId: s.to,
+                      title: txt.debtReminderTitle,
+                      message: `${s.fromName} đã được nhắc nhở thanh toán ${formatVND(s.amount)} cho bạn từ chuyến đi "${itinerary.title}"`,
+                      type: "info",
+                      itineraryId: itinerary.id,
+                    });
+                    sentCount++;
+                  } catch (err) {
+                    console.warn("Debt reminder send failed:", err);
+                    failedCount++;
+                  }
                 }
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                if (Platform.OS === "web") {
-                  window.alert(`${txt.debtReminderSent} (${sentCount} khoản nợ)`);
-                } else {
-                  Alert.alert("", `${txt.debtReminderSent} (${sentCount} khoản nợ)`);
-                }
+                Haptics.notificationAsync(
+                  failedCount > 0
+                    ? Haptics.NotificationFeedbackType.Warning
+                    : Haptics.NotificationFeedbackType.Success,
+                );
+                const summary =
+                  failedCount === 0
+                    ? `${txt.debtReminderSent} (${sentCount} khoản nợ)`
+                    : `Gửi được ${sentCount}/${settlements.length} khoản. ${failedCount} khoản gặp lỗi.`;
+                if (Platform.OS === "web") window.alert(summary);
+                else Alert.alert("", summary);
               };
 
               return (
-                <View
-                  style={[
-                    styles.settlementCard,
-                    { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                  ]}
-                >
+                <View style={styles.settlementCard}>
                   <View style={styles.settlementHeader}>
                     <Ionicons name="swap-horizontal-outline" size={18} color={colors.primary} />
                     <Text style={[styles.settlementTitle, { color: colors.text }]}>
                       {txt.settlement}
                     </Text>
                   </View>
-                  {settlements.map((s, idx) => (
-                    <View key={idx} style={styles.settlementRow}>
-                      <Text style={[styles.settlementName, { color: colors.text }]}>
-                        {s.fromName}
-                      </Text>
-                      <Text style={[styles.settlementOwes, { color: colors.textSecondary }]}>
-                        {txt.owes}
-                      </Text>
-                      <Text style={[styles.settlementName, { color: colors.text }]}>
-                        {s.toName}
-                      </Text>
-                      <Text style={[styles.settlementAmount, { color: colors.error }]}>
-                        {formatVND(s.amount)}
-                      </Text>
-                    </View>
-                  ))}
+                  {settlements.map((s, idx) => {
+                    // Pull the debtor's profile avatar from the canonical
+                    // trip members list so the face matches everywhere
+                    // (Companions tab, invite popup, etc).
+                    const fromMember = tripMembers.find(
+                      (m) => String(m.userId) === String(s.from),
+                    );
+                    const fromAvatarUrl = (fromMember as any)?.avatarUrl as
+                      | string
+                      | null
+                      | undefined;
+                    return (
+                      <View
+                        key={idx}
+                        style={[
+                          styles.settlementRowV2,
+                          { borderBottomColor: colors.cardBorder },
+                        ]}
+                      >
+                        {fromAvatarUrl ? (
+                          <Image
+                            source={{ uri: fromAvatarUrl }}
+                            style={styles.settlementAvatar}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.settlementAvatar,
+                              { backgroundColor: avatarColorFor(String(s.from)) },
+                            ]}
+                          >
+                            <Text style={styles.settlementAvatarText}>
+                              {(s.fromName || "?").charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text
+                            style={[styles.settlementName, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {s.fromName}
+                          </Text>
+                          <Text
+                            style={[styles.settlementArrow, { color: colors.textTertiary }]}
+                            numberOfLines={1}
+                          >
+                            → {s.toName}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[styles.settlementAmount, { color: colors.error }]}
+                          numberOfLines={1}
+                        >
+                          {formatVND(s.amount)}
+                        </Text>
+                      </View>
+                    );
+                  })}
 
                   {/* Export & Reminder Buttons */}
                   <View style={styles.settlementActions}>
@@ -4144,211 +5686,102 @@ export default function ItineraryDetailScreen() {
               );
             })()}
 
-            {canEdit && itinerary.status !== "completed" && (
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setExpenseTitle("");
-                  setExpenseAmount("");
-                  setExpensePaidBy(user?.fullName || "");
-                  setExpensePaidByUserId(user?.id || "");
-                  setExpenseType("transport");
-                  setExpenseSplitType("none");
-                  setExpenseSplitChecked(initSplitChecked());
-                  setExpenseSplitAmounts({});
-                  setExpenseModal({});
-                }}
-                style={[styles.addExpenseBtn, { borderColor: colors.primary + "50" }]}
-              >
-                <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
-                <Text style={[styles.addExpenseText, { color: colors.primary }]}>
-                  {txt.addExpense}
-                </Text>
-              </Pressable>
-            )}
           </View>
         )}
 
         {activeTab === "companions" && (
           <View style={{ gap: 14 }}>
-            {/* Share link section */}
-            {canShare && (
-              <View
-                style={[
-                  styles.budgetCard,
-                  { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                ]}
-              >
-                <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}
-                >
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 10,
-                      backgroundColor: colors.primary + "18",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
+            {false && canShare && (
+              <View style={styles.cmpShareBlock}>
+                {/* Removed per user request — invite-via-link lives in the
+                    invite popup now; the Companions tab focuses on the
+                    member list. */}
+                <View style={{ display: "none" }}>
+                  <Pressable
+                    onPress={() => {}}
+                    style={({ pressed }) => [
+                      styles.cmpChannel,
+                      {
+                        borderColor: colors.cardBorder,
+                        opacity: pressed ? 0.6 : 1,
+                      },
+                    ]}
                   >
-                    <Ionicons name="link-outline" size={18} color={colors.primary} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 15, fontFamily: "Inter_700Bold", color: colors.text }}>
-                      {txt.shareTrip}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontFamily: "Inter_400Regular",
-                        color: colors.textSecondary,
-                        marginTop: 1,
-                      }}
-                    >
-                      {txt.copyLinkHint}
-                    </Text>
-                  </View>
-                </View>
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <View
-                    style={[invStyles.permToggle, { backgroundColor: colors.inputBg, flex: 1 }]}
-                  >
-                    <Pressable
-                      onPress={() => setSharePermission("viewer")}
+                    <View
                       style={[
-                        invStyles.permBtn,
-                        sharePermission === "viewer" && {
-                          backgroundColor: colors.card,
-                          ...invStyles.permBtnActive,
-                        },
+                        styles.cmpChannelIcon,
+                        { backgroundColor: "#0068FF18" },
                       ]}
                     >
-                      <Ionicons
-                        name="eye-outline"
-                        size={14}
-                        color={sharePermission === "viewer" ? colors.primary : colors.textSecondary}
-                      />
-                      <Text
-                        style={[
-                          invStyles.permBtnText,
-                          {
-                            color:
-                              sharePermission === "viewer" ? colors.primary : colors.textSecondary,
-                            fontSize: 12,
-                          },
-                        ]}
-                      >
-                        {txt.viewOnly}
-                      </Text>
-                    </Pressable>
-                    {canShareAsEditor && (
-                      <Pressable
-                        onPress={() => setSharePermission("editor")}
-                        style={[
-                          invStyles.permBtn,
-                          sharePermission === "editor" && {
-                            backgroundColor: colors.card,
-                            ...invStyles.permBtnActive,
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="create-outline"
-                          size={14}
-                          color={
-                            sharePermission === "editor" ? colors.primary : colors.textSecondary
-                          }
-                        />
-                        <Text
-                          style={[
-                            invStyles.permBtnText,
-                            {
-                              color:
-                                sharePermission === "editor"
-                                  ? colors.primary
-                                  : colors.textSecondary,
-                              fontSize: 12,
-                            },
-                          ]}
-                        >
-                          {txt.canEdit}
-                        </Text>
-                      </Pressable>
-                    )}
-                  </View>
+                      <Ionicons name="chatbubble" size={16} color="#0068FF" />
+                    </View>
+                    <Text style={[styles.cmpChannelText, { color: colors.text }]}>
+                      Zalo
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {}}
+                    style={({ pressed }) => [
+                      styles.cmpChannel,
+                      {
+                        borderColor: colors.cardBorder,
+                        opacity: pressed ? 0.6 : 1,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.cmpChannelIcon,
+                        { backgroundColor: colors.text + "12" },
+                      ]}
+                    >
+                      <Ionicons name="qr-code" size={16} color={colors.text} />
+                    </View>
+                    <Text style={[styles.cmpChannelText, { color: colors.text }]}>
+                      Mã QR
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {}}
+                    style={({ pressed }) => [
+                      styles.cmpChannel,
+                      {
+                        borderColor: colors.cardBorder,
+                        opacity: pressed ? 0.6 : 1,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.cmpChannelIcon,
+                        { backgroundColor: colors.accent + "18" },
+                      ]}
+                    >
+                      <Ionicons name="mail" size={16} color={colors.accent} />
+                    </View>
+                    <Text style={[styles.cmpChannelText, { color: colors.text }]}>
+                      Email
+                    </Text>
+                  </Pressable>
                 </View>
-                <Pressable
-                  onPress={handleGenerateLink}
-                  style={({ pressed }) => [
-                    {
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      paddingVertical: 12,
-                      borderRadius: 12,
-                      backgroundColor: colors.primary,
-                      marginTop: 4,
-                      opacity: pressed ? 0.9 : 1,
-                    },
-                  ]}
-                >
-                  <Ionicons name="copy-outline" size={16} color="#fff" />
-                  <Text style={{ color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" }}>
-                    {txt.copyLink}
-                  </Text>
-                </Pressable>
               </View>
             )}
 
-            {/* Companion list */}
             <View
               style={[
-                styles.budgetCard,
-                { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                styles.flatSectionHead,
+                { borderTopColor: colors.cardBorder, borderBottomColor: colors.cardBorder },
               ]}
             >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: 4,
-                }}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 10,
-                      backgroundColor: colors.primary + "18",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Ionicons name="people" size={18} color={colors.primary} />
-                  </View>
-                  <View>
-                    <Text style={{ fontSize: 15, fontFamily: "Inter_700Bold", color: colors.text }}>
-                      {txt.companions}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontFamily: "Inter_400Regular",
-                        color: colors.textSecondary,
-                        marginTop: 1,
-                      }}
-                    >
-                      {tripMembers.length} thành viên
-                    </Text>
-                  </View>
-                </View>
-              </View>
+              <Text style={[styles.flatSectionLabel, { color: colors.textTertiary }]}>
+                THÀNH VIÊN
+              </Text>
+              <Text style={[styles.flatSectionCount, { color: colors.text }]}>
+                {tripMembers.length}
+              </Text>
+            </View>
 
-              {tripMembers.map((m, i) => {
+            {tripMembers.map((m, i) => {
                 const avatarColors = [
                   "#4F46E5",
                   "#0EA5E9",
@@ -4363,143 +5796,295 @@ export default function ItineraryDetailScreen() {
                   <View
                     key={m.userId}
                     style={[
-                      invStyles.compRow,
+                      styles.memberCard,
                       i < tripMembers.length - 1 && {
-                        borderBottomWidth: 1,
+                        borderBottomWidth: StyleSheet.hairlineWidth,
                         borderBottomColor: colors.cardBorder,
                       },
                     ]}
                   >
-                    <View style={[invStyles.compAvatar, { backgroundColor: bg }]}>
-                      <Text style={invStyles.compAvatarText}>
-                        {m.userName.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={[invStyles.compName, { color: colors.text }]}>
-                        {m.userName}
-                        {m.isOwner ? " 👑" : ""}
-                      </Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Ionicons
-                          name={
-                            m.isOwner
-                              ? "shield-checkmark-outline"
-                              : companion?.role === "editor"
-                                ? "create-outline"
-                                : "eye-outline"
-                          }
-                          size={12}
-                          color={colors.textSecondary}
-                        />
-                        <Text style={[invStyles.compRole, { color: colors.textSecondary }]}>
-                          {m.isOwner
-                            ? "Chủ chuyến đi"
-                            : companion?.role === "editor"
-                              ? txt.editor
-                              : txt.viewer}
+                    {m.avatarUrl ? (
+                      <Image
+                        source={{ uri: m.avatarUrl }}
+                        style={styles.memberAvatarLg}
+                        contentFit="cover"
+                        transition={150}
+                      />
+                    ) : (
+                      <View style={[styles.memberAvatarLg, { backgroundColor: bg }]}>
+                        <Text style={styles.memberAvatarText}>
+                          {m.userName.charAt(0).toUpperCase()}
                         </Text>
                       </View>
-                    </View>
-                    {isOwner && !m.isOwner && companion && (
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Pressable
-                          onPress={() =>
-                            handleChangeCompanionRole(
-                              companion,
-                              companion.role === "editor" ? "viewer" : "editor",
-                            )
-                          }
-                          hitSlop={6}
+                    )}
+                    <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+                      <Text
+                        style={[styles.memberName, { color: colors.text }]}
+                        numberOfLines={1}
+                      >
+                        {m.userName}
+                      </Text>
+                      {(() => {
+                        if (m.isOwner) return null;
+                        if (!companion?.joinedAt) return null;
+                        const joined = new Date(companion.joinedAt);
+                        const now = new Date();
+                        const diffDay = Math.floor(
+                          (now.getTime() - joined.getTime()) / (24 * 60 * 60 * 1000),
+                        );
+                        const label =
+                          diffDay < 1
+                            ? "Tham gia hôm nay"
+                            : diffDay === 1
+                              ? "Tham gia hôm qua"
+                              : diffDay < 30
+                                ? `Tham gia ${diffDay} ngày trước`
+                                : `Tham gia ${joined.getDate().toString().padStart(2, "0")}/${(joined.getMonth() + 1).toString().padStart(2, "0")}/${joined.getFullYear()}`;
+                        return (
+                          <Text
+                            style={[styles.memberJoinedAt, { color: colors.textTertiary }]}
+                            numberOfLines={1}
+                          >
+                            {label}
+                          </Text>
+                        );
+                      })()}
+                      <View style={styles.memberRoleRow}>
+                        <View
                           style={[
-                            invStyles.roleToggleBtn,
+                            styles.memberRoleChip,
                             {
-                              backgroundColor:
-                                companion.role === "editor"
+                              backgroundColor: m.isOwner
+                                ? "#FEF3C7"
+                                : companion?.role === "editor"
                                   ? colors.primary + "18"
-                                  : colors.accent + "18",
+                                  : colors.textTertiary + "20",
                             },
                           ]}
                         >
                           <Ionicons
-                            name={companion.role === "editor" ? "eye-outline" : "create-outline"}
-                            size={14}
-                            color={companion.role === "editor" ? colors.primary : colors.accent}
+                            name={
+                              m.isOwner
+                                ? "shield-checkmark"
+                                : companion?.role === "editor"
+                                  ? "create-outline"
+                                  : "eye-outline"
+                            }
+                            size={10}
+                            color={
+                              m.isOwner
+                                ? "#B45309"
+                                : companion?.role === "editor"
+                                  ? colors.primary
+                                  : colors.textSecondary
+                            }
                           />
                           <Text
                             style={[
-                              invStyles.roleToggleText,
+                              styles.memberRoleChipText,
                               {
-                                color: companion.role === "editor" ? colors.primary : colors.accent,
+                                color: m.isOwner
+                                  ? "#B45309"
+                                  : companion?.role === "editor"
+                                    ? colors.primary
+                                    : colors.textSecondary,
                               },
                             ]}
                           >
-                            {companion.role === "editor" ? txt.viewOnly : txt.canEdit}
+                            {m.isOwner
+                              ? "Chủ chuyến đi"
+                              : companion?.role === "editor"
+                                ? txt.editor
+                                : txt.viewer}
                           </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleRemoveCompanion(companion)}
-                          hitSlop={6}
-                          style={[invStyles.removeBtn, { backgroundColor: colors.error + "12" }]}
-                        >
-                          <Ionicons name="person-remove-outline" size={16} color={colors.error} />
-                        </Pressable>
+                        </View>
                       </View>
+                    </View>
+                    {isOwner && !m.isOwner && companion && (
+                      <Pressable
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          setMemberMenu({ companion, member: m });
+                        }}
+                        hitSlop={6}
+                        style={({ pressed }) => [
+                          styles.memberMenuBtn,
+                          { opacity: pressed ? 0.5 : 1 },
+                        ]}
+                      >
+                        <Ionicons
+                          name="ellipsis-horizontal"
+                          size={16}
+                          color={colors.textSecondary}
+                        />
+                      </Pressable>
                     )}
                   </View>
                 );
               })}
-            </View>
 
-            {/* Leave trip button for companions only, not owner */}
+            {/* Leave-trip button — only show for actual joined members. The
+                previous version reused `flatStatusRow` (now solid orange)
+                which made the destructive button look like a primary CTA. */}
             {isCompanion && !isOwner && (
               <Pressable
                 onPress={handleLeaveTrip}
                 style={({ pressed }) => [
+                  styles.leaveTripBtn,
                   {
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    paddingVertical: 14,
-                    borderRadius: 14,
-                    borderWidth: 1,
+                    backgroundColor: colors.error + "12",
                     borderColor: colors.error + "40",
-                    backgroundColor: colors.error + "08",
-                    opacity: pressed ? 0.9 : 1,
+                    opacity: pressed ? 0.7 : 1,
                   },
                 ]}
               >
                 <Ionicons name="log-out-outline" size={18} color={colors.error} />
-                <Text
-                  style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.error }}
-                >
+                <Text style={[styles.leaveTripBtnText, { color: colors.error }]}>
                   {txt.leaveTrip}
                 </Text>
               </Pressable>
             )}
           </View>
         )}
+
+        {activeTab === "tasks" && (
+          <TasksTab
+            tasks={tasks}
+            isLoading={tasksQuery.isLoading}
+            filter={taskFilter}
+            setFilter={setTaskFilter}
+            colors={colors}
+            canEdit={canEdit}
+            tripMembers={tripMembers}
+            openCreate={() =>
+              setTaskModal({
+                title: "",
+                description: "",
+                category: "prep",
+                assigneeUserId: "",
+                dueDate: "",
+              })
+            }
+            openEdit={(task) =>
+              setTaskModal({
+                editId: task.id,
+                title: task.title,
+                description: task.description || "",
+                category: (task.category as any) || "",
+                assigneeUserId: task.assigneeUserId || "",
+                // Pass full ISO so the picker can restore both date AND time.
+                dueDate: task.dueDate || "",
+              })
+            }
+            toggleComplete={(task) => {
+              updateTaskMut.mutate({
+                taskId: task.id,
+                data: { isCompleted: !task.isCompleted },
+              });
+              Haptics.selectionAsync();
+            }}
+            onDelete={async (task) => {
+              const ok = await confirm({
+                title: "Xoá việc cần làm?",
+                message: `"${task.title}" sẽ bị xoá.`,
+                destructive: true,
+                confirmText: t().common.delete,
+              });
+              if (!ok) return;
+              deleteTaskMut.mutate(task.id);
+            }}
+            onClearCompleted={async () => {
+              const ok = await confirm({
+                title: "Dọn việc đã xong?",
+                message: "Tất cả việc đã đánh dấu hoàn thành sẽ bị xoá.",
+                destructive: true,
+                confirmText: "Dọn",
+              });
+              if (ok) clearCompletedTasksMut.mutate();
+            }}
+          />
+        )}
       </ScrollView>
+
+      {((activeTab === "expenses" &&
+        canEdit &&
+        itinerary.status !== "completed") ||
+        (activeTab === "tasks" && canEdit)) && (
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            if (activeTab === "tasks") {
+              setTaskModal({
+                title: "",
+                description: "",
+                category: "prep",
+                assigneeUserId: "",
+                dueDate: "",
+              });
+            } else {
+              setExpenseModal({});
+            }
+          }}
+          style={({ pressed }) => [
+            styles.fab,
+            { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Ionicons name="add" size={28} color="#fff" />
+        </Pressable>
+      )}
 
       <Modal
         visible={!!noteModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setNoteModal(null)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>
-              {noteModal?.editIndex !== undefined ? txt.editNote : txt.addNote}
-            </Text>
+        <Pressable
+          style={styles.sheetOverlay}
+          onPress={() => setNoteModal(null)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={[styles.sheetContent, { backgroundColor: colors.card }]}
+          >
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTopRow}>
+              <Pressable
+                onPress={() => setNoteModal(null)}
+                hitSlop={8}
+                style={[styles.sheetCloseBtn, { backgroundColor: colors.inputBg }]}
+              >
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                {noteModal?.editIndex !== undefined ? txt.editNote : txt.addNote}
+              </Text>
+              <Pressable
+                onPress={saveNote}
+                hitSlop={8}
+                disabled={!(noteModal?.note || "").trim()}
+              >
+                <Text
+                  style={[
+                    styles.sheetSaveLink,
+                    {
+                      color: (noteModal?.note || "").trim()
+                        ? colors.primary
+                        : colors.textTertiary,
+                    },
+                  ]}
+                >
+                  Lưu
+                </Text>
+              </Pressable>
+            </View>
             <TextInput
               style={[
-                styles.modalInput,
+                styles.sheetTextarea,
                 {
                   color: colors.text,
                   backgroundColor: colors.inputBg,
-                  borderColor: colors.inputBorder,
                 },
               ]}
               value={noteModal?.note || ""}
@@ -4507,32 +6092,17 @@ export default function ItineraryDetailScreen() {
               placeholder={txt.notePlaceholder}
               placeholderTextColor={colors.textTertiary}
               multiline
-              numberOfLines={4}
+              autoFocus
+              textAlignVertical="top"
             />
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => setNoteModal(null)}
-                style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}
-              >
-                <Text style={[styles.modalBtnText, { color: colors.text }]}>
-                  {t().common.cancel}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={saveNote}
-                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
-              >
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
         visible={!!costModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => {
           setCostModal(null);
           setCostPaidByDropdown(false);
@@ -4541,11 +6111,42 @@ export default function ItineraryDetailScreen() {
           setCostSplitAmounts({});
         }}
       >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: "85%" as any }]}
+        <Pressable
+          style={styles.sheetOverlay}
+          onPress={() => {
+            setCostModal(null);
+            setCostPaidByDropdown(false);
+            setCostSplitType("none");
+            setCostSplitChecked({});
+            setCostSplitAmounts({});
+          }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={[
+              styles.sheetContent,
+              { backgroundColor: colors.card, maxHeight: "92%" as any },
+            ]}
           >
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.activityCosts}</Text>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTopRow}>
+              <Pressable
+                onPress={() => {
+                  setCostModal(null);
+                  setCostPaidByDropdown(false);
+                  setCostSplitType("none");
+                  setCostSplitChecked({});
+                  setCostSplitAmounts({});
+                }}
+                hitSlop={8}
+                style={[styles.sheetCloseBtn, { backgroundColor: colors.inputBg }]}
+              >
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                {txt.activityCosts}
+              </Text>
+            </View>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {/* Activity title (read-only) */}
               {costModal?.activityTitle && (
@@ -4909,26 +6510,92 @@ export default function ItineraryDetailScreen() {
                 })()}
               </View>
             </ScrollView>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
         visible={!!timeModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setTimeModal(null)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.editTime}</Text>
+        <Pressable
+          style={styles.sheetOverlay}
+          onPress={() => setTimeModal(null)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={[styles.sheetContent, { backgroundColor: colors.card }]}
+          >
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTopRow}>
+              <Pressable
+                onPress={() => setTimeModal(null)}
+                hitSlop={8}
+                style={[styles.sheetCloseBtn, { backgroundColor: colors.inputBg }]}
+              >
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                {txt.editTime}
+              </Text>
+              <Pressable
+                onPress={saveTime}
+                hitSlop={8}
+                disabled={!(timeModal?.time || "").match(/^\d{1,2}:\d{2}/)}
+              >
+                <Text
+                  style={[
+                    styles.sheetSaveLink,
+                    {
+                      color: (timeModal?.time || "").match(/^\d{1,2}:\d{2}/)
+                        ? colors.primary
+                        : colors.textTertiary,
+                    },
+                  ]}
+                >
+                  Lưu
+                </Text>
+              </Pressable>
+            </View>
+            <View style={styles.timeQuickChipsRow}>
+              {["07:00", "09:00", "12:00", "15:00", "18:00", "21:00"].map((preset) => {
+                const active = (timeModal?.time || "").startsWith(preset);
+                return (
+                  <Pressable
+                    key={preset}
+                    onPress={() => {
+                      if (timeModal) setTimeModal({ ...timeModal, time: preset });
+                    }}
+                    style={({ pressed }) => [
+                      styles.timeQuickChip,
+                      {
+                        backgroundColor: active
+                          ? colors.primary
+                          : colors.inputBg,
+                        opacity: pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.timeQuickChipText,
+                        { color: active ? "#fff" : colors.text },
+                      ]}
+                    >
+                      {preset}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
             <TextInput
               style={[
-                styles.modalInput,
+                styles.timeBigInput,
                 {
                   color: colors.text,
                   backgroundColor: colors.inputBg,
-                  borderColor: colors.inputBorder,
                 },
               ]}
               value={timeModal?.time || ""}
@@ -4942,35 +6609,26 @@ export default function ItineraryDetailScreen() {
               placeholderTextColor={colors.textTertiary}
               keyboardType="numeric"
               maxLength={8}
+              autoFocus
+              textAlign="center"
             />
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => setTimeModal(null)}
-                style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}
-              >
-                <Text style={[styles.modalBtnText, { color: colors.text }]}>
-                  {t().common.cancel}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={saveTime}
-                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
-              >
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
         visible={!!addPlaceModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setAddPlaceModal(null)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: "80%" }]}>
+        <View style={styles.sheetOverlay}>
+          <View
+            style={[
+              styles.sheetContent,
+              { backgroundColor: colors.card, maxHeight: "92%" },
+            ]}
+          >
             <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.addPlace}</Text>
             <View style={{ flexDirection: "row", gap: 0, marginBottom: 12 }}>
               <Pressable
@@ -5099,8 +6757,8 @@ export default function ItineraryDetailScreen() {
                       </Pressable>
                     ))}
                 </ScrollView>
-                <ScrollView style={{ maxHeight: 250 }} showsVerticalScrollIndicator={false}>
-                  {filteredPOIs.length === 0 ? (
+                <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+                  {filteredPOIs.length === 0 && externalSearchResults.length === 0 ? (
                     <View style={{ alignItems: "center", paddingVertical: 20 }}>
                       <Ionicons name="search-outline" size={28} color={colors.textTertiary} />
                       <Text
@@ -5111,7 +6769,9 @@ export default function ItineraryDetailScreen() {
                           marginTop: 8,
                         }}
                       >
-                        {txt.noPOIsFound}
+                        {externalSearchLoading
+                          ? "Đang tìm trên bản đồ..."
+                          : txt.noPOIsFound}
                       </Text>
                     </View>
                   ) : (
@@ -5218,6 +6878,107 @@ export default function ItineraryDetailScreen() {
                         </Pressable>
                       );
                     })
+                  )}
+
+                  {externalSearchResults.length > 0 && (
+                    <View style={{ marginTop: 12 }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                          marginBottom: 6,
+                          paddingHorizontal: 4,
+                        }}
+                      >
+                        <Ionicons name="globe-outline" size={12} color={colors.textTertiary} />
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontFamily: "Inter_600SemiBold",
+                            color: colors.textTertiary,
+                            letterSpacing: 0.4,
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          Trên Google Maps
+                        </Text>
+                      </View>
+                      {externalSearchResults.map((place, idx) => (
+                        <Pressable
+                          key={`${place.placeId || place.name}-${idx}`}
+                          onPress={() => addPlaceFromExternal(place)}
+                          style={({ pressed }) => [
+                            {
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 10,
+                              padding: 10,
+                              borderRadius: 10,
+                              backgroundColor: pressed
+                                ? colors.primary + "08"
+                                : "transparent",
+                              borderBottomWidth: 1,
+                              borderBottomColor: colors.inputBorder,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.typeBadge,
+                              { backgroundColor: "#4285F4" + "12" },
+                            ]}
+                          >
+                            <Ionicons name="location" size={16} color="#4285F4" />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={{
+                                fontSize: 14,
+                                fontFamily: "Inter_600SemiBold",
+                                color: colors.text,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {place.name}
+                            </Text>
+                            {place.address && (
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontFamily: "Inter_400Regular",
+                                  color: colors.textSecondary,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {place.address}
+                              </Text>
+                            )}
+                          </View>
+                          {typeof place.rating === "number" && place.rating > 0 && (
+                            <View
+                              style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
+                            >
+                              <Ionicons name="star" size={10} color="#F59E0B" />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontFamily: "Inter_500Medium",
+                                  color: colors.textSecondary,
+                                }}
+                              >
+                                {place.rating.toFixed(1)}
+                              </Text>
+                            </View>
+                          )}
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                  {externalSearchLoading && (
+                    <View style={{ alignItems: "center", paddingVertical: 12 }}>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    </View>
                   )}
                 </ScrollView>
                 <View style={[styles.modalActions, { marginTop: 10 }]}>
@@ -5454,16 +7215,43 @@ export default function ItineraryDetailScreen() {
       <Modal
         visible={!!expenseModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => resetExpenseModal()}
       >
-        <View style={styles.modalOverlay}>
-          <ScrollView
-            style={{ maxHeight: "90%" }}
-            contentContainerStyle={{ flexGrow: 0 }}
-            keyboardShouldPersistTaps="handled"
+        <Pressable
+          onPress={() => resetExpenseModal()}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(15,23,42,0.55)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: colors.card,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingBottom: insets.bottom + 12,
+              maxHeight: "92%",
+            }}
           >
-            <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View
+              style={{
+                alignSelf: "center",
+                width: 40,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: colors.textTertiary,
+                opacity: 0.4,
+                marginTop: 10,
+                marginBottom: 6,
+              }}
+            />
+            <ScrollView
+              contentContainerStyle={{ padding: 22, paddingTop: 8, gap: 14 }}
+              keyboardShouldPersistTaps="handled"
+            >
               <Text style={[styles.modalTitle, { color: colors.text }]}>
                 {expenseModal?.editId ? txt.editExpense : txt.addExpense}
               </Text>
@@ -5751,29 +7539,62 @@ export default function ItineraryDetailScreen() {
                   </Text>
                 </Pressable>
               </View>
-            </View>
-          </ScrollView>
-        </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
         visible={!!expenseNoteModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setExpenseNoteModal(null)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>
-              {expenseNoteModal?.editIndex !== undefined ? txt.editNote : txt.addNote}
-            </Text>
+        <Pressable
+          style={styles.sheetOverlay}
+          onPress={() => setExpenseNoteModal(null)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={[styles.sheetContent, { backgroundColor: colors.card }]}
+          >
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTopRow}>
+              <Pressable
+                onPress={() => setExpenseNoteModal(null)}
+                hitSlop={8}
+                style={[styles.sheetCloseBtn, { backgroundColor: colors.inputBg }]}
+              >
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                {expenseNoteModal?.editIndex !== undefined ? txt.editNote : txt.addNote}
+              </Text>
+              <Pressable
+                onPress={saveExpenseNote}
+                hitSlop={8}
+                disabled={!(expenseNoteModal?.note || "").trim()}
+              >
+                <Text
+                  style={[
+                    styles.sheetSaveLink,
+                    {
+                      color: (expenseNoteModal?.note || "").trim()
+                        ? colors.primary
+                        : colors.textTertiary,
+                    },
+                  ]}
+                >
+                  Lưu
+                </Text>
+              </Pressable>
+            </View>
             <TextInput
               style={[
-                styles.modalInput,
+                styles.sheetTextarea,
                 {
                   color: colors.text,
                   backgroundColor: colors.inputBg,
-                  borderColor: colors.inputBorder,
                 },
               ]}
               value={expenseNoteModal?.note || ""}
@@ -5783,99 +7604,547 @@ export default function ItineraryDetailScreen() {
               placeholder={txt.notePlaceholder}
               placeholderTextColor={colors.textTertiary}
               multiline
-              numberOfLines={4}
+              autoFocus
+              textAlignVertical="top"
             />
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => setExpenseNoteModal(null)}
-                style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}
-              >
-                <Text style={[styles.modalBtnText, { color: colors.text }]}>
-                  {t().common.cancel}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={saveExpenseNote}
-                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
-              >
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={!!taskModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTaskModal(null)}
+      >
+        <Pressable
+          onPress={() => setTaskModal(null)}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(15,23,42,0.55)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: colors.card,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingBottom: insets.bottom + 12,
+              maxHeight: "92%",
+            }}
+          >
+            <View
+              style={{
+                alignSelf: "center",
+                width: 40,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: colors.textTertiary,
+                opacity: 0.4,
+                marginTop: 10,
+                marginBottom: 6,
+              }}
+            />
+            <ScrollView
+              contentContainerStyle={{ padding: 22, paddingTop: 8, gap: 14 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                {taskModal?.editId ? "Sửa việc cần làm" : "Thêm việc cần làm"}
+              </Text>
+
+              <TextInput
+                style={[
+                  styles.modalInput,
+                  {
+                    color: colors.text,
+                    backgroundColor: colors.inputBg,
+                    borderColor: colors.inputBorder,
+                  },
+                ]}
+                value={taskModal?.title || ""}
+                onChangeText={(v) =>
+                  setTaskModal((prev) => (prev ? { ...prev, title: v } : prev))
+                }
+                placeholder="VD: Đặt vé máy bay, mua thuốc..."
+                placeholderTextColor={colors.textTertiary}
+              />
+
+              <TextInput
+                style={[
+                  styles.modalInput,
+                  {
+                    color: colors.text,
+                    backgroundColor: colors.inputBg,
+                    borderColor: colors.inputBorder,
+                    minHeight: 80,
+                    textAlignVertical: "top",
+                  },
+                ]}
+                value={taskModal?.description || ""}
+                onChangeText={(v) =>
+                  setTaskModal((prev) =>
+                    prev ? { ...prev, description: v } : prev,
+                  )
+                }
+                placeholder="Mô tả thêm (không bắt buộc)"
+                placeholderTextColor={colors.textTertiary}
+                multiline
+              />
+
+              <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>
+                Phân loại
+              </Text>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {(
+                  [
+                    { key: "prep", label: "Chuẩn bị", color: "#3B82F6" },
+                    { key: "during", label: "Trong chuyến", color: "#10B981" },
+                    { key: "after", label: "Sau chuyến", color: "#F59E0B" },
+                  ] as const
+                ).map((c) => {
+                  const active = taskModal?.category === c.key;
+                  return (
+                    <Pressable
+                      key={c.key}
+                      onPress={() =>
+                        setTaskModal((prev) =>
+                          prev ? { ...prev, category: c.key } : prev,
+                        )
+                      }
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        borderRadius: 999,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        backgroundColor: active ? c.color : colors.inputBg,
+                        borderColor: active ? c.color : colors.cardBorder,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontFamily: "Inter_600SemiBold",
+                          color: active ? "#fff" : colors.textSecondary,
+                        }}
+                      >
+                        {c.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>
+                Giao cho
+              </Text>
+              {(() => {
+                const selectedMember = taskModal?.assigneeUserId
+                  ? tripMembers.find((m) => m.userId === taskModal.assigneeUserId)
+                  : null;
+                return (
+                  <View>
+                    <Pressable
+                      onPress={() => setTaskAssigneeDropdown((v) => !v)}
+                      style={[
+                        styles.assigneeTrigger,
+                        {
+                          backgroundColor: colors.inputBg,
+                          borderColor: taskAssigneeDropdown
+                            ? colors.primary
+                            : colors.cardBorder,
+                        },
+                      ]}
+                    >
+                      {selectedMember ? (
+                        <>
+                          {selectedMember.avatarUrl ? (
+                            <Image
+                              source={{ uri: selectedMember.avatarUrl }}
+                              style={styles.assigneeTriggerAvatar}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                styles.assigneeTriggerAvatar,
+                                {
+                                  backgroundColor: avatarColorFor(selectedMember.userId),
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                },
+                              ]}
+                            >
+                              <Text style={styles.assigneeTriggerAvatarText}>
+                                {(selectedMember.userName || "?")
+                                  .charAt(0)
+                                  .toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[styles.assigneeTriggerName, { color: colors.text }]}
+                              numberOfLines={1}
+                            >
+                              {selectedMember.userName}
+                            </Text>
+                            {selectedMember.isOwner && (
+                              <Text
+                                style={[
+                                  styles.assigneeTriggerSub,
+                                  { color: colors.textTertiary },
+                                ]}
+                              >
+                                Chủ chuyến
+                              </Text>
+                            )}
+                          </View>
+                        </>
+                      ) : (
+                        <>
+                          <View
+                            style={[
+                              styles.assigneeTriggerAvatar,
+                              {
+                                backgroundColor: colors.cardBorder,
+                                alignItems: "center",
+                                justifyContent: "center",
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="person-outline"
+                              size={16}
+                              color={colors.textTertiary}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.assigneeTriggerName,
+                              { color: colors.textSecondary, flex: 1 },
+                            ]}
+                          >
+                            Không giao cho ai
+                          </Text>
+                        </>
+                      )}
+                      <Ionicons
+                        name={taskAssigneeDropdown ? "chevron-up" : "chevron-down"}
+                        size={18}
+                        color={colors.textSecondary}
+                      />
+                    </Pressable>
+                    {taskAssigneeDropdown && (
+                      <View
+                        style={[
+                          styles.assigneeDropdown,
+                          {
+                            backgroundColor: colors.card,
+                            borderColor: colors.cardBorder,
+                          },
+                        ]}
+                      >
+                        <Pressable
+                          onPress={() => {
+                            setTaskModal((prev) =>
+                              prev ? { ...prev, assigneeUserId: "" } : prev,
+                            );
+                            setTaskAssigneeDropdown(false);
+                          }}
+                          style={({ pressed }) => [
+                            styles.assigneeOption,
+                            {
+                              backgroundColor: pressed ? colors.inputBg : "transparent",
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.assigneeOptionAvatar,
+                              {
+                                backgroundColor: colors.cardBorder,
+                                alignItems: "center",
+                                justifyContent: "center",
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="close"
+                              size={14}
+                              color={colors.textTertiary}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.assigneeOptionName,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            Không giao cho ai
+                          </Text>
+                          {!taskModal?.assigneeUserId && (
+                            <Ionicons
+                              name="checkmark"
+                              size={18}
+                              color={colors.primary}
+                            />
+                          )}
+                        </Pressable>
+                        {tripMembers.map((m, idx) => {
+                          const active = taskModal?.assigneeUserId === m.userId;
+                          return (
+                            <Pressable
+                              key={m.userId}
+                              onPress={() => {
+                                setTaskModal((prev) =>
+                                  prev ? { ...prev, assigneeUserId: m.userId } : prev,
+                                );
+                                setTaskAssigneeDropdown(false);
+                              }}
+                              style={({ pressed }) => [
+                                styles.assigneeOption,
+                                {
+                                  backgroundColor: pressed
+                                    ? colors.inputBg
+                                    : "transparent",
+                                  borderTopWidth:
+                                    idx === 0 ? StyleSheet.hairlineWidth : 0,
+                                  borderTopColor: colors.cardBorder,
+                                },
+                              ]}
+                            >
+                              {m.avatarUrl ? (
+                                <Image
+                                  source={{ uri: m.avatarUrl }}
+                                  style={styles.assigneeOptionAvatar}
+                                  contentFit="cover"
+                                />
+                              ) : (
+                                <View
+                                  style={[
+                                    styles.assigneeOptionAvatar,
+                                    {
+                                      backgroundColor: avatarColorFor(m.userId),
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                    },
+                                  ]}
+                                >
+                                  <Text style={styles.assigneeTriggerAvatarText}>
+                                    {(m.userName || "?").charAt(0).toUpperCase()}
+                                  </Text>
+                                </View>
+                              )}
+                              <View style={{ flex: 1 }}>
+                                <Text
+                                  style={[
+                                    styles.assigneeOptionName,
+                                    { color: colors.text },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {m.userName}
+                                </Text>
+                                {m.isOwner && (
+                                  <Text
+                                    style={[
+                                      styles.assigneeTriggerSub,
+                                      { color: colors.textTertiary },
+                                    ]}
+                                  >
+                                    Chủ chuyến
+                                  </Text>
+                                )}
+                              </View>
+                              {active && (
+                                <Ionicons
+                                  name="checkmark"
+                                  size={18}
+                                  color={colors.primary}
+                                />
+                              )}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
+
+              <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>
+                Hạn (không bắt buộc)
+              </Text>
+              <TaskDueDatePicker
+                value={taskModal?.dueDate || null}
+                onChange={(iso) =>
+                  setTaskModal((prev) => (prev ? { ...prev, dueDate: iso || "" } : prev))
+                }
+                colors={colors}
+              />
+
+              <View style={styles.modalActions}>
+                <Pressable
+                  onPress={() => {
+                    setTaskModal(null);
+                    setTaskAssigneeDropdown(false);
+                  }}
+                  style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}
+                >
+                  <Text style={[styles.modalBtnText, { color: colors.text }]}>
+                    {t().common.cancel}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={async () => {
+                    if (!taskModal) return;
+                    const title = taskModal.title.trim();
+                    if (!title) {
+                      if (Platform.OS === "web") window.alert("Vui lòng nhập tiêu đề việc.");
+                      else Alert.alert("Thiếu thông tin", "Vui lòng nhập tiêu đề việc.");
+                      return;
+                    }
+                    const dueIsoOrNull = taskModal.dueDate.trim()
+                      ? taskModal.dueDate.trim()
+                      : null;
+                    try {
+                      if (taskModal.editId) {
+                        await updateTaskMut.mutateAsync({
+                          taskId: taskModal.editId,
+                          data: {
+                            title,
+                            description: taskModal.description.trim() || null,
+                            category: taskModal.category || null,
+                            assigneeUserId: taskModal.assigneeUserId || null,
+                            dueDate: dueIsoOrNull,
+                          },
+                        });
+                      } else {
+                        await createTaskMut.mutateAsync({
+                          title,
+                          description: taskModal.description.trim() || null,
+                          category: taskModal.category || null,
+                          assigneeUserId: taskModal.assigneeUserId || null,
+                          dueDate: dueIsoOrNull,
+                        });
+                      }
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      setTaskModal(null);
+                      setTaskAssigneeDropdown(false);
+                    } catch (err: any) {
+                      // Surface as much detail as possible — the previous
+                      // generic alert hid the real cause (missing DB table,
+                      // schema mismatch, etc) which made debugging painful.
+                      console.error("Save task failed:", err);
+                      const detail =
+                        err?.message ||
+                        err?.toString?.() ||
+                        "Vui lòng thử lại.";
+                      const hint = detail.includes("trip_tasks")
+                        ? "\n\nGợi ý: chạy `npm run db:push` trước khi dùng tính năng task."
+                        : "";
+                      if (Platform.OS === "web")
+                        window.alert(`Không lưu được task:\n${detail}${hint}`);
+                      else Alert.alert("Không lưu được task", `${detail}${hint}`);
+                    }
+                  }}
+                  style={[styles.modalBtn, { backgroundColor: colors.primary }]}
+                >
+                  <Text style={[styles.modalBtnText, { color: "#fff" }]}>
+                    {taskModal?.editId ? t().common.save : t().common.add}
+                  </Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
         visible={editInfoModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setEditInfoModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{txt.editTripInfo}</Text>
-            <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>
-              {txt.totalBudget} (VNĐ)
-            </Text>
-            <TextInput
-              style={[
-                styles.modalInput,
-                {
-                  color: colors.text,
-                  backgroundColor: colors.inputBg,
-                  borderColor: colors.inputBorder,
-                },
-              ]}
-              value={editBudget}
-              onChangeText={(v) => {
-                const sanitized = v.replace(/[^0-9]/g, "");
-                setEditBudget(sanitized);
-              }}
-              keyboardType="numeric"
-            />
-            <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>
-              {txt.travelers}
-            </Text>
-            <TextInput
-              style={[
-                styles.modalInput,
-                {
-                  color: colors.text,
-                  backgroundColor: colors.inputBg,
-                  borderColor: colors.inputBorder,
-                },
-              ]}
-              value={editNumPeople}
-              onChangeText={(v) => {
-                const sanitized = v.replace(/[^0-9]/g, "");
-                setEditNumPeople(sanitized);
-              }}
-              keyboardType="numeric"
-            />
-            <View style={styles.modalActions}>
+        <Pressable
+          style={styles.sheetOverlay}
+          onPress={() => setEditInfoModal(false)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={[styles.sheetContent, { backgroundColor: colors.card }]}
+          >
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTopRow}>
               <Pressable
                 onPress={() => setEditInfoModal(false)}
-                style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}
+                hitSlop={8}
+                style={[styles.sheetCloseBtn, { backgroundColor: colors.inputBg }]}
               >
-                <Text style={[styles.modalBtnText, { color: colors.text }]}>
-                  {t().common.cancel}
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                {txt.editTripInfo}
+              </Text>
+              <Pressable onPress={saveEditInfo} hitSlop={8}>
+                <Text style={[styles.sheetSaveLink, { color: colors.primary }]}>
+                  Lưu
                 </Text>
               </Pressable>
-              <Pressable
-                onPress={saveEditInfo}
-                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
-              >
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{txt.saveTripInfo}</Text>
-              </Pressable>
             </View>
-          </View>
-        </View>
+            <View style={{ gap: 8 }}>
+              <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>
+                {txt.totalBudget} (VNĐ)
+              </Text>
+              <TextInput
+                style={[
+                  styles.modalInput,
+                  {
+                    color: colors.text,
+                    backgroundColor: colors.inputBg,
+                    borderColor: colors.inputBorder,
+                  },
+                ]}
+                value={editBudget}
+                onChangeText={(v) => {
+                  const sanitized = v.replace(/[^0-9]/g, "");
+                  setEditBudget(sanitized);
+                }}
+                keyboardType="numeric"
+              />
+              <Text style={[styles.modalSubLabel, { color: colors.textSecondary }]}>
+                {txt.travelers}
+              </Text>
+              <TextInput
+                style={[
+                  styles.modalInput,
+                  {
+                    color: colors.text,
+                    backgroundColor: colors.inputBg,
+                    borderColor: colors.inputBorder,
+                  },
+                ]}
+                value={editNumPeople}
+                onChangeText={(v) => {
+                  const sanitized = v.replace(/[^0-9]/g, "");
+                  setEditNumPeople(sanitized);
+                }}
+                keyboardType="numeric"
+              />
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
         visible={shareModal}
         transparent
         animationType="slide"
+        // NOTE: Share modal already uses bottom-sheet semantics — leave as is
+        // for now. Tag for full audit in #140 if stacking observed.
         onRequestClose={() => setShareModal(false)}
       >
         <View style={invStyles.overlay}>
@@ -5978,86 +8247,357 @@ export default function ItineraryDetailScreen() {
               </View>
             </Pressable>
 
-            {companions.length > 0 && (
-              <>
-                <View style={{ gap: 8 }}>
-                  <Text style={[invStyles.sectionLabel, { color: colors.textSecondary }]}>
-                    {txt.memberList}
-                  </Text>
-                  {companions.slice(0, 3).map((c, i) => {
-                    const avatarColors = [
-                      "#4F46E5",
-                      "#0EA5E9",
-                      "#10B981",
-                      "#F59E0B",
-                      "#EF4444",
-                      "#8B5CF6",
-                    ];
-                    const bg = avatarColors[i % avatarColors.length];
-                    return (
+            {isOwner && (
+              <View style={invStyles.section}>
+                <Text style={[invStyles.sectionLabel, { color: colors.textSecondary }]}>
+                  Mời theo username
+                </Text>
+                <View
+                  style={[
+                    invStyles.searchWrap,
+                    { backgroundColor: colors.inputBg, borderColor: colors.cardBorder },
+                  ]}
+                >
+                  <Ionicons name="search" size={16} color={colors.textTertiary} />
+                  <TextInput
+                    style={[invStyles.searchInput, { color: colors.text }]}
+                    placeholder="Tìm @username hoặc tên..."
+                    placeholderTextColor={colors.textTertiary}
+                    value={inviteQuery}
+                    onChangeText={setInviteQuery}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {inviteSearching && (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  )}
+                  {inviteQuery.length > 0 && !inviteSearching && (
+                    <Pressable onPress={() => setInviteQuery("")} hitSlop={6}>
+                      <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
+                    </Pressable>
+                  )}
+                </View>
+                {inviteResults.length > 0 && (
+                  <View style={{ gap: 6, marginTop: 8 }}>
+                    {inviteResults.map((u) => (
                       <View
-                        key={c.userId}
-                        style={[invStyles.memberRow, { backgroundColor: colors.inputBg }]}
+                        key={u.userId}
+                        style={[
+                          invStyles.memberRow,
+                          { backgroundColor: colors.inputBg },
+                        ]}
                       >
-                        <View style={[invStyles.memberAvatar, { backgroundColor: bg }]}>
-                          <Text style={invStyles.manageBtnAvatarText}>
-                            {c.userName.charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[invStyles.manageBtnText, { color: colors.text }]}>
-                            {c.userName}
-                          </Text>
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                            <Ionicons
-                              name={c.role === "editor" ? "create-outline" : "eye-outline"}
-                              size={12}
-                              color={colors.textSecondary}
-                            />
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                fontFamily: "Inter_400Regular",
-                                color: colors.textSecondary,
-                              }}
-                            >
-                              {c.role === "editor" ? txt.canEdit : txt.viewOnly}
+                        {u.avatarUrl ? (
+                          <Image
+                            source={{ uri: u.avatarUrl }}
+                            style={invStyles.memberAvatar}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              invStyles.memberAvatar,
+                              { backgroundColor: colors.primary },
+                            ]}
+                          >
+                            <Text style={invStyles.manageBtnAvatarText}>
+                              {(u.fullName || u.userName || "?").charAt(0).toUpperCase()}
                             </Text>
                           </View>
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[invStyles.manageBtnText, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {u.fullName || u.userName}
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontFamily: "Inter_400Regular",
+                              color: colors.textSecondary,
+                            }}
+                            numberOfLines={1}
+                          >
+                            @{u.userName}
+                          </Text>
                         </View>
+                        {sessionInvitedIds.has(u.userId) ? (
+                          <View
+                            style={[
+                              invStyles.inviteBtn,
+                              { backgroundColor: "#10B981" },
+                            ]}
+                          >
+                            <Ionicons name="checkmark" size={14} color="#fff" />
+                            <Text style={invStyles.inviteBtnText}>Đã mời</Text>
+                          </View>
+                        ) : (
+                          <Pressable
+                            onPress={() => handleInviteByUserId(u)}
+                            disabled={inviteBusyUserId === u.userId}
+                            style={({ pressed }) => [
+                              invStyles.inviteBtn,
+                              {
+                                backgroundColor: colors.primary,
+                                opacity:
+                                  pressed || inviteBusyUserId === u.userId ? 0.6 : 1,
+                              },
+                            ]}
+                          >
+                            {inviteBusyUserId === u.userId ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <>
+                                <Ionicons name="person-add" size={14} color="#fff" />
+                                <Text style={invStyles.inviteBtnText}>Mời</Text>
+                              </>
+                            )}
+                          </Pressable>
+                        )}
                       </View>
-                    );
-                  })}
-                  {companions.length > 3 && (
+                    ))}
+                  </View>
+                )}
+                {inviteQuery.trim().length >= 2 &&
+                  !inviteSearching &&
+                  inviteResults.length === 0 && (
                     <Text
                       style={{
                         fontSize: 12,
                         fontFamily: "Inter_400Regular",
                         color: colors.textSecondary,
                         textAlign: "center",
+                        marginTop: 8,
                       }}
                     >
-                      +{companions.length - 3} {txt.companions.toLowerCase()}
+                      Không tìm thấy người dùng phù hợp.
                     </Text>
                   )}
-                </View>
-                <Pressable
-                  style={[invStyles.manageBtn, { backgroundColor: colors.inputBg }]}
-                  onPress={() => {
-                    setShareModal(false);
-                    setCompanionModal(true);
-                  }}
-                >
-                  <View style={invStyles.manageBtnLeft}>
-                    <Ionicons name="settings-outline" size={18} color={colors.primary} />
-                    <Text style={[invStyles.manageBtnText, { color: colors.primary }]}>
-                      {txt.manageCompanions}
+
+                {/* Inline toast — sits inside the modal so it actually shows
+                    above the bottom-sheet (Alert.alert was getting hidden). */}
+                {inviteToast && (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      borderRadius: 10,
+                      marginTop: 8,
+                      backgroundColor:
+                        inviteToast.kind === "success"
+                          ? "#10B981" + "18"
+                          : inviteToast.kind === "error"
+                            ? colors.error + "18"
+                            : colors.primary + "18",
+                    }}
+                  >
+                    <Ionicons
+                      name={
+                        inviteToast.kind === "success"
+                          ? "checkmark-circle"
+                          : inviteToast.kind === "error"
+                            ? "alert-circle"
+                            : "information-circle"
+                      }
+                      size={16}
+                      color={
+                        inviteToast.kind === "success"
+                          ? "#10B981"
+                          : inviteToast.kind === "error"
+                            ? colors.error
+                            : colors.primary
+                      }
+                    />
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontSize: 12,
+                        fontFamily: "Inter_600SemiBold",
+                        color: colors.text,
+                      }}
+                    >
+                      {inviteToast.text}
                     </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-                </Pressable>
-              </>
+                )}
+
+                {sessionInvitedIds.size > 0 && (
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontFamily: "Inter_500Medium",
+                      color: colors.textTertiary,
+                      marginTop: 8,
+                    }}
+                  >
+                    Phiên này đã mời {sessionInvitedIds.size} người.
+                  </Text>
+                )}
+
+                {/* Sent invitations list — persistent across sessions, sourced
+                    from the new trip_invitations table. Pending rows have a
+                    "Huỷ" button; accepted/declined are read-only. */}
+                {sentInvitations.length > 0 && (
+                  <View style={{ marginTop: 12, gap: 6 }}>
+                    <Text
+                      style={[
+                        invStyles.sectionLabel,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      Lời mời đã gửi ({sentInvitations.length})
+                    </Text>
+                    {sentInvitations.slice(0, 10).map((inv) => {
+                      const statusColor =
+                        inv.status === "pending"
+                          ? colors.warning
+                          : inv.status === "accepted"
+                            ? "#10B981"
+                            : colors.error;
+                      const statusLabel =
+                        inv.status === "pending"
+                          ? "Đang chờ"
+                          : inv.status === "accepted"
+                            ? "Đã đồng ý"
+                            : inv.status === "declined"
+                              ? "Đã từ chối"
+                              : "Đã huỷ";
+                      return (
+                        <View
+                          key={inv.id}
+                          style={[
+                            invStyles.memberRow,
+                            { backgroundColor: colors.inputBg },
+                          ]}
+                        >
+                          {inv.inviteeAvatarUrl ? (
+                            <Image
+                              source={{ uri: inv.inviteeAvatarUrl }}
+                              style={invStyles.memberAvatar}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                invStyles.memberAvatar,
+                                {
+                                  backgroundColor: avatarColorFor(
+                                    inv.inviteeUserId,
+                                  ),
+                                },
+                              ]}
+                            >
+                              <Text style={invStyles.manageBtnAvatarText}>
+                                {(inv.inviteeName ||
+                                  inv.inviteeUserName ||
+                                  "?")
+                                  .charAt(0)
+                                  .toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={{ flex: 1, gap: 2 }}>
+                            <Text
+                              style={[
+                                invStyles.manageBtnText,
+                                { color: colors.text },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {inv.inviteeName ||
+                                inv.inviteeUserName ||
+                                "Người dùng"}
+                            </Text>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: 3,
+                                  backgroundColor: statusColor,
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontFamily: "Inter_600SemiBold",
+                                  color: statusColor,
+                                }}
+                              >
+                                {statusLabel}
+                              </Text>
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontFamily: "Inter_400Regular",
+                                  color: colors.textTertiary,
+                                }}
+                              >
+                                · {inv.role === "editor" ? "Chỉnh sửa" : "Xem"}
+                              </Text>
+                            </View>
+                          </View>
+                          {inv.status === "pending" && (
+                            <Pressable
+                              onPress={() => cancelInvitationMut.mutate(inv.id)}
+                              hitSlop={6}
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                borderRadius: 8,
+                                backgroundColor: colors.error + "18",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontFamily: "Inter_700Bold",
+                                  color: colors.error,
+                                }}
+                              >
+                                Huỷ
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
             )}
+
+            {/* Manage companions shortcut — single row, opens the full
+                companions sheet for editing roles/removing members. Per
+                latest UX: the popup no longer surfaces the joined list
+                inline (was duplicating the Companions tab). */}
+            <Pressable
+              style={[invStyles.manageBtn, { backgroundColor: colors.inputBg }]}
+              onPress={() => {
+                setShareModal(false);
+                setCompanionModal(true);
+              }}
+            >
+              <View style={invStyles.manageBtnLeft}>
+                <Ionicons name="people-outline" size={18} color={colors.primary} />
+                <Text style={[invStyles.manageBtnText, { color: colors.primary }]}>
+                  {txt.manageCompanions}
+                  {companions.length > 0 ? ` (${companions.length})` : ""}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -6108,15 +8648,11 @@ export default function ItineraryDetailScreen() {
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 8 }}>
               {companions.map((c, i) => {
-                const avatarColors = [
-                  "#4F46E5",
-                  "#0EA5E9",
-                  "#10B981",
-                  "#F59E0B",
-                  "#EF4444",
-                  "#8B5CF6",
-                ];
-                const bg = avatarColors[i % avatarColors.length];
+                // Use the same avatar treatment as the Companions tab — real
+                // avatarUrl when available, hashed-color initial otherwise —
+                // so the same member doesn't appear with two different
+                // images across screens.
+                const avatarUrl = (c as any).avatarUrl as string | null | undefined;
                 return (
                   <View
                     key={c.userId}
@@ -6128,25 +8664,48 @@ export default function ItineraryDetailScreen() {
                       },
                     ]}
                   >
-                    <View style={[invStyles.compAvatar, { backgroundColor: bg }]}>
-                      <Text style={invStyles.compAvatarText}>
-                        {c.userName.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
+                    {avatarUrl ? (
+                      <Image
+                        source={{ uri: avatarUrl }}
+                        style={invStyles.compAvatar}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          invStyles.compAvatar,
+                          { backgroundColor: avatarColorFor(c.userId) },
+                        ]}
+                      >
+                        <Text style={invStyles.compAvatarText}>
+                          {(c.userName || "?").charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
                     <View style={{ flex: 1, gap: 2 }}>
                       <Text style={[invStyles.compName, { color: colors.text }]}>{c.userName}</Text>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                         <Ionicons
-                          name={c.role === "editor" ? "create-outline" : "eye-outline"}
+                          name={
+                            (c as any).isOwner
+                              ? "ribbon-outline"
+                              : c.role === "editor"
+                                ? "create-outline"
+                                : "eye-outline"
+                          }
                           size={12}
                           color={colors.textSecondary}
                         />
                         <Text style={[invStyles.compRole, { color: colors.textSecondary }]}>
-                          {c.role === "editor" ? txt.editor : txt.viewer}
+                          {(c as any).isOwner
+                            ? "Chủ chuyến"
+                            : c.role === "editor"
+                              ? txt.editor
+                              : txt.viewer}
                         </Text>
                       </View>
                     </View>
-                    {isOwner && (
+                    {isOwner && !(c as any).isOwner && (
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                         <Pressable
                           onPress={() =>
@@ -6193,261 +8752,889 @@ export default function ItineraryDetailScreen() {
       </Modal>
 
       <Modal
+        visible={!!expenseMenu}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setExpenseMenu(null)}
+      >
+        {expenseMenu && (
+          <Pressable
+            style={styles.sheetOverlay}
+            onPress={() => setExpenseMenu(null)}
+          >
+            <Pressable
+              onPress={(e) => e.stopPropagation()}
+              style={[styles.sheetContent, { backgroundColor: colors.card }]}
+            >
+              <View style={styles.sheetHandle} />
+              <View style={styles.menuHeader}>
+                <Text
+                  style={[styles.menuHeaderTitle, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {expenseMenu.title}
+                </Text>
+                <Text style={[styles.menuHeaderSub, { color: colors.textTertiary }]}>
+                  {formatVND(expenseMenu.amount)}
+                  {expenseMenu.paidBy ? ` · ${expenseMenu.paidBy} trả` : ""}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  const target = expenseMenu;
+                  setExpenseMenu(null);
+                  setExpenseNoteModal({ expenseId: target.id, note: "" });
+                }}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Ionicons
+                  name="document-text-outline"
+                  size={20}
+                  color={colors.primary}
+                />
+                <Text style={[styles.menuItemText, { color: colors.text }]}>
+                  Thêm ghi chú
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const target = expenseMenu;
+                  setExpenseMenu(null);
+                  openEditExpense(target);
+                }}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Ionicons name="create-outline" size={20} color={colors.text} />
+                <Text style={[styles.menuItemText, { color: colors.text }]}>
+                  Sửa khoản chi
+                </Text>
+              </Pressable>
+              <View
+                style={[styles.menuDivider, { backgroundColor: colors.cardBorder }]}
+              />
+              <Pressable
+                onPress={() => {
+                  const target = expenseMenu;
+                  setExpenseMenu(null);
+                  deleteExpense(target.id);
+                }}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Ionicons name="trash-outline" size={20} color={colors.error} />
+                <Text style={[styles.menuItemText, { color: colors.error }]}>
+                  Xoá khoản chi
+                </Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        )}
+      </Modal>
+
+      <Modal
+        visible={!!memberMenu}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setMemberMenu(null)}
+      >
+        {memberMenu && (
+          <Pressable
+            style={styles.sheetOverlay}
+            onPress={() => setMemberMenu(null)}
+          >
+            <Pressable
+              onPress={(e) => e.stopPropagation()}
+              style={[styles.sheetContent, { backgroundColor: colors.card }]}
+            >
+              <View style={styles.sheetHandle} />
+              <View style={styles.menuHeader}>
+                <Text
+                  style={[styles.menuHeaderTitle, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {memberMenu.member.userName}
+                </Text>
+                <Text style={[styles.menuHeaderSub, { color: colors.textTertiary }]}>
+                  Đang là {memberMenu.companion.role === "editor" ? "Cộng tác viên" : "Người xem"}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  const target = memberMenu;
+                  setMemberMenu(null);
+                  if (target.companion.role !== "editor") {
+                    handleChangeCompanionRole(target.companion, "editor");
+                  }
+                }}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Ionicons name="create-outline" size={20} color={colors.primary} />
+                <Text style={[styles.menuItemText, { color: colors.text }]}>
+                  Có thể chỉnh sửa
+                </Text>
+                {memberMenu.companion.role === "editor" && (
+                  <Ionicons
+                    name="checkmark"
+                    size={18}
+                    color={colors.primary}
+                    style={{ marginLeft: "auto" }}
+                  />
+                )}
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const target = memberMenu;
+                  setMemberMenu(null);
+                  if (target.companion.role !== "viewer") {
+                    handleChangeCompanionRole(target.companion, "viewer");
+                  }
+                }}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Ionicons name="eye-outline" size={20} color={colors.text} />
+                <Text style={[styles.menuItemText, { color: colors.text }]}>
+                  Chỉ xem
+                </Text>
+                {memberMenu.companion.role === "viewer" && (
+                  <Ionicons
+                    name="checkmark"
+                    size={18}
+                    color={colors.primary}
+                    style={{ marginLeft: "auto" }}
+                  />
+                )}
+              </Pressable>
+              <View
+                style={[styles.menuDivider, { backgroundColor: colors.cardBorder }]}
+              />
+              <Pressable
+                onPress={() => {
+                  const target = memberMenu;
+                  setMemberMenu(null);
+                  handleRemoveCompanion(target.companion);
+                }}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Ionicons name="person-remove" size={20} color={colors.error} />
+                <Text style={[styles.menuItemText, { color: colors.error }]}>
+                  Xoá khỏi chuyến đi
+                </Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        )}
+      </Modal>
+
+      <Modal
+        visible={!!activityMenu}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setActivityMenu(null)}
+      >
+        {activityMenu && (() => {
+          const a = activityMenu.activity;
+          const dIdx = activityMenu.dayIdx;
+          const aIdx = activityMenu.actIdx;
+          const hasCoords = a.latitude != null && a.longitude != null;
+          const isDraft = itinerary.status === "draft";
+          const isActive = itinerary.status === "active";
+          const canEditTime = canEdit && (isDraft || (isActive && !a.isCompleted));
+          const canEditCost = canEdit && (isDraft || isActive);
+          const canMove = canEdit && (isDraft || (isActive && !a.isCompleted));
+          const canDelete = canEdit && (isDraft || (isActive && !a.isCompleted));
+          const isCompleted = itinerary.status === "completed";
+
+          type Item = {
+            key: string;
+            icon: any;
+            label: string;
+            color?: string;
+            onPress: () => void;
+            external?: boolean;
+          };
+          const editGroup: Item[] = [];
+          const externalGroup: Item[] = [];
+          const destructiveGroup: Item[] = [];
+
+          if (canEdit && isActive && !a.isCompleted) {
+            editGroup.push({
+              key: "mark",
+              icon: "checkmark-circle-outline",
+              label: "Đánh dấu đã hoàn thành",
+              color: colors.success,
+              onPress: () => {
+                setActivityMenu(null);
+                toggleActivityComplete(dIdx, a.id);
+              },
+            });
+          }
+          if (canEdit && isActive && a.isCompleted) {
+            editGroup.push({
+              key: "unmark",
+              icon: "ellipse-outline",
+              label: "Bỏ đánh dấu hoàn thành",
+              onPress: () => {
+                setActivityMenu(null);
+                toggleActivityComplete(dIdx, a.id);
+              },
+            });
+          }
+          if (canEdit) {
+            editGroup.push({
+              key: "note",
+              icon: "document-text-outline",
+              label: "Thêm ghi chú",
+              onPress: () => {
+                setActivityMenu(null);
+                setNoteModal({ activityId: a.id, dayIdx: dIdx, note: "" });
+              },
+            });
+          }
+          if (canEditCost) {
+            editGroup.push({
+              key: "cost",
+              icon: "cash-outline",
+              label: isActive ? "Sửa chi phí thực tế" : "Sửa chi phí dự kiến",
+              onPress: () => {
+                setActivityMenu(null);
+                setCostPaidByDropdown(false);
+                setCostModal({
+                  activityId: a.id,
+                  dayIdx: dIdx,
+                  cost: (a.actualCost || 0).toString(),
+                  estimatedCost: (a.estimatedCost || 0).toString(),
+                  paidBy: a.paidBy || user?.fullName || "",
+                  activityTitle: a.title,
+                  expenseTypeId: a.expenseTypeId,
+                  type: a.activityType || "other",
+                });
+              },
+            });
+          }
+          if (canEditTime) {
+            editGroup.push({
+              key: "time",
+              icon: "time-outline",
+              label: "Sửa giờ",
+              onPress: () => {
+                setActivityMenu(null);
+                setTimeModal({ activityId: a.id, dayIdx: dIdx, time: a.time });
+              },
+            });
+          }
+          if (canMove && aIdx > 0) {
+            editGroup.push({
+              key: "up",
+              icon: "arrow-up",
+              label: "Di chuyển lên trên",
+              onPress: () => {
+                setActivityMenu(null);
+                moveActivity(dIdx, aIdx, "up");
+              },
+            });
+          }
+          if (canMove && aIdx < activityMenu.total - 1) {
+            editGroup.push({
+              key: "down",
+              icon: "arrow-down",
+              label: "Di chuyển xuống dưới",
+              onPress: () => {
+                setActivityMenu(null);
+                moveActivity(dIdx, aIdx, "down");
+              },
+            });
+          }
+          if (
+            itinerary.status !== "draft" &&
+            canEdit &&
+            a.isCompleted &&
+            !getActivityReview(a.id)
+          ) {
+            editGroup.push({
+              key: "review",
+              icon: "star-outline",
+              label: "Viết đánh giá",
+              color: "#F59E0B",
+              onPress: () => {
+                setActivityMenu(null);
+                openReviewModal(a.id, dIdx);
+              },
+            });
+          }
+          if (
+            itinerary.status !== "draft" &&
+            canEdit &&
+            a.isCompleted &&
+            getActivityReview(a.id)
+          ) {
+            const rev = getActivityReview(a.id);
+            if (rev) {
+              editGroup.push({
+                key: "review-edit",
+                icon: "create-outline",
+                label: "Sửa đánh giá",
+                onPress: () => {
+                  setActivityMenu(null);
+                  openReviewModal(a.id, dIdx, rev.id);
+                },
+              });
+              destructiveGroup.push({
+                key: "review-delete",
+                icon: "trash-outline",
+                label: "Xoá đánh giá",
+                color: colors.error,
+                onPress: () => {
+                  setActivityMenu(null);
+                  handleDeleteActivityReview(rev.id);
+                },
+              });
+            }
+          }
+          if (hasCoords) {
+            externalGroup.push({
+              key: "maps",
+              icon: "map-outline",
+              label: "Mở Google Maps",
+              external: true,
+              onPress: () => {
+                setActivityMenu(null);
+                openGoogleMaps({
+                  lat: a.latitude,
+                  lng: a.longitude,
+                  address: a.address,
+                  name: a.title,
+                  googlePlaceId: a.googlePlaceId,
+                });
+              },
+            });
+            externalGroup.push({
+              key: "grab",
+              icon: "car-outline",
+              label: "Đặt Grab",
+              color: "#00B14F",
+              external: true,
+              onPress: () => {
+                setActivityMenu(null);
+                openGrab(a.latitude, a.longitude, a.title);
+              },
+            });
+          }
+          if (canDelete) {
+            destructiveGroup.push({
+              key: "delete",
+              icon: "trash-outline",
+              label: "Xoá địa điểm này",
+              color: colors.error,
+              onPress: () => {
+                setActivityMenu(null);
+                deleteActivity(dIdx, a.id);
+              },
+            });
+          }
+
+          const renderItem = (item: Item) => (
+            <Pressable
+              key={item.key}
+              onPress={item.onPress}
+              style={({ pressed }) => [
+                styles.menuItem,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <Ionicons
+                name={item.icon}
+                size={20}
+                color={item.color || colors.text}
+              />
+              <Text
+                style={[
+                  styles.menuItemText,
+                  { color: item.color || colors.text },
+                ]}
+              >
+                {item.label}
+              </Text>
+              {item.external && (
+                <Ionicons
+                  name="open-outline"
+                  size={14}
+                  color={colors.textTertiary}
+                  style={{ marginLeft: "auto" }}
+                />
+              )}
+            </Pressable>
+          );
+
+          return (
+            <Pressable
+              style={styles.sheetOverlay}
+              onPress={() => setActivityMenu(null)}
+            >
+              <Pressable
+                onPress={(e) => e.stopPropagation()}
+                style={[styles.sheetContent, { backgroundColor: colors.card }]}
+              >
+                <View style={styles.sheetHandle} />
+                <View style={styles.menuHeader}>
+                  <Text
+                    style={[styles.menuHeaderTitle, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {a.title}
+                  </Text>
+                  <Text
+                    style={[styles.menuHeaderSub, { color: colors.textTertiary }]}
+                  >
+                    {a.time}
+                    {a.duration ? ` · ${formatDuration(a.duration)}` : ""}
+                  </Text>
+                </View>
+                {editGroup.length > 0 && (
+                  <View>{editGroup.map(renderItem)}</View>
+                )}
+                {externalGroup.length > 0 && (
+                  <>
+                    {editGroup.length > 0 && (
+                      <View
+                        style={[
+                          styles.menuDivider,
+                          { backgroundColor: colors.cardBorder },
+                        ]}
+                      />
+                    )}
+                    <View>{externalGroup.map(renderItem)}</View>
+                  </>
+                )}
+                {destructiveGroup.length > 0 && (
+                  <>
+                    {(editGroup.length > 0 || externalGroup.length > 0) && (
+                      <View
+                        style={[
+                          styles.menuDivider,
+                          { backgroundColor: colors.cardBorder },
+                        ]}
+                      />
+                    )}
+                    <View>{destructiveGroup.map(renderItem)}</View>
+                  </>
+                )}
+              </Pressable>
+            </Pressable>
+          );
+        })()}
+      </Modal>
+
+      <Modal
         visible={!!routeMapModal}
         transparent
         animationType="slide"
         onRequestClose={() => setRouteMapModal(null)}
       >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              padding: 20,
-              height: Dimensions.get("window").height * 0.85,
-            }}
-          >
-            <View style={actDetailStyles.header}>
-              <Text style={[actDetailStyles.title, { color: colors.text }]}>
-                {txt.routeMapTitle}
-              </Text>
-              <Pressable onPress={() => setRouteMapModal(null)} hitSlop={8}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </Pressable>
-            </View>
-
-            {/* Day selector tabs */}
-            {routeMapModal && itinerary.days.length > 1 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ maxHeight: 40, marginBottom: 10 }}
-              >
-                <View style={{ flexDirection: "row", gap: 6 }}>
-                  {itinerary.days.map((d, idx) => (
-                    <Pressable
-                      key={idx}
-                      onPress={() => setRouteMapModal({ dayIdx: idx })}
-                      style={{
-                        paddingHorizontal: 14,
-                        paddingVertical: 7,
-                        borderRadius: 10,
-                        backgroundColor:
-                          routeMapModal.dayIdx === idx ? colors.primary : colors.inputBg,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          fontFamily:
-                            routeMapModal.dayIdx === idx ? "Inter_600SemiBold" : "Inter_400Regular",
-                          color: routeMapModal.dayIdx === idx ? "#fff" : colors.textSecondary,
-                        }}
-                      >
-                        Ngày {idx + 1}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </ScrollView>
-            )}
-
-            {routeMapModal &&
-              (() => {
-                const day = itinerary.days[routeMapModal.dayIdx];
-                if (!day) return null;
-
-                // Get activities with coordinates
-                const actsWithCoords = day.activities.filter(
-                  (a) => a.latitude != null && a.longitude != null,
-                );
-
-                // Deduplicate: group activities at the same coordinates
-                const uniquePoints: {
-                  lat: number;
-                  lng: number;
-                  name: string;
-                  type?: string;
-                  index: number;
-                  activities: typeof actsWithCoords;
-                }[] = [];
-                actsWithCoords.forEach((a, i) => {
-                  const existing = uniquePoints.find(
-                    (p) =>
-                      Math.abs(p.lat - a.latitude!) < 0.0001 &&
-                      Math.abs(p.lng - a.longitude!) < 0.0001,
-                  );
-                  if (existing) {
-                    existing.activities.push(a);
-                    existing.name = existing.activities.map((act) => act.title).join(" → ");
-                  } else {
-                    uniquePoints.push({
-                      lat: a.latitude!,
-                      lng: a.longitude!,
-                      name: a.title,
-                      type: a.activityType,
-                      index: uniquePoints.length,
-                      activities: [a],
-                    });
-                  }
+        {routeMapModal &&
+          (() => {
+            const day = itinerary.days[routeMapModal.dayIdx];
+            if (!day) {
+              return (
+                <View
+                  style={[
+                    routeMapStyles.container,
+                    { backgroundColor: colors.background },
+                  ]}
+                />
+              );
+            }
+            const actsWithCoords = day.activities.filter(
+              (a) => a.latitude != null && a.longitude != null,
+            );
+            const uniquePoints: {
+              lat: number;
+              lng: number;
+              name: string;
+              type?: string;
+              index: number;
+              activities: typeof actsWithCoords;
+            }[] = [];
+            actsWithCoords.forEach((a) => {
+              const existing = uniquePoints.find(
+                (p) =>
+                  Math.abs(p.lat - a.latitude!) < 0.0001 &&
+                  Math.abs(p.lng - a.longitude!) < 0.0001,
+              );
+              if (existing) {
+                existing.activities.push(a);
+                existing.name = existing.activities.map((act) => act.title).join(" → ");
+              } else {
+                uniquePoints.push({
+                  lat: a.latitude!,
+                  lng: a.longitude!,
+                  name: a.title,
+                  type: a.activityType,
+                  index: uniquePoints.length,
+                  activities: [a],
                 });
+              }
+            });
+            const allSameLocation = uniquePoints.length <= 1 && actsWithCoords.length > 1;
+            const mapPoints = uniquePoints.map((p) => ({
+              lat: p.lat,
+              lng: p.lng,
+              name: p.name,
+              type: p.type,
+              index: p.index,
+            }));
+            let totalDistanceKm = 0;
+            for (let i = 1; i < uniquePoints.length; i++) {
+              totalDistanceKm += haversineDistance(
+                uniquePoints[i - 1].lat,
+                uniquePoints[i - 1].lng,
+                uniquePoints[i].lat,
+                uniquePoints[i].lng,
+              );
+            }
+            const screenHeight = Dimensions.get("window").height;
 
-                const allSameLocation = uniquePoints.length <= 1 && actsWithCoords.length > 1;
-
-                const mapPoints = uniquePoints.map((p) => ({
-                  lat: p.lat,
-                  lng: p.lng,
-                  name: p.name,
-                  type: p.type,
-                  index: p.index,
-                }));
-
-                return (
-                  <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-                    {allSameLocation ? (
-                      <View
-                        style={{
-                          height: 200,
-                          borderRadius: 14,
-                          backgroundColor: colors.inputBg,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: 10,
-                        }}
+            return (
+              <View
+                style={[
+                  routeMapStyles.container,
+                  { backgroundColor: colors.background },
+                ]}
+              >
+                <View style={routeMapStyles.mapWrap}>
+                  {allSameLocation || uniquePoints.length === 0 ? (
+                    <View
+                      style={[
+                        routeMapStyles.mapPlaceholder,
+                        { backgroundColor: colors.inputBg },
+                      ]}
+                    >
+                      <Ionicons name="location" size={42} color={colors.primary} />
+                      <Text
+                        style={[routeMapStyles.placeholderTitle, { color: colors.text }]}
                       >
-                        <Ionicons name="location" size={36} color={colors.primary} />
-                        <Text
-                          style={{
-                            fontSize: 14,
-                            fontFamily: "Inter_600SemiBold",
-                            color: colors.text,
-                            textAlign: "center",
-                          }}
-                        >
-                          Tất cả hoạt động cùng vị trí
-                        </Text>
-                        <Text
-                          style={{
-                            fontSize: 12,
-                            fontFamily: "Inter_400Regular",
-                            color: colors.textSecondary,
-                            textAlign: "center",
-                            paddingHorizontal: 20,
-                          }}
-                        >
-                          Các hoạt động trong ngày này đều ở cùng một địa điểm. Bản đồ tuyến đường
-                          sẽ hiển thị khi có nhiều địa điểm khác nhau.
-                        </Text>
-                        {actsWithCoords[0] && (
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 4,
-                              marginTop: 4,
-                            }}
+                        {uniquePoints.length === 0
+                          ? "Ngày này chưa có vị trí"
+                          : "Tất cả ở cùng một địa điểm"}
+                      </Text>
+                      <Text
+                        style={[
+                          routeMapStyles.placeholderHint,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        {uniquePoints.length === 0
+                          ? "Thêm địa chỉ cho hoạt động để xem tuyến đường."
+                          : "Bản đồ tuyến đường hiển thị khi có nhiều địa điểm khác nhau."}
+                      </Text>
+                    </View>
+                  ) : (
+                    <RouteMap
+                      points={mapPoints}
+                      height={screenHeight * 0.55}
+                      colors={colors as any}
+                      showRoute={true}
+                    />
+                  )}
+
+                  <View
+                    style={[
+                      routeMapStyles.topBar,
+                      { paddingTop: insets.top + webTopInset + 8 },
+                    ]}
+                  >
+                    <Pressable
+                      onPress={() => setRouteMapModal(null)}
+                      hitSlop={6}
+                      style={({ pressed }) => [
+                        routeMapStyles.topBtn,
+                        { opacity: pressed ? 0.85 : 1 },
+                      ]}
+                    >
+                      <Ionicons name="arrow-back" size={20} color="#111827" />
+                    </Pressable>
+                    <View style={routeMapStyles.topTitleWrap}>
+                      <Text style={routeMapStyles.topTitle} numberOfLines={1}>
+                        Tuyến đường ngày {day.day}
+                      </Text>
+                      <Text style={routeMapStyles.topSub} numberOfLines={1}>
+                        {actsWithCoords.length} điểm
+                        {totalDistanceKm > 0
+                          ? ` • ${totalDistanceKm.toFixed(1)} km`
+                          : ""}
+                      </Text>
+                    </View>
+                    {actsWithCoords[0] && (
+                      <Pressable
+                        onPress={() =>
+                          openGoogleMaps({
+                            lat: actsWithCoords[0].latitude,
+                            lng: actsWithCoords[0].longitude,
+                            address: actsWithCoords[0].address,
+                            name: actsWithCoords[0].title,
+                            googlePlaceId: actsWithCoords[0].googlePlaceId,
+                          })
+                        }
+                        hitSlop={6}
+                        style={({ pressed }) => [
+                          routeMapStyles.topBtn,
+                          { opacity: pressed ? 0.85 : 1 },
+                        ]}
+                      >
+                        <Ionicons name="open-outline" size={18} color="#111827" />
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+
+                <View
+                  style={[
+                    routeMapStyles.sheet,
+                    { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                  ]}
+                >
+                  <View style={routeMapStyles.handle} />
+                  {itinerary.days.length > 1 && (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={routeMapStyles.dayPillsRow}
+                    >
+                      {itinerary.days.map((d, idx) => {
+                        const active = routeMapModal.dayIdx === idx;
+                        return (
+                          <Pressable
+                            key={idx}
+                            onPress={() => setRouteMapModal({ dayIdx: idx })}
+                            style={({ pressed }) => [
+                              routeMapStyles.dayPill,
+                              active
+                                ? { backgroundColor: colors.primary }
+                                : {
+                                    backgroundColor: colors.inputBg,
+                                    borderColor: colors.cardBorder,
+                                    borderWidth: StyleSheet.hairlineWidth,
+                                  },
+                              { opacity: pressed ? 0.85 : 1 },
+                            ]}
                           >
-                            <Ionicons
-                              name="navigate-outline"
-                              size={14}
-                              color={colors.textTertiary}
-                            />
+                            {/* Single inline label fits a horizontal pill row
+                                better than the previous stacked "N\nNgày". */}
                             <Text
-                              style={{
-                                fontSize: 11,
-                                fontFamily: "Inter_400Regular",
-                                color: colors.textTertiary,
-                              }}
+                              style={[
+                                routeMapStyles.dayPillCombined,
+                                { color: active ? "#fff" : colors.primary },
+                              ]}
                             >
-                              {actsWithCoords[0].latitude!.toFixed(4)},{" "}
-                              {actsWithCoords[0].longitude!.toFixed(4)}
+                              Ngày {idx + 1}
                             </Text>
-                          </View>
-                        )}
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ padding: 16, paddingTop: 6, gap: 4 }}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    <Text
+                      style={[
+                        routeMapStyles.sheetTitle,
+                        { color: colors.text, marginBottom: 8 },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {day.title?.replace(/^Ngày\s*\d+\s*[-–]?\s*/i, "") || `Ngày ${day.day}`}
+                    </Text>
+                    {actsWithCoords.length === 0 ? (
+                      <View
+                        style={[
+                          routeMapStyles.emptyState,
+                          { backgroundColor: colors.inputBg },
+                        ]}
+                      >
+                        <Ionicons
+                          name="location-outline"
+                          size={28}
+                          color={colors.textTertiary}
+                        />
+                        <Text
+                          style={[
+                            routeMapStyles.emptyTitle,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          Chưa có địa điểm có toạ độ
+                        </Text>
                       </View>
                     ) : (
-                      <RouteMap
-                        points={mapPoints}
-                        height={Dimensions.get("window").height * 0.45}
-                        colors={colors as any}
-                        showRoute={true}
-                      />
-                    )}
-
-                    {/* Activity list */}
-                    <View style={{ marginTop: 12 }}>
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          fontFamily: "Inter_600SemiBold",
-                          color: colors.text,
-                          marginBottom: 8,
-                        }}
-                      >
-                        {day.title} • {actsWithCoords.length} hoạt động
-                      </Text>
-                      {day.activities
-                        .filter((a) => a.latitude != null)
-                        .map((a, i) => (
-                          <View
-                            key={a.id}
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 8,
-                              paddingVertical: 6,
-                            }}
-                          >
-                            <View
-                              style={{
-                                width: 26,
-                                height: 26,
-                                borderRadius: 13,
-                                backgroundColor:
-                                  a.activityType === "food" ? "#F59E0B" : colors.primary,
-                                alignItems: "center",
-                                justifyContent: "center",
+                      actsWithCoords.map((a, i) => {
+                        const isLast = i === actsWithCoords.length - 1;
+                        const next = !isLast ? actsWithCoords[i + 1] : null;
+                        const segDist =
+                          next && next.latitude != null && next.longitude != null
+                            ? haversineDistance(
+                                a.latitude!,
+                                a.longitude!,
+                                next.latitude,
+                                next.longitude,
+                              )
+                            : 0;
+                        const typeColor =
+                          a.activityType === "food" || a.activityType === "restaurant"
+                            ? "#F59E0B"
+                            : a.activityType === "hotel" ||
+                                a.activityType === "accommodation"
+                              ? "#EC4899"
+                              : a.activityType === "transport" ||
+                                  a.activityType === "transit"
+                                ? "#10B981"
+                                : colors.primary;
+                        return (
+                          <View key={a.id}>
+                            <Pressable
+                              onPress={() => {
+                                setRouteMapModal(null);
+                                setExpandedReviewIds(new Set());
+                                setShowAllUserReviews(false);
+                                setActivityDetailModal(a);
                               }}
+                              style={({ pressed }) => [
+                                routeMapStyles.stopRow,
+                                { opacity: pressed ? 0.8 : 1 },
+                              ]}
                             >
-                              <Text
-                                style={{ color: "#fff", fontSize: 11, fontFamily: "Inter_700Bold" }}
-                              >
-                                {i + 1}
-                              </Text>
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  fontFamily: "Inter_500Medium",
-                                  color: colors.text,
-                                }}
-                                numberOfLines={1}
-                              >
-                                {a.time} - {a.title}
-                              </Text>
-                              {a.address && (
-                                <Text
-                                  style={{
-                                    fontSize: 11,
-                                    fontFamily: "Inter_400Regular",
-                                    color: colors.textTertiary,
-                                  }}
-                                  numberOfLines={1}
+                              <View style={routeMapStyles.stopRail}>
+                                <View
+                                  style={[
+                                    routeMapStyles.stopDot,
+                                    { backgroundColor: typeColor },
+                                  ]}
                                 >
-                                  📍 {a.address}
+                                  <Text style={routeMapStyles.stopDotText}>{i + 1}</Text>
+                                </View>
+                                {!isLast && (
+                                  <View
+                                    style={[
+                                      routeMapStyles.stopLine,
+                                      { backgroundColor: colors.cardBorder },
+                                    ]}
+                                  />
+                                )}
+                              </View>
+                              <View style={{ flex: 1, paddingBottom: isLast ? 0 : 16 }}>
+                                <View style={routeMapStyles.stopHeadRow}>
+                                  <Text
+                                    style={[
+                                      routeMapStyles.stopTime,
+                                      { color: colors.primary },
+                                    ]}
+                                  >
+                                    {a.time}
+                                  </Text>
+                                  {!!a.duration && (
+                                    <View
+                                      style={[
+                                        routeMapStyles.stopDurChip,
+                                        { backgroundColor: colors.inputBg },
+                                      ]}
+                                    >
+                                      <Ionicons
+                                        name="hourglass"
+                                        size={10}
+                                        color={colors.textSecondary}
+                                      />
+                                      <Text
+                                        style={[
+                                          routeMapStyles.stopDurText,
+                                          { color: colors.textSecondary },
+                                        ]}
+                                      >
+                                        {formatDuration(a.duration)}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+                                <Text
+                                  style={[
+                                    routeMapStyles.stopTitle,
+                                    { color: colors.text },
+                                  ]}
+                                  numberOfLines={2}
+                                >
+                                  {a.title}
                                 </Text>
-                              )}
-                            </View>
+                                {a.address && (
+                                  <View style={routeMapStyles.stopAddrRow}>
+                                    <Ionicons
+                                      name="location"
+                                      size={12}
+                                      color={colors.textTertiary}
+                                    />
+                                    <Text
+                                      style={[
+                                        routeMapStyles.stopAddr,
+                                        { color: colors.textTertiary },
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {a.address}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            </Pressable>
+                            {!isLast && segDist > 0 && (
+                              <View style={routeMapStyles.segRow}>
+                                <View
+                                  style={[
+                                    routeMapStyles.segIcon,
+                                    { backgroundColor: colors.primary + "15" },
+                                  ]}
+                                >
+                                  <Ionicons
+                                    name="navigate"
+                                    size={11}
+                                    color={colors.primary}
+                                  />
+                                </View>
+                                <Text
+                                  style={[
+                                    routeMapStyles.segText,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                >
+                                  ~{segDist.toFixed(1)} km đến điểm tiếp theo
+                                </Text>
+                              </View>
+                            )}
                           </View>
-                        ))}
-                    </View>
+                        );
+                      })
+                    )}
                   </ScrollView>
-                );
-              })()}
-          </View>
-        </View>
+                </View>
+              </View>
+            );
+          })()}
       </Modal>
 
       <Modal
@@ -6457,237 +9644,424 @@ export default function ItineraryDetailScreen() {
         onRequestClose={() => setActivityDetailModal(null)}
       >
         <View style={actDetailStyles.overlay}>
-          <View style={[actDetailStyles.content, { backgroundColor: colors.card }]}>
+          <View style={[actDetailStyles.sheet, { backgroundColor: colors.background }]}>
             {activityDetailModal &&
               (() => {
                 const act = activityDetailModal;
                 const linkedDest = act.destinationId
                   ? destinations.find((d) => d.id === act.destinationId)
                   : destinations.find((d) => d.name === act.title);
+                const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
                 const sampleReviews = linkedDest?.sampleReviews || [];
+                const heroImage =
+                  activityHeroImages.length > 0
+                    ? activityHeroImages[activityHeroIdx % activityHeroImages.length]
+                    : null;
+                const typeGradients: Record<string, [string, string]> = {
+                  food: ["#F59E0B", "#EF4444"],
+                  restaurant: ["#F59E0B", "#EF4444"],
+                  cafe: ["#FB923C", "#F43F5E"],
+                  attraction: ["#3B82F6", "#8B5CF6"],
+                  sightseeing: ["#3B82F6", "#8B5CF6"],
+                  hotel: ["#EC4899", "#8B5CF6"],
+                  accommodation: ["#EC4899", "#8B5CF6"],
+                  transport: ["#10B981", "#06B6D4"],
+                  transit: ["#10B981", "#06B6D4"],
+                  shopping: ["#F472B6", "#A855F7"],
+                };
+                const heroGradient: [string, string] =
+                  typeGradients[act.activityType] || ["#6366F1", "#8B5CF6"];
+
+                const heroOpenHours = act.openHours || linkedPOI?.openHours || "";
+                const heroCost =
+                  act.estimatedCost > 0
+                    ? act.estimatedCost
+                    : linkedPOI?.estimatedCost && linkedPOI.estimatedCost > 0
+                      ? linkedPOI.estimatedCost
+                      : 0;
+
+                const statTiles: Array<{
+                  key: string;
+                  icon: any;
+                  iconBg: string;
+                  iconColor: string;
+                  value: string;
+                  label: string;
+                }> = [];
+                statTiles.push({
+                  key: "duration",
+                  icon: "hourglass",
+                  iconBg: "#DBEAFE",
+                  iconColor: "#3B82F6",
+                  value: act.duration || "—",
+                  label: txt.estDuration,
+                });
+                if (heroCost > 0) {
+                  statTiles.push({
+                    key: "cost",
+                    icon: "cash",
+                    iconBg: "#D1FAE5",
+                    iconColor: "#10B981",
+                    value: formatVND(heroCost),
+                    label: txt.estimatedCost,
+                  });
+                }
+                if (heroOpenHours) {
+                  statTiles.push({
+                    key: "hours",
+                    icon: "time",
+                    iconBg: "#FCE7F3",
+                    iconColor: "#EC4899",
+                    value: heroOpenHours,
+                    label: txt.openHours,
+                  });
+                }
 
                 return (
                   <>
-                    <View style={actDetailStyles.header}>
-                      <Text
-                        style={[actDetailStyles.title, { color: colors.text }]}
-                        numberOfLines={2}
-                      >
-                        {act.title}
-                      </Text>
-                      <Pressable onPress={() => setActivityDetailModal(null)} hitSlop={8}>
-                        <Ionicons name="close" size={24} color={colors.text} />
-                      </Pressable>
+                    <View style={actDetailStyles.hero}>
+                      {heroImage ? (
+                        <Image
+                          source={{ uri: heroImage }}
+                          style={actDetailStyles.heroImage}
+                          contentFit="cover"
+                          transition={200}
+                        />
+                      ) : (
+                        <LinearGradient
+                          colors={heroGradient}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={actDetailStyles.heroImage}
+                        >
+                          <Ionicons
+                            name={getActivityTypeIcon(act.activityType) as any}
+                            size={64}
+                            color="rgba(255,255,255,0.35)"
+                          />
+                        </LinearGradient>
+                      )}
+                      <LinearGradient
+                        colors={["rgba(0,0,0,0.0)", "rgba(0,0,0,0.65)"]}
+                        style={actDetailStyles.heroShade}
+                      />
+                      {activityHeroImages.length > 1 && (
+                        <View style={actDetailStyles.heroDots}>
+                          {activityHeroImages.map((_, i) => (
+                            <Pressable key={i} onPress={() => setActivityHeroIdx(i)} hitSlop={6}>
+                              <View
+                                style={[
+                                  actDetailStyles.heroDot,
+                                  i === activityHeroIdx % activityHeroImages.length &&
+                                    actDetailStyles.heroDotActive,
+                                ]}
+                              />
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
+                      <View style={actDetailStyles.heroTopRow}>
+                        <Pressable
+                          onPress={() => setActivityDetailModal(null)}
+                          hitSlop={8}
+                          style={({ pressed }) => [
+                            actDetailStyles.heroCircleBtn,
+                            { backgroundColor: "rgba(255,255,255,0.95)", opacity: pressed ? 0.8 : 1 },
+                          ]}
+                        >
+                          <Ionicons name="close" size={20} color="#111827" />
+                        </Pressable>
+                        <View style={actDetailStyles.heroChip}>
+                          <Ionicons
+                            name={getActivityTypeIcon(act.activityType) as any}
+                            size={12}
+                            color="#fff"
+                          />
+                          <Text style={actDetailStyles.heroChipText}>
+                            {getActivityTypeLabel(act.activityType)}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={actDetailStyles.heroFooter}>
+                        <Text style={actDetailStyles.heroTitle} numberOfLines={2}>
+                          {act.title}
+                        </Text>
+                        <View style={actDetailStyles.heroMetaRow}>
+                          <View style={actDetailStyles.heroMetaItem}>
+                            <Ionicons name="time" size={12} color="rgba(255,255,255,0.9)" />
+                            <Text style={actDetailStyles.heroMetaText}>{act.time}</Text>
+                          </View>
+                          {!!act.duration && (
+                            <>
+                              <View style={actDetailStyles.heroMetaDot} />
+                              <View style={actDetailStyles.heroMetaItem}>
+                                <Ionicons
+                                  name="hourglass"
+                                  size={12}
+                                  color="rgba(255,255,255,0.9)"
+                                />
+                                <Text style={actDetailStyles.heroMetaText}>{act.duration}</Text>
+                              </View>
+                            </>
+                          )}
+                          {!!linkedDest?.name && (
+                            <>
+                              <View style={actDetailStyles.heroMetaDot} />
+                              <View style={actDetailStyles.heroMetaItem}>
+                                <Ionicons name="location" size={12} color="rgba(255,255,255,0.9)" />
+                                <Text style={actDetailStyles.heroMetaText} numberOfLines={1}>
+                                  {linkedDest.name}
+                                </Text>
+                              </View>
+                            </>
+                          )}
+                        </View>
+                      </View>
                     </View>
 
                     <ScrollView
                       showsVerticalScrollIndicator={false}
-                      contentContainerStyle={{ gap: 16, paddingBottom: 20 }}
+                      contentContainerStyle={actDetailStyles.scrollContent}
                     >
-                      <View style={[actDetailStyles.infoRow, { backgroundColor: colors.inputBg }]}>
-                        <View style={actDetailStyles.infoItem}>
-                          <Ionicons name="time-outline" size={16} color={colors.primary} />
-                          <Text style={[actDetailStyles.infoText, { color: colors.text }]}>
-                            {act.time} • {act.duration}
-                          </Text>
-                        </View>
-                        <View style={actDetailStyles.infoItem}>
-                          <Ionicons
-                            name={getActivityTypeIcon(act.activityType) as any}
-                            size={16}
-                            color={colors.primary}
-                          />
-                          <Text style={[actDetailStyles.infoText, { color: colors.text }]}>
-                            {getActivityTypeLabel(act.activityType)}
-                          </Text>
-                        </View>
-                        {act.estimatedCost > 0 && (
-                          <View style={actDetailStyles.infoItem}>
-                            <Ionicons name="cash-outline" size={16} color={colors.primary} />
-                            <Text style={[actDetailStyles.infoText, { color: colors.text }]}>
-                              {txt.estimatedCost}: {formatVND(act.estimatedCost)}
+                      <View style={actDetailStyles.statsStrip}>
+                        {statTiles.map((tile) => (
+                          <View
+                            key={tile.key}
+                            style={[
+                              actDetailStyles.statTile,
+                              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                            ]}
+                          >
+                            <View
+                              style={[actDetailStyles.statIcon, { backgroundColor: tile.iconBg }]}
+                            >
+                              <Ionicons name={tile.icon} size={14} color={tile.iconColor} />
+                            </View>
+                            <Text
+                              style={[actDetailStyles.statValue, { color: colors.text }]}
+                              numberOfLines={1}
+                            >
+                              {tile.value}
+                            </Text>
+                            <Text
+                              style={[
+                                actDetailStyles.statLabel,
+                                { color: colors.textTertiary },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {tile.label}
                             </Text>
                           </View>
-                        )}
+                        ))}
                       </View>
 
                       {act.address && (
-                        <View style={actDetailStyles.infoItem}>
-                          <Ionicons
-                            name="location-outline"
-                            size={16}
-                            color={colors.textSecondary}
-                          />
-                          <Text
-                            style={[actDetailStyles.addressText, { color: colors.textSecondary }]}
+                        <Pressable
+                          onPress={() => {
+                            if (act.latitude != null && act.longitude != null) {
+                              openGoogleMaps({
+                                lat: act.latitude,
+                                lng: act.longitude,
+                                address: act.address,
+                                name: act.title,
+                                googlePlaceId: act.googlePlaceId,
+                              });
+                            }
+                          }}
+                          style={({ pressed }) => [
+                            actDetailStyles.addressCard,
+                            { backgroundColor: colors.card, borderColor: colors.cardBorder, opacity: pressed ? 0.85 : 1 },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              actDetailStyles.addressIcon,
+                              { backgroundColor: colors.primary + "15" },
+                            ]}
                           >
-                            {act.address}
-                          </Text>
-                        </View>
+                            <Ionicons name="location" size={16} color={colors.primary} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[actDetailStyles.addressLabel, { color: colors.textTertiary }]}
+                            >
+                              Địa chỉ
+                            </Text>
+                            <Text
+                              style={[actDetailStyles.addressText, { color: colors.text }]}
+                              numberOfLines={2}
+                            >
+                              {act.address}
+                            </Text>
+                          </View>
+                          {act.latitude != null && act.longitude != null && (
+                            <Ionicons
+                              name="chevron-forward"
+                              size={18}
+                              color={colors.textTertiary}
+                            />
+                          )}
+                        </Pressable>
                       )}
 
-                      <Text style={[actDetailStyles.sectionTitle, { color: colors.text }]}>
-                        {txt.activityAbout}
-                      </Text>
-                      <Text style={[actDetailStyles.description, { color: colors.textSecondary }]}>
-                        {(() => {
-                          const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
-                          return (
-                            linkedPOI?.description || linkedDest?.description || act.description
-                          );
-                        })()}
-                      </Text>
+                      <View
+                        style={[
+                          actDetailStyles.card,
+                          { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                        ]}
+                      >
+                        <Text style={[actDetailStyles.cardTitle, { color: colors.text }]}>
+                          {txt.activityAbout}
+                        </Text>
+                        <Text
+                          style={[actDetailStyles.description, { color: colors.textSecondary }]}
+                        >
+                          {linkedPOI?.description || linkedDest?.description || act.description}
+                        </Text>
+                      </View>
 
                       {(() => {
-                        const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
-                        const actId = act.id;
-                        // Count user reviews for this activity/POI specifically
+                        const googleRating =
+                          (act.rating && act.rating > 0 ? act.rating : 0) ||
+                          (linkedPOI && linkedPOI.rating > 0 ? linkedPOI.rating : 0);
+                        const googleCount =
+                          (act.reviewCount && act.reviewCount > 0 ? act.reviewCount : 0) ||
+                          (linkedPOI?.reviewCount ?? 0) ||
+                          (serpPlaceInfo?.totalReviews ?? 0);
                         const userReviewsForAct = reviews.filter((r) => {
                           const rPoiId = String(r.poiId || "");
                           const rActId = String(r.activityId || "");
                           const targetActId = String(act.id || "");
                           const targetPoiId = String(act.poiId || "");
-
-                          // Match by direct poiId
                           if (targetPoiId && rPoiId === targetPoiId) return true;
-                          // Match by activityId
-                          if (rActId === targetActId) return true;
-                          // Fallback: match by [activity:xxx] tag in comment
-                          const activityTag = r.comment.match(/\[activity:([^\]]+)\]/);
-                          if (activityTag && activityTag[1] === targetActId) return true;
+                          if (rActId && rActId === targetActId) return true;
+                          const tag = r.comment.match(/\[activity:([^\]]+)\]/);
+                          if (tag && tag[1] === targetActId) return true;
                           return false;
                         });
                         const userCount = userReviewsForAct.length;
-                        // Priority: user reviews avg → activity.rating (Google) → POI rating → dest rating
-                        let displayRating = 0;
-                        let displayCount = 0;
-                        if (userCount > 0) {
-                          displayRating =
-                            Math.round(
-                              (userReviewsForAct.reduce((sum, r) => sum + r.rating, 0) /
-                                userCount) *
-                                10,
-                            ) / 10;
-                          displayCount = userCount;
-                        } else if (act.rating && act.rating > 0) {
-                          displayRating = act.rating;
-                          displayCount = act.reviewCount || 0;
-                        } else if (linkedPOI && linkedPOI.rating > 0) {
-                          displayRating = linkedPOI.rating;
-                          displayCount = linkedPOI.reviewCount || 0;
-                        } else if (linkedDest) {
-                          displayRating = linkedDest.rating;
-                          displayCount = linkedDest.reviewCount;
-                        }
-                        if (displayRating <= 0 && displayCount <= 0) return null;
+                        const userAvg =
+                          userCount > 0
+                            ? Math.round(
+                                (userReviewsForAct.reduce((s, r) => s + r.rating, 0) / userCount) *
+                                  10,
+                              ) / 10
+                            : 0;
+                        if (googleCount === 0 && userCount === 0 && googleRating === 0) return null;
                         return (
                           <View
-                            style={[actDetailStyles.ratingBar, { backgroundColor: colors.inputBg }]}
+                            style={[
+                              actDetailStyles.ratingSplit,
+                              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                            ]}
                           >
-                            <Ionicons name="star" size={18} color="#F59E0B" />
-                            <Text style={[actDetailStyles.ratingText, { color: colors.text }]}>
-                              {displayRating.toFixed(1)}/5
-                            </Text>
-                            <Text
-                              style={[actDetailStyles.ratingCount, { color: colors.textSecondary }]}
-                            >
-                              ({displayCount} {txt.activityReviewCount})
-                            </Text>
+                            <View style={actDetailStyles.ratingSplitCol}>
+                              <View style={actDetailStyles.ratingSplitHead}>
+                                <Ionicons name="logo-google" size={14} color="#4285F4" />
+                                <Text
+                                  style={[
+                                    actDetailStyles.ratingSplitLabel,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                >
+                                  Đánh giá Google Maps
+                                </Text>
+                              </View>
+                              {googleRating > 0 ? (
+                                <View style={actDetailStyles.ratingSplitSrcBlock}>
+                                  <View style={actDetailStyles.ratingSplitValueRow}>
+                                    <Ionicons name="star" size={16} color="#F59E0B" />
+                                    <Text
+                                      style={[
+                                        actDetailStyles.ratingSplitValue,
+                                        { color: colors.text },
+                                      ]}
+                                    >
+                                      {googleRating.toFixed(1)}
+                                    </Text>
+                                  </View>
+                                  {googleCount > 0 && (
+                                    <Text
+                                      style={[
+                                        actDetailStyles.ratingSplitCount,
+                                        { color: colors.textTertiary },
+                                      ]}
+                                    >
+                                      {googleCount.toLocaleString("vi-VN")} đánh giá
+                                    </Text>
+                                  )}
+                                </View>
+                              ) : (
+                                <Text
+                                  style={[
+                                    actDetailStyles.ratingSplitEmpty,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                >
+                                  Chưa có dữ liệu
+                                </Text>
+                              )}
+                            </View>
+                            <View
+                              style={[
+                                actDetailStyles.ratingSplitDivider,
+                                { backgroundColor: colors.cardBorder },
+                              ]}
+                            />
+                            <View style={actDetailStyles.ratingSplitCol}>
+                              <View style={actDetailStyles.ratingSplitHead}>
+                                <Ionicons name="people-circle" size={16} color={colors.primary} />
+                                <Text
+                                  style={[
+                                    actDetailStyles.ratingSplitLabel,
+                                    { color: colors.textSecondary },
+                                  ]}
+                                >
+                                  Cộng đồng PlanGo
+                                </Text>
+                              </View>
+                              {userCount > 0 ? (
+                                <View style={actDetailStyles.ratingSplitSrcBlock}>
+                                  <View style={actDetailStyles.ratingSplitValueRow}>
+                                    <Ionicons name="star" size={16} color="#F59E0B" />
+                                    <Text
+                                      style={[
+                                        actDetailStyles.ratingSplitValue,
+                                        { color: colors.text },
+                                      ]}
+                                    >
+                                      {userAvg.toFixed(1)}
+                                    </Text>
+                                  </View>
+                                  <Text
+                                    style={[
+                                      actDetailStyles.ratingSplitCount,
+                                      { color: colors.textTertiary },
+                                    ]}
+                                  >
+                                    {userCount} đánh giá
+                                  </Text>
+                                </View>
+                              ) : (
+                                <Text
+                                  style={[
+                                    actDetailStyles.ratingSplitEmpty,
+                                    { color: colors.textTertiary },
+                                  ]}
+                                >
+                                  Chưa có đánh giá
+                                </Text>
+                              )}
+                            </View>
                           </View>
                         );
                       })()}
 
                       {(() => {
-                        const linkedPOI = act.poiId ? pois.find((p) => p.id === act.poiId) : null;
                         if (!linkedPOI) return null;
                         return (
                           <>
-                            <View
-                              style={[
-                                actDetailStyles.ratingBar,
-                                {
-                                  backgroundColor: colors.inputBg,
-                                  flexDirection: "column",
-                                  alignItems: "flex-start",
-                                  gap: 6,
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  actDetailStyles.sectionTitle,
-                                  { color: colors.text, marginBottom: 2 },
-                                ]}
-                              >
-                                {txt.poiInfo}
-                              </Text>
-                              {linkedPOI.openHours && (
-                                <View
-                                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-                                >
-                                  <Ionicons name="time-outline" size={14} color={colors.primary} />
-                                  <Text
-                                    style={[
-                                      actDetailStyles.ratingCount,
-                                      { color: colors.textSecondary },
-                                    ]}
-                                  >
-                                    {txt.openHours}: {linkedPOI.openHours}
-                                  </Text>
-                                </View>
-                              )}
-                              {linkedPOI.estimatedDuration && (
-                                <View
-                                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-                                >
-                                  <Ionicons
-                                    name="hourglass-outline"
-                                    size={14}
-                                    color={colors.primary}
-                                  />
-                                  <Text
-                                    style={[
-                                      actDetailStyles.ratingCount,
-                                      { color: colors.textSecondary },
-                                    ]}
-                                  >
-                                    {txt.estDuration}: {linkedPOI.estimatedDuration}
-                                  </Text>
-                                </View>
-                              )}
-                              {linkedPOI.estimatedCost != null && linkedPOI.estimatedCost > 0 && (
-                                <View
-                                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-                                >
-                                  <Ionicons name="cash-outline" size={14} color={colors.primary} />
-                                  <Text
-                                    style={[
-                                      actDetailStyles.ratingCount,
-                                      { color: colors.textSecondary },
-                                    ]}
-                                  >
-                                    {txt.estCost}: {formatVND(linkedPOI.estimatedCost)}
-                                  </Text>
-                                </View>
-                              )}
-                              {linkedPOI.rating > 0 && (
-                                <View
-                                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-                                >
-                                  <Ionicons name="star" size={14} color="#F59E0B" />
-                                  <Text
-                                    style={[
-                                      actDetailStyles.ratingCount,
-                                      { color: colors.textSecondary },
-                                    ]}
-                                  >
-                                    {linkedPOI.rating.toFixed(1)} ({linkedPOI.reviewCount}{" "}
-                                    {txt.activityReviewCount})
-                                  </Text>
-                                </View>
-                              )}
-                            </View>
-
                             {linkedPOI.googleReviews && linkedPOI.googleReviews.length > 0 && (
                               <>
                                 <Text
@@ -7124,6 +10498,11 @@ export default function ItineraryDetailScreen() {
                                               setActivityDetailModal(null);
                                               setReviewRating(review.rating);
                                               setReviewComment(cleanComment(review.comment));
+                                              setReviewPhotos(
+                                                Array.isArray((review as any).photos)
+                                                  ? ((review as any).photos as string[])
+                                                  : [],
+                                              );
                                               const activityTag =
                                                 review.comment.match(/\[activity:([^\]]+)\]/);
                                               setReviewModal({
@@ -7587,50 +10966,60 @@ export default function ItineraryDetailScreen() {
                             );
                           }}
                           style={({ pressed }) => [
-                            actDetailStyles.moreReviewsBtn,
-                            { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 },
+                            actDetailStyles.googleMoreBtn,
+                            {
+                              backgroundColor: colors.card,
+                              borderColor: "#4285F4" + "40",
+                              opacity: pressed ? 0.85 : 1,
+                            },
                           ]}
                         >
-                          <Ionicons name="logo-google" size={18} color="#fff" />
-                          <Text style={actDetailStyles.moreReviewsBtnText}>
+                          <Ionicons name="logo-google" size={16} color="#4285F4" />
+                          <Text style={[actDetailStyles.googleMoreText, { color: "#4285F4" }]}>
                             {txt.activitySeeMoreReviews}
                           </Text>
+                          <Ionicons name="open-outline" size={14} color="#4285F4" />
                         </Pressable>
                       )}
-
-                      {act.latitude != null && act.longitude != null && (
-                        <View style={actDetailStyles.deepLinkRow}>
-                          <Pressable
-                            onPress={() =>
-                              openGoogleMaps({
-                                lat: act.latitude,
-                                lng: act.longitude,
-                                address: act.address,
-                                name: act.title,
-                                googlePlaceId: act.googlePlaceId,
-                              })
-                            }
-                            style={({ pressed }) => [
-                              actDetailStyles.deepLinkBtn,
-                              { backgroundColor: "#4285F4", opacity: pressed ? 0.9 : 1 },
-                            ]}
-                          >
-                            <Ionicons name="map" size={16} color="#fff" />
-                            <Text style={actDetailStyles.deepLinkText}>{txt.openMaps}</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => openGrab(act.latitude, act.longitude, act.title)}
-                            style={({ pressed }) => [
-                              actDetailStyles.deepLinkBtn,
-                              { backgroundColor: "#00B14F", opacity: pressed ? 0.9 : 1 },
-                            ]}
-                          >
-                            <Ionicons name="car" size={16} color="#fff" />
-                            <Text style={actDetailStyles.deepLinkText}>{txt.bookGrab}</Text>
-                          </Pressable>
-                        </View>
-                      )}
                     </ScrollView>
+
+                    {act.latitude != null && act.longitude != null && (
+                      <View
+                        style={[
+                          actDetailStyles.bottomBar,
+                          { backgroundColor: colors.card, borderTopColor: colors.cardBorder },
+                        ]}
+                      >
+                        <Pressable
+                          onPress={() =>
+                            openGoogleMaps({
+                              lat: act.latitude,
+                              lng: act.longitude,
+                              address: act.address,
+                              name: act.title,
+                              googlePlaceId: act.googlePlaceId,
+                            })
+                          }
+                          style={({ pressed }) => [
+                            actDetailStyles.bottomBtnPrimary,
+                            { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+                          ]}
+                        >
+                          <Ionicons name="map" size={18} color="#fff" />
+                          <Text style={actDetailStyles.bottomBtnPrimaryText}>{txt.openMaps}</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => openGrab(act.latitude, act.longitude, act.title)}
+                          style={({ pressed }) => [
+                            actDetailStyles.bottomBtnSecondary,
+                            { backgroundColor: "#00B14F", opacity: pressed ? 0.9 : 1 },
+                          ]}
+                          hitSlop={6}
+                        >
+                          <Ionicons name="car" size={20} color="#fff" />
+                        </Pressable>
+                      </View>
+                    )}
                   </>
                 );
               })()}
@@ -7640,79 +11029,177 @@ export default function ItineraryDetailScreen() {
 
       <Modal
         visible={!!reviewModal}
-        transparent
-        animationType="fade"
+        transparent={false}
+        animationType="slide"
         onRequestClose={() => setReviewModal(null)}
+        presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+        <View style={[styles.reviewFs, { backgroundColor: colors.background }]}>
+          <View style={[styles.reviewFsHeader, { paddingTop: insets.top + 6 }]}>
+            <Pressable
+              onPress={() => setReviewModal(null)}
+              hitSlop={8}
+              style={[styles.reviewFsClose, { backgroundColor: colors.inputBg }]}
+            >
+              <Ionicons name="close" size={18} color={colors.textSecondary} />
+            </Pressable>
+            <Text
+              style={[styles.reviewFsTitle, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {reviewModal?.editReviewId
+                ? "Sửa đánh giá"
+                : reviewModal?.activityId
+                  ? "Đánh giá địa điểm"
+                  : "Đánh giá chuyến đi"}
+            </Text>
+            <View style={{ width: 36 }} />
+          </View>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.reviewFsScroll}
+            keyboardShouldPersistTaps="handled"
+          >
             {!reviewModal?.activityId && !reviewModal?.editReviewId && (
-              <View style={{ alignItems: "center", marginBottom: 8 }}>
-                <Ionicons name="trophy" size={36} color="#F59E0B" />
+              <View style={styles.reviewFsCelebrate}>
+                <Text style={styles.reviewFsCelebrateEmoji}>🎉</Text>
                 <Text
-                  style={{
-                    fontSize: 13,
-                    fontFamily: "Inter_400Regular",
-                    color: colors.textSecondary,
-                    marginTop: 4,
-                    textAlign: "center",
-                  }}
+                  style={[
+                    styles.reviewFsCelebrateText,
+                    { color: colors.textSecondary },
+                  ]}
                 >
-                  🎉 Chuyến đi hoàn thành! Hãy đánh giá trải nghiệm của bạn.
+                  Chuyến đi hoàn thành! Hãy chia sẻ cảm nhận của bạn.
                 </Text>
               </View>
             )}
-            <Text style={[styles.modalTitle, { color: colors.text }]}>
+            <Text
+              style={[styles.reviewFsSubject, { color: colors.text }]}
+              numberOfLines={2}
+            >
               {reviewModal?.editReviewId
-                ? txt.editReview
+                ? ""
                 : reviewModal?.activityId
-                  ? `${txt.reviewActivity}: ${itinerary.days[reviewModal.dayIdx]?.activities.find((a) => a.id === reviewModal.activityId)?.title || ""}`
-                  : `Đánh giá chuyến đi: ${destinations.find((d) => d.id === reviewModal?.destinationId)?.name || itinerary.destination}`}
+                  ? itinerary.days[reviewModal.dayIdx]?.activities.find(
+                      (a) => a.id === reviewModal.activityId,
+                    )?.title || ""
+                  : destinations.find(
+                      (d) => d.id === reviewModal?.destinationId,
+                    )?.name || itinerary.destination}
             </Text>
-            <View style={styles.ratingRow}>
+            <View style={styles.reviewFsStarsRow}>
               {[1, 2, 3, 4, 5].map((star) => (
-                <Pressable key={star} onPress={() => setReviewRating(star)} hitSlop={8}>
+                <Pressable
+                  key={star}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setReviewRating(star);
+                  }}
+                  hitSlop={4}
+                >
                   <Ionicons
                     name={star <= reviewRating ? "star" : "star-outline"}
-                    size={28}
+                    size={42}
                     color={star <= reviewRating ? "#F59E0B" : colors.textTertiary}
                   />
                 </Pressable>
               ))}
             </View>
+            <Text
+              style={[styles.reviewFsRatingLabel, { color: colors.textSecondary }]}
+            >
+              {reviewRating === 5
+                ? "Tuyệt vời"
+                : reviewRating === 4
+                  ? "Rất tốt"
+                  : reviewRating === 3
+                    ? "Tốt"
+                    : reviewRating === 2
+                      ? "Tạm được"
+                      : "Chưa tốt"}
+            </Text>
             <TextInput
               style={[
-                styles.modalInput,
+                styles.reviewFsTextarea,
                 {
                   color: colors.text,
                   backgroundColor: colors.inputBg,
-                  borderColor: colors.inputBorder,
-                  minHeight: 80,
-                  textAlignVertical: "top",
                 },
               ]}
               value={reviewComment}
               onChangeText={setReviewComment}
-              placeholder={txt.notePlaceholder}
+              placeholder="Chia sẻ trải nghiệm của bạn..."
               placeholderTextColor={colors.textTertiary}
               multiline
+              textAlignVertical="top"
             />
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => setReviewModal(null)}
-                style={[styles.modalBtn, { backgroundColor: colors.inputBg }]}
+
+            <View style={styles.reviewFsPhotoSection}>
+              <Text style={[styles.reviewFsPhotoLabel, { color: colors.textSecondary }]}>
+                Ảnh ({reviewPhotos.length}/10)
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.reviewFsPhotoRow}
               >
-                <Text style={[styles.modalBtnText, { color: colors.textSecondary }]}>
-                  {t().common.cancel}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={submitActivityReview}
-                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
-              >
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t().common.save}</Text>
-              </Pressable>
+                {reviewPhotos.map((uri, idx) => (
+                  <View key={`${idx}-${uri.slice(0, 24)}`} style={styles.reviewFsPhotoItem}>
+                    <Image
+                      source={{ uri }}
+                      style={styles.reviewFsPhotoImg}
+                      contentFit="cover"
+                    />
+                    <Pressable
+                      onPress={() => removeReviewPhoto(idx)}
+                      hitSlop={6}
+                      style={styles.reviewFsPhotoRemove}
+                    >
+                      <Ionicons name="close" size={14} color="#fff" />
+                    </Pressable>
+                  </View>
+                ))}
+                {reviewPhotos.length < 10 && (
+                  <Pressable
+                    onPress={pickReviewPhoto}
+                    style={[
+                      styles.reviewFsPhotoAdd,
+                      { backgroundColor: colors.inputBg, borderColor: colors.cardBorder },
+                    ]}
+                  >
+                    <Ionicons name="add" size={26} color={colors.textSecondary} />
+                    <Text
+                      style={[styles.reviewFsPhotoAddText, { color: colors.textSecondary }]}
+                    >
+                      Thêm ảnh
+                    </Text>
+                  </Pressable>
+                )}
+              </ScrollView>
             </View>
+          </ScrollView>
+          <View
+            style={[
+              styles.reviewFsBottomBar,
+              {
+                backgroundColor: colors.card,
+                borderTopColor: colors.cardBorder,
+                paddingBottom: insets.bottom + 12,
+              },
+            ]}
+          >
+            <Pressable
+              onPress={submitActivityReview}
+              style={({ pressed }) => [
+                styles.reviewFsSubmit,
+                { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Ionicons name="paper-plane" size={16} color="#fff" />
+              <Text style={styles.reviewFsSubmitText}>
+                {reviewModal?.editReviewId ? "Cập nhật" : "Đăng đánh giá"}
+              </Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -7732,6 +11219,455 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, fontSize: 18, fontFamily: "Inter_600SemiBold" },
   headerActions: { flexDirection: "row", gap: 16 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 100, gap: 14 },
+  tripHero: {
+    height: 280,
+    marginHorizontal: -20,
+    backgroundColor: "#E5E7EB",
+    position: "relative",
+    justifyContent: "space-between",
+  },
+  tripHeroImage: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tripHeroTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingHorizontal: 16,
+  },
+  tripHeroBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.95)",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  tripHeroActions: { flexDirection: "row", gap: 10 },
+  tripHeroFooter: { paddingHorizontal: 20, paddingBottom: 22, gap: 8 },
+  tripHeroChipRow: { flexDirection: "row", gap: 6, alignItems: "center" },
+  tripHeroStatusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  tripHeroAiChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(139,92,246,0.92)",
+  },
+  tripHeroStatusText: {
+    color: "#fff",
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.4,
+  },
+  tripHeroTitle: {
+    color: "#fff",
+    fontSize: 26,
+    lineHeight: 32,
+    fontFamily: "Inter_700Bold",
+    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  tripHeroMetaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  tripHeroMetaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  tripHeroMetaText: { color: "#fff", fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  tripHeroMetaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "rgba(255,255,255,0.65)",
+  },
+  tripHeroDots: {
+    position: "absolute",
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+  },
+  tripHeroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.5)",
+  },
+  tripHeroDotActive: {
+    width: 22,
+    backgroundColor: "#fff",
+  },
+  flatBlock: { paddingVertical: 14 },
+  flatStatsGrid: { gap: 12 },
+  // Card-like row so the 4 stat tiles stand out on the white background.
+  // Without this, the stats just hung in the middle of the page.
+  flatStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "#F8FAFC",
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  flatStatsRowDivider: { height: StyleSheet.hairlineWidth, width: "100%" },
+  flatStatItem: { flex: 1, alignItems: "center", gap: 3, minWidth: 0, paddingHorizontal: 2 },
+  flatStatValue: { fontSize: 18, fontFamily: "Inter_700Bold", letterSpacing: -0.3 },
+  flatStatValueMoney: { fontSize: 15, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
+  flatStatLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+  },
+  flatStatDivider: { width: StyleSheet.hairlineWidth, height: 32 },
+  flatRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  flatRowLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+  },
+  flatRowValue: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  flatBudget: {
+    paddingVertical: 16,
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  flatBudgetHeadRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  flatBudgetLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  flatBudgetValue: { fontSize: 17, fontFamily: "Inter_700Bold", letterSpacing: -0.3 },
+  flatLink: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  flatProgressTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
+  flatProgressFill: { height: "100%", borderRadius: 3 },
+  flatBudgetFootRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  flatBudgetFootText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  budgetCompact: {
+    paddingVertical: 14,
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  budgetCompactRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  budgetCompactValue: { flex: 1, fontSize: 14, fontFamily: "Inter_700Bold" },
+  budgetCompactPercent: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  budgetCompactTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
+  budgetCompactFill: { height: "100%", borderRadius: 2 },
+  budgetCompactV2: {
+    paddingVertical: 14,
+    gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  budgetCompactTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  budgetCompactLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+  },
+  budgetCompactPctWrap: { flexDirection: "row", alignItems: "center", gap: 2 },
+  budgetCompactPercentV2: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  budgetCompactValueRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  budgetCompactValueV2: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -0.2,
+  },
+  budgetCompactValueSlash: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    letterSpacing: 0,
+  },
+  budgetCompactRemaining: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  budgetCompactTrackV2: { height: 6, borderRadius: 3, overflow: "hidden" },
+  // Standalone "Leave trip" pill — light error tint with matching border
+  // and text so it reads as a destructive (not primary) action.
+  leaveTripBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    marginTop: 12,
+    borderWidth: 1.5,
+  },
+  leaveTripBtnText: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  // Real button look — solid pill with light-tinted background, centered
+  // content. Was a plain text row that read like a passive label.
+  flatStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    marginTop: 12,
+    borderWidth: 1.5,
+  },
+  flatStatusText: { fontSize: 14, fontFamily: "Inter_700Bold", letterSpacing: 0.2 },
+  flatDayBlock: { paddingTop: 8 },
+  flatDayHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  flatDayLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.6,
+    marginBottom: 1,
+  },
+  flatDayTitle: { fontSize: 19, fontFamily: "Inter_700Bold", letterSpacing: -0.3 },
+  flatDayMeta: { fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 4 },
+  flatDayMapLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  flatDayMapText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  dayQuickActions: {
+    flexDirection: "row",
+    gap: 8,
+    paddingTop: 12,
+    paddingBottom: 4,
+    flexWrap: "wrap",
+  },
+  dayQuickAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  dayQuickActionText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  shareFlat: { paddingVertical: 16, gap: 10 },
+  shareFlatLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+  },
+  shareFlatHint: { fontSize: 13, fontFamily: "Inter_500Medium", lineHeight: 19 },
+  shareFlatPermRow: { flexDirection: "row", gap: 8 },
+  shareFlatPerm: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  shareFlatPermText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  shareFlatCopyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 4,
+  },
+  shareFlatCopyText: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  flatSectionHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginTop: 4,
+  },
+  flatSectionLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+  },
+  flatSectionCount: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  statTilesRow: {
+    flexDirection: "row",
+    marginTop: -34,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 10,
+    gap: 0,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+  statTileCol: { flex: 1, alignItems: "center", gap: 3, minWidth: 0, paddingHorizontal: 2 },
+  statTileDivider: { width: StyleSheet.hairlineWidth, marginHorizontal: 2 },
+  statTileIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  statTileValue: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    maxWidth: "100%",
+    textAlign: "center",
+  },
+  statTileLabel: {
+    fontSize: 9,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.3,
+    textAlign: "center",
+  },
+  startingPointPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  startingPointLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  startingPointValue: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  budgetCardV2: {
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    gap: 14,
+  },
+  budgetTopRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  budgetIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(8,145,178,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  budgetTopLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  budgetTopValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  budgetEditBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  budgetBar: { height: 10, borderRadius: 5, overflow: "hidden" },
+  budgetBarFill: { height: "100%", borderRadius: 5 },
+  budgetPillsRow: { flexDirection: "row", gap: 8 },
+  budgetPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    minWidth: 0,
+  },
+  budgetPillDot: { width: 6, height: 6, borderRadius: 3 },
+  budgetPillLabel: { fontSize: 9, fontFamily: "Inter_600SemiBold", letterSpacing: 0.3 },
+  budgetPillValue: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  statusCta: {
+    borderRadius: 18,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  statusCtaInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  statusCtaIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusCtaTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+  },
+  statusCtaSub: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    marginTop: 2,
+  },
   summaryCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 14 },
   summaryRow: { flexDirection: "row", gap: 12 },
   summaryItem: { flex: 1, gap: 4 },
@@ -7764,21 +11700,44 @@ const styles = StyleSheet.create({
   prefChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
   prefChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   tabBar: {
+    marginTop: 6,
+    marginBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexGrow: 0,
+  },
+  tabBarInner: {
     flexDirection: "row",
-    gap: 0,
-    marginTop: 4,
+    gap: 18,
+    paddingHorizontal: 4,
   },
   tabBtn: {
-    flex: 1,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
+    gap: 2,
+    paddingTop: 10,
+    paddingBottom: 12,
+    marginBottom: -StyleSheet.hairlineWidth,
+    position: "relative",
   },
-  tabBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  tabBtnRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  tabBtnText: { fontSize: 14, fontFamily: "Inter_700Bold", letterSpacing: -0.1 },
+  tabBtnCount: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    minWidth: 20,
+    textAlign: "center",
+    overflow: "hidden",
+  },
+  tabBtnUnderline: {
+    position: "absolute",
+    bottom: -1,
+    height: 3,
+    width: 40,
+    borderRadius: 2,
+  },
   tabBadge: {
     minWidth: 18,
     height: 18,
@@ -7788,20 +11747,238 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   tabBadgeText: { color: "#fff", fontSize: 10, fontFamily: "Inter_700Bold" },
-  dayCard: { borderRadius: 16, borderWidth: 1, padding: 16 },
-  dayHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  dayBadge: {
-    height: 28,
+  dayBlock: { gap: 10 },
+  dayHero: {
+    flexDirection: "row",
+    gap: 14,
+    padding: 16,
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  dayHeroNumBox: {
+    width: 64,
+    minHeight: 76,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+  },
+  dayHeroNumLabel: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+  },
+  dayHeroNum: {
+    color: "#fff",
+    fontSize: 32,
+    fontFamily: "Inter_700Bold",
+    lineHeight: 36,
+    marginTop: -2,
+  },
+  dayHeroDate: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    marginTop: 2,
+  },
+  dayHeroTitle: {
+    color: "#fff",
+    fontSize: 18,
+    lineHeight: 23,
+    fontFamily: "Inter_700Bold",
+  },
+  dayHeroMetaRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  dayHeroMetaChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.2)",
+  },
+  dayHeroMetaText: { color: "#fff", fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  dayHeroMapBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignSelf: "flex-start",
+    marginTop: 2,
+  },
+  dayHeroMapBtnText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
+  dayQuickRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  dayQuickBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  dayQuickBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  dayCard: { borderRadius: 18, borderWidth: 1, padding: 14 },
+  dayHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  dayBadge: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 0,
+  },
+  dayBadgeNum: { fontSize: 22, fontFamily: "Inter_700Bold", lineHeight: 24 },
+  dayBadgeLabel: {
+    fontSize: 9,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginTop: 1,
+  },
+  dayBadgeText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
+  dayTitle: { fontSize: 18, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
+  dayMetaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  dayMetaText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  dayMetaDot: { width: 3, height: 3, borderRadius: 1.5 },
+  dayChevron: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activitiesList: { gap: 8, marginTop: 8, marginBottom: 8 },
+  activityCard: {
+    paddingVertical: 14,
+    gap: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  activityTop: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  activityRail: { width: 32, alignItems: "center", gap: 3, paddingTop: 1 },
+  activityRailNum: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.4 },
+  activityCatDot: {
+    width: 28,
+    height: 28,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
-  dayBadgeText: { color: "#fff", fontSize: 13, fontFamily: "Inter_700Bold" },
-  dayTitle: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold", marginLeft: -4 },
-  activitiesList: { gap: 8, marginTop: 8, marginBottom: 8 },
-  activityCard: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 8 },
-  activityTop: { flexDirection: "row", gap: 10 },
+  activityTimeFlat: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  activityTitleFlat: { fontSize: 15, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
+  activityAddrFlat: { fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 2 },
+  activityThumb: { width: 56, height: 56, borderRadius: 10, backgroundColor: "#E5E7EB" },
+  activityMenuBtn: {
+    padding: 4,
+    marginLeft: -4,
+    marginTop: -4,
+  },
+  swipeLeftAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingLeft: 28,
+    gap: 8,
+    width: "100%",
+    height: "100%",
+  },
+  swipeRightAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingRight: 28,
+    gap: 8,
+    width: "100%",
+    height: "100%",
+  },
+  swipeActionText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
+  activityChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginTop: 6,
+  },
+  activityChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  activityChipText: { fontSize: 10, fontFamily: "Inter_700Bold", maxWidth: 100 },
+  activityActualRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginLeft: 44,
+    marginTop: 4,
+  },
+  activityActualChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    maxWidth: 180,
+  },
+  activityActualText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  activityReviewCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginLeft: 44,
+    marginTop: 8,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  activityReviewCtaText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  addPlaceFlat: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 14,
+    paddingLeft: 8,
+    marginLeft: 32,
+  },
+  addPlaceFlatText: { fontSize: 14, fontFamily: "Inter_700Bold", letterSpacing: -0.1 },
+  removeDayFlat: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    alignSelf: "flex-start",
+  },
+  removeDayFlatText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  addDayDashed: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  addDayDashedText: { fontSize: 14, fontFamily: "Inter_700Bold", letterSpacing: -0.1 },
   checkbox: {
     width: 22,
     height: 22,
@@ -7832,9 +12009,56 @@ const styles = StyleSheet.create({
   costRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingLeft: 32 },
   costText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   paidByText: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  notesContainer: { gap: 6, marginLeft: 32 },
-  noteBox: { flexDirection: "row", alignItems: "center", gap: 6, padding: 8, borderRadius: 8 },
-  noteText: { fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
+  notesContainer: { gap: 8, marginLeft: 44, marginTop: 8 },
+  // Sticky-note look: warm amber paper, thick left bar, eyebrow label, body
+  // text in dark amber. Mimics the Notion / Apple Reminders attached-note
+  // pattern instead of looking like a passive disabled form input.
+  noteSticky: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderRadius: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: "#F59E0B",
+    gap: 4,
+    shadowColor: "#F59E0B",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  noteStickyHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  noteStickyLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+    color: "#B45309",
+  },
+  noteStickyText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    lineHeight: 19,
+    color: "#78350F",
+  },
+  noteBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: "#F59E0B",
+  },
+  noteText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    flex: 1,
+    lineHeight: 19,
+  },
   activityActions: { flexDirection: "row", gap: 6, paddingLeft: 32, flexWrap: "wrap" },
   reviewBox: {
     flexDirection: "row",
@@ -7868,44 +12092,610 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
   },
   addExpenseText: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  expensesTab: { gap: 10 },
+  expensesTab: { gap: 0 },
+  expSubtab: {
+    flexDirection: "row",
+    padding: 4,
+    borderRadius: 12,
+    gap: 4,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  expSubtabBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: 9,
+  },
+  expSubtabText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   emptyExpenses: { alignItems: "center", paddingVertical: 40, gap: 8 },
+  // Card-shaped overview hero — stands out on the now-white page background
+  // with a subtle tint, hairline border, and soft shadow. User feedback:
+  // "hòa luôn vào nền" → fix by giving it a real card surface.
+  expHero: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 10,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: "#F8FAFC",
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  expHeroTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  expHeroTopV2: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 0,
+  },
+  expHeroLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  expHeroValue: { fontSize: 22, fontFamily: "Inter_700Bold", letterSpacing: -0.4 },
+  expHeroValueV2: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -0.4,
+    lineHeight: 26,
+  },
+  expHeroValueSlash: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    letterSpacing: -0.1,
+  },
+  expHeroPctChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  expHeroPctText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  expHeroTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
+  expHeroTrackV2: { height: 8, borderRadius: 4, overflow: "hidden", marginTop: 4 },
+  expHeroFill: { height: "100%", borderRadius: 4 },
+  expHeroRemaining: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  expHeroFootRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  expHeroFootText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  expCatList: { gap: 10, marginTop: 6 },
+  expCatRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  expCatDot: { width: 8, height: 8, borderRadius: 4 },
+  expCatLabel: { width: 80, fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  expCatBarTrack: {
+    flex: 1,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "transparent",
+    overflow: "hidden",
+  },
+  expCatBarFill: { height: "100%", borderRadius: 2.5, opacity: 0.85 },
+  expCatValue: { fontSize: 12, fontFamily: "Inter_700Bold", minWidth: 90, textAlign: "right" },
+  expDayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginTop: 8,
+  },
+  expDayHeaderLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  expDayHeaderTotal: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  fab: {
+    position: "absolute",
+    right: 20,
+    bottom: 28,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
   emptyTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   emptyHint: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  expenseCard: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 8 },
+  expenseCard: {
+    paddingVertical: 12,
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   expenseTop: { flexDirection: "row", alignItems: "center", gap: 10 },
-  expenseTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  expenseTopV2: { flexDirection: "row", alignItems: "center", gap: 12 },
+  expenseIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  expenseTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
   expenseMeta: { flexDirection: "row", flexWrap: "wrap" },
+  expenseMetaV2: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    alignItems: "center",
+    marginTop: 3,
+  },
+  expenseChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  expenseChipText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  expensePaidBy: { fontSize: 11, fontFamily: "Inter_500Medium", marginTop: 4 },
   expenseMetaText: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  expenseAmount: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  expenseAmount: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  expenseDeltaText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  expenseMenuBtn: {
+    position: "absolute",
+    top: 8,
+    right: 0,
+    padding: 6,
+  },
+  splitSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginLeft: 54,
+    marginTop: 6,
+    paddingVertical: 4,
+  },
+  splitAvatarStack: { flexDirection: "row", alignItems: "center" },
+  splitAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+  },
+  splitAvatarText: { color: "#fff", fontSize: 9, fontFamily: "Inter_700Bold" },
+  splitSummaryText: { fontSize: 11, fontFamily: "Inter_600SemiBold", flex: 1 },
+  settlementRowV2: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  settlementAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settlementAvatarText: { color: "#fff", fontSize: 14, fontFamily: "Inter_700Bold" },
+  settlementArrow: { fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 1 },
+  shareHero: {
+    borderRadius: 20,
+    padding: 16,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  shareHeroHeadRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  shareHeroIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareHeroTitle: { color: "#fff", fontSize: 16, fontFamily: "Inter_700Bold" },
+  shareHeroSub: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    marginTop: 2,
+  },
+  sharePermRow: { flexDirection: "row", gap: 8 },
+  sharePermBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 11,
+  },
+  sharePermText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+  shareCopyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: "#fff",
+  },
+  shareCopyText: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  memberCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+  },
+  memberAvatarLg: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberAvatarText: { color: "#fff", fontSize: 18, fontFamily: "Inter_700Bold" },
+  assigneeTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  assigneeTriggerAvatar: { width: 30, height: 30, borderRadius: 15 },
+  assigneeTriggerAvatarText: {
+    color: "#fff",
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+  },
+  assigneeTriggerName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  assigneeTriggerSub: { fontSize: 10, fontFamily: "Inter_500Medium", marginTop: 1 },
+  assigneeDropdown: {
+    marginTop: 6,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  assigneeOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  assigneeOptionAvatar: { width: 28, height: 28, borderRadius: 14 },
+  assigneeOptionName: { fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
+  memberName: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  memberRoleRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 3 },
+  memberRoleChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  memberRoleChipText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  memberMenuBtn: {
+    padding: 6,
+  },
+  memberJoinedAt: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    letterSpacing: 0,
+  },
+  cmpShareBlock: { gap: 10, paddingVertical: 4 },
+  cmpLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+  },
+  cmpLinkIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cmpLinkTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  cmpLinkSubRow: { flexDirection: "row", alignItems: "center", marginTop: 1 },
+  cmpLinkSub: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  cmpCopyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  cmpCopyBtnText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
+  cmpChannelRow: { flexDirection: "row", gap: 8 },
+  cmpChannel: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  cmpChannelIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cmpChannelText: { fontSize: 13, fontFamily: "Inter_700Bold" },
   expenseActions: { flexDirection: "row", gap: 6, paddingLeft: 30 },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(15,23,42,0.55)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    padding: 20,
   },
   modalContent: {
     width: "100%",
-    maxWidth: 400,
-    borderRadius: 20,
-    padding: 24,
-    gap: 12,
+    maxWidth: 420,
+    borderRadius: 24,
+    padding: 22,
+    gap: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
   },
-  modalTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold" },
-  modalSubLabel: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 4 },
+  modalTitle: { fontSize: 19, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
+  modalSubLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    marginTop: 4,
+  },
   modalInput: {
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    minHeight: 44,
+    fontFamily: "Inter_500Medium",
+    minHeight: 46,
   },
-  modalActions: { flexDirection: "row", gap: 10, marginTop: 4 },
-  modalBtn: { flex: 1, borderRadius: 12, paddingVertical: 12, alignItems: "center" },
-  modalBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 8 },
+  modalBtn: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnText: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.55)",
+    justifyContent: "flex-end",
+  },
+  sheetContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    gap: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+    maxHeight: "85%",
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#D1D5DB",
+    alignSelf: "center",
+  },
+  sheetTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingTop: 4,
+  },
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -0.2,
+  },
+  sheetSaveLink: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  sheetTextarea: {
+    minHeight: 120,
+    maxHeight: 280,
+    padding: 14,
+    borderRadius: 14,
+    fontSize: 15,
+    fontFamily: "Inter_500Medium",
+    lineHeight: 22,
+  },
+  timeQuickChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+  },
+  timeQuickChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+  },
+  timeQuickChipText: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  timeBigInput: {
+    height: 64,
+    borderRadius: 16,
+    fontSize: 28,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1,
+  },
+  reviewFs: { flex: 1 },
+  reviewFsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  reviewFsClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewFsTitle: { flex: 1, fontSize: 17, fontFamily: "Inter_700Bold", textAlign: "center" },
+  reviewFsScroll: { padding: 20, paddingTop: 8, gap: 16 },
+  reviewFsCelebrate: { alignItems: "center", gap: 4, paddingTop: 8 },
+  reviewFsCelebrateEmoji: { fontSize: 40 },
+  reviewFsCelebrateText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    textAlign: "center",
+    paddingHorizontal: 24,
+  },
+  reviewFsSubject: {
+    fontSize: 20,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+    letterSpacing: -0.3,
+  },
+  reviewFsStarsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 4,
+  },
+  reviewFsRatingLabel: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+  },
+  reviewFsTextarea: {
+    minHeight: 140,
+    padding: 14,
+    borderRadius: 14,
+    fontSize: 15,
+    fontFamily: "Inter_500Medium",
+    lineHeight: 22,
+  },
+  reviewFsPhotoSection: { marginTop: 16, gap: 8 },
+  reviewFsPhotoLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.2,
+  },
+  reviewFsPhotoRow: { flexDirection: "row", gap: 10, paddingVertical: 4 },
+  reviewFsPhotoItem: {
+    width: 92,
+    height: 92,
+    borderRadius: 12,
+    position: "relative",
+    overflow: "hidden",
+  },
+  reviewFsPhotoImg: { width: "100%", height: "100%" },
+  reviewFsPhotoRemove: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewFsPhotoAdd: {
+    width: 92,
+    height: 92,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  reviewFsPhotoAddText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  reviewFsBottomBar: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  reviewFsSubmit: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  reviewFsSubmitText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+  },
+  menuHeader: {
+    paddingHorizontal: 4,
+    paddingBottom: 8,
+    gap: 2,
+  },
+  menuHeaderTitle: {
+    fontSize: 17,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -0.2,
+  },
+  menuHeaderSub: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+  },
+  menuItemText: { fontSize: 15, fontFamily: "Inter_600SemiBold", flex: 1 },
+  menuDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 2,
+  },
   typeRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
   typeChip: {
     flexDirection: "row",
@@ -7958,7 +12748,21 @@ const styles = StyleSheet.create({
   splitDetailRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   splitDetailName: { fontSize: 12, fontFamily: "Inter_400Regular" },
   splitDetailAmount: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  settlementCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 8 },
+  // Same card-tint as expHero so the Chia-tiền surface holds its own
+  // against the white page background.
+  settlementCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 16,
+    marginTop: 8,
+    backgroundColor: "#F8FAFC",
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
   settlementHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
   settlementTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   settlementRow: {
@@ -7994,9 +12798,19 @@ const styles = StyleSheet.create({
 
 const sumStyles = StyleSheet.create({
   container: {
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
     marginBottom: 12,
+    // Same card-tint as expHero / settlementCard so the post-trip summary
+    // is visually consistent with the rest of the Chi phí tab and doesn't
+    // bleed into the white page background.
+    backgroundColor: "#F8FAFC",
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   header: {
     flexDirection: "row",
@@ -8180,25 +12994,184 @@ const travelStyles = StyleSheet.create({
 
 const actDetailStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  content: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: "85%" },
-  header: {
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+    height: "92%",
+  },
+  hero: {
+    height: 240,
+    width: "100%",
+    backgroundColor: "#E5E7EB",
+    position: "relative",
+    justifyContent: "space-between",
+  },
+  heroImage: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroShade: { ...StyleSheet.absoluteFillObject },
+  heroTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 16,
-    gap: 12,
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 14,
   },
-  title: { fontSize: 20, fontFamily: "Inter_700Bold", flex: 1 },
-  infoRow: { flexDirection: "row", gap: 16, padding: 12, borderRadius: 12 },
-  infoItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  infoText: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  addressText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
-  sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  heroCircleBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  heroChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  heroChipText: {
+    color: "#fff",
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.3,
+  },
+  heroFooter: { paddingHorizontal: 20, paddingBottom: 18, gap: 6 },
+  heroTitle: {
+    color: "#fff",
+    fontSize: 22,
+    lineHeight: 28,
+    fontFamily: "Inter_700Bold",
+    textShadowColor: "rgba(0,0,0,0.35)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  heroMetaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  heroMetaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  heroMetaText: {
+    color: "rgba(255,255,255,0.95)",
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+  },
+  heroMetaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "rgba(255,255,255,0.6)",
+  },
+  heroDots: {
+    position: "absolute",
+    bottom: 86,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+  },
+  heroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.55)",
+  },
+  heroDotActive: {
+    width: 22,
+    backgroundColor: "#fff",
+  },
+  scrollContent: { padding: 16, paddingBottom: 24, gap: 14 },
+  statsStrip: { flexDirection: "row", gap: 10 },
+  statTile: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    padding: 12,
+    gap: 6,
+  },
+  statIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statValue: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  statLabel: { fontSize: 10, fontFamily: "Inter_500Medium", letterSpacing: 0.2 },
+  addressCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  addressIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addressLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  addressText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  card: {
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+  },
+  cardTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  ratingSplit: {
+    flexDirection: "column",
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 0,
+    overflow: "hidden",
+  },
+  ratingSplitCol: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minWidth: 0,
+  },
+  ratingSplitDivider: { height: StyleSheet.hairlineWidth, width: "100%" },
+  ratingSplitHead: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1 },
+  ratingSplitLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  ratingSplitValueRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  ratingSplitValue: { fontSize: 24, fontFamily: "Inter_700Bold", lineHeight: 26 },
+  ratingSplitCount: { fontSize: 11, fontFamily: "Inter_600SemiBold", marginTop: 2 },
+  ratingSplitEmpty: { fontSize: 12, fontFamily: "Inter_500Medium", lineHeight: 18 },
+  ratingSplitSrcBlock: { alignItems: "flex-end", gap: 0, minWidth: 70 },
+  sectionTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
   description: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
   ratingBar: { flexDirection: "row", alignItems: "center", gap: 6, padding: 12, borderRadius: 12 },
   ratingText: { fontSize: 16, fontFamily: "Inter_700Bold" },
   ratingCount: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  reviewCard: { borderRadius: 12, padding: 12, gap: 8 },
+  reviewCard: { borderRadius: 14, padding: 12, gap: 8 },
   reviewHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   reviewAvatar: {
     width: 32,
@@ -8218,26 +13191,60 @@ const actDetailStyles = StyleSheet.create({
   },
   sourceText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   reviewComment: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
-  moreReviewsBtn: {
+  googleMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  googleMoreText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  bottomBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === "ios" ? 28 : 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  bottomBtnPrimary: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     paddingVertical: 14,
     borderRadius: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
-  moreReviewsBtnText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  deepLinkRow: { flexDirection: "row", gap: 10 },
-  deepLinkBtn: {
-    flex: 1,
-    flexDirection: "row",
+  bottomBtnPrimaryText: { color: "#fff", fontSize: 15, fontFamily: "Inter_700Bold" },
+  bottomBtnSecondary: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
-  deepLinkText: { color: "#fff", fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 16,
+    gap: 12,
+  },
+  title: { fontSize: 20, fontFamily: "Inter_700Bold", flex: 1 },
 });
 
 const invStyles = StyleSheet.create({
@@ -8404,6 +13411,36 @@ const invStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    padding: 0,
+  },
+  inviteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    minWidth: 64,
+    justifyContent: "center",
+  },
+  inviteBtnText: {
+    color: "#fff",
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+  },
   roleToggleBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -8416,6 +13453,160 @@ const invStyles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
   },
+});
+
+const routeMapStyles = StyleSheet.create({
+  container: { flex: 1 },
+  mapWrap: { position: "relative", overflow: "hidden" },
+  mapPlaceholder: {
+    height: Dimensions.get("window").height * 0.62,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    gap: 8,
+  },
+  placeholderTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },
+  placeholderHint: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    lineHeight: 19,
+  },
+  topBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  topBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.95)",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  topTitleWrap: {
+    flex: 1,
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 4,
+  },
+  topTitle: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    textShadowColor: "rgba(0,0,0,0.5)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  topSub: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  sheet: {
+    flex: 1,
+    marginTop: -24,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingTop: 6,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#D1D5DB",
+    alignSelf: "center",
+    marginBottom: 8,
+  },
+  dayPillsRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 8 },
+  dayPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayPillCombined: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.3,
+  },
+  dayPillNum: { fontSize: 16, fontFamily: "Inter_700Bold", lineHeight: 18 },
+  dayPillLabel: {
+    fontSize: 9,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  sheetTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  emptyState: {
+    alignItems: "center",
+    gap: 8,
+    padding: 24,
+    borderRadius: 14,
+  },
+  emptyTitle: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  stopRow: { flexDirection: "row", gap: 12, paddingVertical: 4 },
+  stopRail: { alignItems: "center", width: 28 },
+  stopDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  stopDotText: { color: "#fff", fontSize: 12, fontFamily: "Inter_700Bold" },
+  stopLine: { flex: 1, width: 2, marginTop: 4, marginBottom: -8 },
+  stopHeadRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  stopTime: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  stopDurChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  stopDurText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  stopTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginTop: 2 },
+  stopAddrRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
+  stopAddr: { fontSize: 11, fontFamily: "Inter_400Regular", flex: 1 },
+  segRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginLeft: 40,
+    paddingVertical: 4,
+  },
+  segIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segText: { fontSize: 11, fontFamily: "Inter_500Medium" },
 });
 
 const userRevStyles = StyleSheet.create({

@@ -19,6 +19,8 @@ import { registerDocsRoutes } from "../modules/docs/router";
 import { registerBlogRoutes } from "../modules/blog/router";
 import { registerForumRoutes } from "../modules/forum/router";
 import { registerModerationRoutes } from "../modules/moderation/router";
+import { registerTaskRoutes } from "../modules/tasks/router";
+import { registerInvitationRoutes } from "../modules/invitations/router";
 
 function logActiveProvider() {
   const provider = getActiveProvider();
@@ -61,6 +63,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerBlogRoutes(app);
   registerForumRoutes(app);
   registerModerationRoutes(app);
+  registerTaskRoutes(app);
+  registerInvitationRoutes(app);
 
   return createServer(app);
 }

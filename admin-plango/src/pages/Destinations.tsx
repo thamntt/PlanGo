@@ -39,8 +39,10 @@ const Destinations: React.FC = () => {
   const [destGoogleId, setDestGoogleId] = useState("");
   const [destPhotos, setDestPhotos] = useState<{ name: string; attributions: string[] }[]>([]);
 
-  // Cloudinary State & Ref
-  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>("");
+  // Cloudinary State & Ref — admin now persists ALL uploaded images, not just
+  // one (user-side renders all images[] in the destination cover carousel, so
+  // dropping any when admin saves silently breaks the cover gallery).
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -133,8 +135,7 @@ const Destinations: React.FC = () => {
       }
 
       if (data.secure_url) {
-        setUploadedImageUrl(data.secure_url);
-        console.log("Upload thành công, link ảnh nè:", data.secure_url);
+        setUploadedImages((prev) => [...prev, data.secure_url]);
       }
     } catch (error) {
       console.error("Lỗi mạng/Code:", error);
@@ -144,8 +145,16 @@ const Destinations: React.FC = () => {
     }
   };
 
-  const handleRemoveImage = () => {
-    setUploadedImageUrl("");
+  const removeUploadedImage = (idx: number) => {
+    setUploadedImages((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const removeGooglePhoto = (idx: number) => {
+    setDestPhotos((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const clearAllImages = () => {
+    setUploadedImages([]);
     setDestPhotos([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -164,7 +173,7 @@ const Destinations: React.FC = () => {
     setDestPhotos([]);
     setGoogleQuery("");
     setGoogleResults([]);
-    setUploadedImageUrl("");
+    setUploadedImages([]);
     setErrors({});
     setIsModalOpen(true);
   };
@@ -179,7 +188,16 @@ const Destinations: React.FC = () => {
     setDestDesc(dest.description || "");
     setDestGoogleId(dest.googlePlaceId || "");
     setDestPhotos(dest.googlePhotos || []);
-    setUploadedImageUrl(dest.images?.[0] || "");
+    // Load ALL uploaded images. Skip entries that look like Google photo
+    // names (those rebuild from getPhotoUrl(destPhotos[i].name)).
+    const googlePhotoNames = new Set(
+      (dest.googlePhotos || []).map((p) => p.name).filter(Boolean),
+    );
+    setUploadedImages(
+      (dest.images || []).filter(
+        (img) => typeof img === "string" && img && !googlePhotoNames.has(img),
+      ),
+    );
     setGoogleQuery("");
     setGoogleResults([]);
     setErrors({});
@@ -192,7 +210,7 @@ const Destinations: React.FC = () => {
     if (!destAddr.trim()) newErrors.address = "Vui lòng nhập địa chỉ";
     if (!destLat.trim()) newErrors.latitude = "Vui lòng nhập vĩ độ";
     if (!destLng.trim()) newErrors.longitude = "Vui lòng nhập kinh độ";
-    if (!uploadedImageUrl && destPhotos.length === 0)
+    if (uploadedImages.length === 0 && destPhotos.length === 0)
       newErrors.image = "Vui lòng tải ảnh lên hoặc chọn từ Google";
 
     if (Object.keys(newErrors).length > 0) {
@@ -213,11 +231,16 @@ const Destinations: React.FC = () => {
       description: typeof destDesc === "string" && destDesc.trim() ? destDesc.trim() : undefined,
       googlePlaceId: destGoogleId || undefined,
       googlePhotos: destPhotos.length > 0 ? destPhotos : undefined,
-      images: uploadedImageUrl
-        ? [uploadedImageUrl]
-        : destPhotos.length > 0
-          ? [destPhotos[0].name]
-          : ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"],
+      // Persist ALL images — user-side renders the full array as a carousel,
+      // so any drop here would silently shrink the gallery.
+      images: (() => {
+        const combined: string[] = [
+          ...uploadedImages,
+          ...destPhotos.map((p) => p.name).filter(Boolean),
+        ];
+        if (combined.length > 0) return combined;
+        return ["https://images.unsplash.com/photo-1528127269322-539801943592?w=800"];
+      })(),
       tags: [],
     };
 
@@ -321,17 +344,24 @@ const Destinations: React.FC = () => {
               >
                 <td className="px-8 py-6">
                   <div className="flex items-center gap-4">
-                    <img
-                      src={dest.images?.[0] || "https://via.placeholder.com/100"}
-                      className="w-14 h-14 rounded-2xl object-cover shadow-sm bg-slate-100"
-                      alt=""
-                    />
+                    <div className="relative w-14 h-14 shrink-0">
+                      <img
+                        src={dest.images?.[0] || "https://via.placeholder.com/100"}
+                        className="w-14 h-14 rounded-2xl object-cover shadow-sm bg-slate-100"
+                        alt=""
+                      />
+                      {(dest.images?.length || 0) > 1 && (
+                        <span className="absolute -bottom-1 -right-1 bg-slate-900 text-white text-[10px] font-black px-1.5 py-0.5 rounded-md shadow-sm">
+                          +{(dest.images?.length || 0) - 1}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-col">
                       <span className="text-sm font-bold text-slate-800">{dest.name}</span>
                       <div className="flex items-center gap-1 text-slate-400">
                         <MapPin size={12} />
                         <span className="text-[10px] font-medium tracking-tight uppercase">
-                          Điểm du lịch chính
+                          {dest.images?.length ? `${dest.images.length} ảnh` : "Chưa có ảnh"}
                         </span>
                       </div>
                     </div>
@@ -569,25 +599,58 @@ const Destinations: React.FC = () => {
                   )}
                 </div>
 
-                {(uploadedImageUrl || destPhotos.length > 0) && (
-                  <div className="md:col-span-2 relative mt-2">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                      Ảnh xem trước
-                    </label>
-                    <div className="relative inline-block w-full">
-                      <img
-                        src={uploadedImageUrl || getPhotoUrl(destPhotos[0].name)}
-                        alt="Preview"
-                        className="w-full h-48 object-cover rounded-xl shadow-sm border border-slate-100"
-                      />
+                {(uploadedImages.length > 0 || destPhotos.length > 0) && (
+                  <div className="md:col-span-2 mt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        Ảnh xem trước ({uploadedImages.length + destPhotos.length})
+                      </label>
                       <button
-                        onClick={handleRemoveImage}
+                        onClick={clearAllImages}
                         type="button"
-                        className="absolute top-3 right-3 p-2 bg-slate-900/60 hover:bg-rose-500 text-white rounded-xl backdrop-blur-sm transition-all shadow-lg hover:scale-105"
-                        title="Xoá ảnh này"
+                        className="text-xs font-bold text-rose-500 hover:text-rose-700 transition-colors"
                       >
-                        <X size={18} />
+                        Xoá tất cả
                       </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      {uploadedImages.map((url, idx) => (
+                        <div key={`up-${idx}`} className="relative group">
+                          <img
+                            src={url}
+                            alt={`Ảnh ${idx + 1}`}
+                            className="w-full h-28 object-cover rounded-xl shadow-sm border border-slate-100"
+                          />
+                          <button
+                            onClick={() => removeUploadedImage(idx)}
+                            type="button"
+                            className="absolute top-2 right-2 p-1.5 bg-slate-900/60 hover:bg-rose-500 text-white rounded-lg backdrop-blur-sm transition-all opacity-0 group-hover:opacity-100"
+                            title="Xoá ảnh"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                      {destPhotos.map((p, idx) => (
+                        <div key={`gp-${idx}`} className="relative group">
+                          <img
+                            src={getPhotoUrl(p.name)}
+                            alt={`Google ${idx + 1}`}
+                            className="w-full h-28 object-cover rounded-xl shadow-sm border border-slate-100"
+                          />
+                          <button
+                            onClick={() => removeGooglePhoto(idx)}
+                            type="button"
+                            className="absolute top-2 right-2 p-1.5 bg-slate-900/60 hover:bg-rose-500 text-white rounded-lg backdrop-blur-sm transition-all opacity-0 group-hover:opacity-100"
+                            title="Xoá ảnh"
+                          >
+                            <X size={14} />
+                          </button>
+                          <span className="absolute bottom-1 left-1 text-[10px] font-bold text-white bg-slate-900/60 px-1.5 py-0.5 rounded">
+                            Google
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

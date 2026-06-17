@@ -1,5 +1,8 @@
 import { storage } from "../../storage";
 import { errors } from "../../lib/errors";
+import { db } from "../../db";
+import { destinations, trips } from "../../../shared/schema";
+import { eq, sql } from "drizzle-orm";
 import type {
   CreateDestinationInput,
   UpdateDestinationInput,
@@ -24,6 +27,23 @@ export async function listDestinations(query: ListDestinationsQuery) {
     query.typeId ? { destinationTypeId: query.typeId } : undefined,
   );
   return Promise.all(items.map(enrichDestination));
+}
+
+/** Top destinations by number of trips that reference them. */
+export async function popularDestinations(limit = 10) {
+  const rows = await db
+    .select({
+      destinationId: destinations.destinationId,
+      name: destinations.name,
+      images: destinations.images,
+      tripCount: sql<number>`COUNT(${trips.tripId})::int`.as("trip_count"),
+    })
+    .from(destinations)
+    .leftJoin(trips, eq(trips.destinationId, destinations.destinationId))
+    .groupBy(destinations.destinationId, destinations.name, destinations.images)
+    .orderBy(sql`COUNT(${trips.tripId}) DESC`, destinations.name)
+    .limit(limit);
+  return rows;
 }
 
 export async function getDestinationById(id: number) {

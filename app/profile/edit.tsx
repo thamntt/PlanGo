@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -22,19 +22,35 @@ import { useThemeColors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest } from "@/lib/api/query-client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useUserProfile } from "@/hooks/queries/use-user-community";
 
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
   const colors = useThemeColors(isDark);
-  const { user, refreshUser } = useAuth();
+  const { user, updateProfile } = useAuth();
   const qc = useQueryClient();
+  const profileQuery = useUserProfile(user ? Number(user.id) : undefined);
   const [fullName, setFullName] = useState(user?.fullName || "");
   const [email, setEmail] = useState(user?.email || "");
   const [avatar, setAvatar] = useState<string | null>(user?.avatar || null);
   const [bio, setBio] = useState("");
+  const [bioHydrated, setBioHydrated] = useState(false);
+  const [initialBio, setInitialBio] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // Hydrate bio ONCE when profile arrives — never overwrite the user's typing
+  // if the query refetches in the background.
+  useEffect(() => {
+    if (bioHydrated) return;
+    if (profileQuery.data) {
+      const fromServer = profileQuery.data.bio ?? "";
+      setBio(fromServer);
+      setInitialBio(fromServer);
+      setBioHydrated(true);
+    }
+  }, [profileQuery.data, bioHydrated]);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
@@ -73,33 +89,36 @@ export default function EditProfileScreen() {
 
   const handleSave = useCallback(async () => {
     if (!user || !validate()) return;
+    // Optimistic flow: updateProfile() now merges locally first, then syncs
+    // server in the same call. Combined with router.back() before awaiting
+    // background invalidations, the profile screen shows new values instantly.
     setSaving(true);
     try {
-      await apiRequest("PUT", `/api/users/${user.id}`, {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+      await updateProfile({
         fullName: fullName.trim(),
         email: email.trim(),
-        avatar,
-      });
-      await refreshUser?.();
-      // Invalidate everything that displays author name/avatar so changes
-      // propagate without manual reload
+        avatar: avatar ?? undefined,
+        bio: bio.trim(),
+      } as any);
+      // Background cache invalidations — no need to await before nav
       qc.invalidateQueries({ queryKey: ["blog"] });
       qc.invalidateQueries({ queryKey: ["forum"] });
       qc.invalidateQueries({ queryKey: ["userCommunity"] });
       qc.invalidateQueries({ queryKey: ["reviews"] });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
     } catch (err: any) {
       setError(err?.message || "Không lưu được");
     } finally {
       setSaving(false);
     }
-  }, [user, fullName, email, avatar, validate, refreshUser, qc]);
+  }, [user, fullName, email, avatar, bio, validate, updateProfile, qc]);
 
   const dirty =
     fullName.trim() !== (user?.fullName || "") ||
     email.trim() !== (user?.email || "") ||
-    avatar !== (user?.avatar || null);
+    avatar !== (user?.avatar || null) ||
+    bio.trim() !== initialBio;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

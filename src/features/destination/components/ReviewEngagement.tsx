@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -17,9 +17,6 @@ import * as Haptics from "expo-haptics";
 import type { useThemeColors } from "@/constants/colors";
 import {
   REPORT_REASONS,
-  useReviewReplies,
-  useCreateReply,
-  useDeleteReply,
   useReportContent,
   type ReportReason,
 } from "@/hooks/queries/use-review-engagement";
@@ -141,12 +138,25 @@ export function HelpfulButton({
   voted,
   onPress,
   colors,
+  readOnly = false,
 }: {
   count: number;
   voted: boolean;
   onPress: () => void;
   colors: ThemeColors;
+  /** When true, render as count-only display (own reviews) — no border, no tap effect. */
+  readOnly?: boolean;
 }) {
+  if (readOnly) {
+    return (
+      <View style={[styles.engageBtn, { borderColor: "transparent" }]}>
+        <Ionicons name="thumbs-up-outline" size={12} color={colors.textSecondary} />
+        <Text style={[styles.engageBtnText, { color: colors.textSecondary }]}>
+          {count} người thấy hữu ích
+        </Text>
+      </View>
+    );
+  }
   return (
     <Pressable
       onPress={onPress}
@@ -185,7 +195,7 @@ export function ReportModal({
   colors,
 }: {
   visible: boolean;
-  target: { contentType: "review" | "reply"; contentRefId: string } | null;
+  target: { contentType: "review"; contentRefId: string } | null;
   onClose: () => void;
   colors: ThemeColors;
 }) {
@@ -322,182 +332,6 @@ export function ReportModal({
   );
 }
 
-// ──────────────────────────────────────────────────────────────
-// Reply thread — expandable list + input
-// ──────────────────────────────────────────────────────────────
-
-export function ReplyThread({
-  reviewUserId,
-  reviewTripId,
-  currentUserId,
-  colors,
-  onReport,
-}: {
-  reviewUserId: number;
-  reviewTripId: number;
-  currentUserId?: number;
-  colors: ThemeColors;
-  onReport?: (replyId: number) => void;
-}) {
-  const { data: replies = [], isLoading } = useReviewReplies(reviewUserId, reviewTripId);
-  const createReply = useCreateReply();
-  const deleteReply = useDeleteReply();
-  const [draftContent, setDraftContent] = useState("");
-
-  const handleSend = useCallback(async () => {
-    const content = draftContent.trim();
-    if (!content) return;
-    try {
-      await createReply.mutateAsync({ reviewUserId, reviewTripId, content });
-      setDraftContent("");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err: any) {
-      if (Platform.OS === "web") alert(err?.message || "Không gửi được phản hồi");
-      else Alert.alert("Lỗi", err?.message || "Không gửi được phản hồi");
-    }
-  }, [draftContent, reviewUserId, reviewTripId, createReply]);
-
-  const handleDelete = useCallback(
-    async (replyId: number) => {
-      try {
-        await deleteReply.mutateAsync({ replyId, reviewUserId, reviewTripId });
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch {
-        if (Platform.OS === "web") alert("Không xoá được");
-        else Alert.alert("Lỗi", "Không xoá được");
-      }
-    },
-    [reviewUserId, reviewTripId, deleteReply],
-  );
-
-  return (
-    <View style={[styles.replyContainer, { borderColor: colors.divider }]}>
-      {isLoading && replies.length === 0 ? (
-        <ActivityIndicator size="small" color={colors.primary} />
-      ) : replies.length === 0 ? (
-        <Text style={[styles.replyEmpty, { color: colors.textTertiary }]}>
-          Chưa có phản hồi nào. Hãy là người đầu tiên!
-        </Text>
-      ) : (
-        <View style={{ gap: 10 }}>
-          {replies.map((r) => {
-            const isOwn = currentUserId === r.authorId;
-            const dateStr = new Date(r.createdAt).toLocaleDateString("vi-VN", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-            });
-            return (
-              <View key={r.replyId} style={styles.replyItem}>
-                {r.authorAvatarUrl ? (
-                  <Image
-                    source={{ uri: r.authorAvatarUrl }}
-                    style={styles.replyAvatar}
-                    contentFit="cover"
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.replyAvatar,
-                      {
-                        backgroundColor: colors.primary,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      },
-                    ]}
-                  >
-                    <Text style={{ fontSize: 11, fontFamily: "Inter_700Bold", color: "#fff" }}>
-                      {r.authorName.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={[styles.replyAuthor, { color: colors.text }]}>{r.authorName}</Text>
-                    <Text style={[styles.replyDate, { color: colors.textTertiary }]}>
-                      {dateStr}
-                    </Text>
-                  </View>
-                  <Text style={[styles.replyContent, { color: colors.text }]}>{r.content}</Text>
-                  <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
-                    {isOwn ? (
-                      <Pressable onPress={() => handleDelete(r.replyId)} hitSlop={4}>
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontFamily: "Inter_600SemiBold",
-                            color: "#EF4444",
-                          }}
-                        >
-                          Xóa
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      onReport && (
-                        <Pressable onPress={() => onReport(r.replyId)} hitSlop={4}>
-                          <Text
-                            style={{
-                              fontSize: 11,
-                              fontFamily: "Inter_600SemiBold",
-                              color: colors.textTertiary,
-                            }}
-                          >
-                            Báo cáo
-                          </Text>
-                        </Pressable>
-                      )
-                    )}
-                  </View>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      )}
-
-      {/* Input */}
-      {currentUserId ? (
-        <View
-          style={[
-            styles.replyInputRow,
-            { backgroundColor: colors.inputBg, borderColor: colors.cardBorder },
-          ]}
-        >
-          <TextInput
-            value={draftContent}
-            onChangeText={setDraftContent}
-            placeholder="Viết phản hồi..."
-            placeholderTextColor={colors.textTertiary}
-            style={{
-              flex: 1,
-              fontSize: 13,
-              fontFamily: "Inter_400Regular",
-              color: colors.text,
-              paddingVertical: 6,
-            }}
-            multiline
-            maxLength={1000}
-          />
-          <Pressable
-            onPress={handleSend}
-            disabled={!draftContent.trim() || createReply.isPending}
-            hitSlop={6}
-          >
-            {createReply.isPending ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Ionicons
-                name="send"
-                size={18}
-                color={draftContent.trim() ? colors.primary : colors.textTertiary}
-              />
-            )}
-          </Pressable>
-        </View>
-      ) : null}
-    </View>
-  );
-}
 
 // ──────────────────────────────────────────────────────────────
 // Styles
@@ -629,27 +463,4 @@ const styles = StyleSheet.create({
   },
   submitBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_700Bold" },
 
-  // Reply thread
-  replyContainer: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 10,
-  },
-  replyEmpty: { fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic" },
-  replyItem: { flexDirection: "row", gap: 10 },
-  replyAvatar: { width: 28, height: 28, borderRadius: 14 },
-  replyAuthor: { fontSize: 12, fontFamily: "Inter_700Bold" },
-  replyDate: { fontSize: 10, fontFamily: "Inter_500Medium" },
-  replyContent: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18, marginTop: 2 },
-  replyInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 18,
-    borderWidth: 1,
-    marginTop: 6,
-  },
 });

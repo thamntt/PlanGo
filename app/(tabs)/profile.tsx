@@ -28,6 +28,7 @@ import Animated, {
   runOnJS,
 } from "react-native-reanimated";
 import { useAuth } from "@/contexts/AuthContext";
+import { Skeleton } from "@/components/Skeleton";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { useTrips } from "@/hooks/queries/use-trips";
@@ -132,11 +133,8 @@ export default function ProfileScreen() {
   const myThreads = myForumQuery.data || [];
   const myBlogCount = myBlogPosts.length;
   const myThreadCount = myThreads.length;
-  const myCommunityCount = myBlogCount + myThreadCount;
   const followerCount = profileSummaryQuery.data?.followerCount ?? 0;
   const followingCount = profileSummaryQuery.data?.followingCount ?? 0;
-  const replyCount = profileSummaryQuery.data?.replyCount ?? 0;
-  const totalThreadActivity = myThreadCount + replyCount;
   const [communityTab, _setCommunityTab] = useState<"blog" | "forum">(() => {
     try {
       const saved = (globalThis as any)?._profileCommunityTab;
@@ -444,6 +442,22 @@ export default function ProfileScreen() {
               </View>
             )}
 
+            {profileSummaryQuery.data?.bio ? (
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontFamily: "Inter_400Regular",
+                  color: colors.textSecondary,
+                  textAlign: "center",
+                  lineHeight: 19,
+                  marginTop: 8,
+                  paddingHorizontal: 24,
+                }}
+              >
+                {profileSummaryQuery.data.bio}
+              </Text>
+            ) : null}
+
             {/* Stats inside hero — theme colors */}
             <View
               style={[
@@ -460,7 +474,7 @@ export default function ProfileScreen() {
               <View style={[styles.heroStatSep, { backgroundColor: colors.divider }]} />
               <View style={styles.heroStatItem}>
                 <Text style={[styles.heroStatValue, { color: colors.text }]}>
-                  {totalThreadActivity}
+                  {myThreadCount}
                 </Text>
                 <Text style={[styles.heroStatLabel, { color: colors.textSecondary }]}>Hỏi đáp</Text>
               </View>
@@ -518,11 +532,26 @@ export default function ProfileScreen() {
               <Pressable
                 onPress={async () => {
                   if (!user) return;
+                  const handle = user.username || user.id;
+                  const link = `https://plango.app/user/${handle}`;
+                  const message = `Xem profile ${user.fullName || user.username} trên PlanGo: ${link}`;
                   try {
-                    const { Share } = await import("react-native");
-                    await Share.share({
-                      message: `Xem profile ${user.fullName} trên PlanGo`,
-                    });
+                    if (Platform.OS === "web") {
+                      const nav = (typeof navigator !== "undefined" ? navigator : null) as any;
+                      if (nav?.share) {
+                        await nav.share({ title: user.fullName || user.username, text: message, url: link });
+                      } else if (nav?.clipboard?.writeText) {
+                        await nav.clipboard.writeText(link);
+                        Alert.alert("Đã copy link", link);
+                      }
+                    } else {
+                      const { Share } = await import("react-native");
+                      await Share.share({
+                        title: user.fullName || user.username || "PlanGo profile",
+                        message,
+                        url: link,
+                      });
+                    }
                   } catch {}
                 }}
                 style={({ pressed }) => [
@@ -615,7 +644,13 @@ export default function ProfileScreen() {
 
           <View style={{ marginTop: 12 }}>
             {communityTab === "blog" ? (
-              myBlogPosts.length === 0 ? (
+              myBlogQuery.isLoading || myBlogQuery.isPending ? (
+                <View style={{ gap: 12 }}>
+                  <Skeleton height={64} radius={12} />
+                  <Skeleton height={64} radius={12} />
+                  <Skeleton height={64} radius={12} />
+                </View>
+              ) : myBlogPosts.length === 0 ? (
                 <EmptyContentBlock
                   icon="newspaper-variant-outline"
                   title="Chưa có bài viết nào"
@@ -630,6 +665,12 @@ export default function ProfileScreen() {
                   ))}
                 </View>
               )
+            ) : myForumQuery.isLoading || myForumQuery.isPending ? (
+              <View style={{ gap: 12 }}>
+                <Skeleton height={64} radius={12} />
+                <Skeleton height={64} radius={12} />
+                <Skeleton height={64} radius={12} />
+              </View>
             ) : myThreads.length === 0 ? (
               <EmptyContentBlock
                 icon="forum-outline"

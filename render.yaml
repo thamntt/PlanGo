@@ -1,0 +1,36 @@
+# Render deployment manifest. Apply via:
+#   1. Push to GitHub (Render watches `main`/`dev` branch)
+#   2. Render Dashboard → New → Blueprint → connect repo → auto-detects this file
+# See https://render.com/docs/blueprint-spec for the full schema.
+services:
+  - type: web
+    name: plango-backend
+    runtime: node
+    region: singapore
+    plan: free
+    branch: dev
+    # Keep build minimal; tsx runs TypeScript directly so we skip the
+    # transpile step that would normally produce server_dist/.
+    buildCommand: npm install --legacy-peer-deps
+    startCommand: npx tsx server/index.ts
+    healthCheckPath: /api/preferences
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Secrets — set these in the Render dashboard, NOT here.
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: GOONG_API_KEY
+        sync: false
+      - key: SERPAPI_KEY
+        sync: false

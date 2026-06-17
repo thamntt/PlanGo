@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -32,6 +32,7 @@ import {
 import { useSettings } from "@/contexts/SettingsContext";
 import { useThemeColors } from "@/constants/colors";
 import { t } from "@/lib/i18n";
+import { avatarColorFor } from "@/lib/avatar";
 import {
   StarRating,
   formatRating,
@@ -41,13 +42,12 @@ import {
 import { useBlogPosts } from "@/hooks/queries/use-blog";
 import { useForumThreads } from "@/hooks/queries/use-forum";
 import { useFavorites } from "@/hooks/useFavorites";
-import { useVoteReview } from "@/hooks/queries/use-review-engagement";
+import { useVoteReview, useRemoveVote } from "@/hooks/queries/use-review-engagement";
 import {
   ReviewerBadge,
   ReviewPhotos,
   HelpfulButton,
   ReportModal,
-  ReplyThread,
 } from "@/features/destination/components/ReviewEngagement";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -74,6 +74,16 @@ export default function DestinationDetailScreen() {
 
   const destination = destinationQuery.data;
   const [imageIndex, setImageIndex] = useState(0);
+
+  // Auto-rotate hero images every 4s when there are 2+ photos
+  useEffect(() => {
+    const total = destination?.images?.length || 0;
+    if (total < 2) return;
+    const t = setInterval(() => {
+      setImageIndex((i) => (i + 1) % total);
+    }, 4000);
+    return () => clearInterval(t);
+  }, [destination?.images?.length]);
   const [showAllUserReviews, setShowAllUserReviews] = useState(false);
   const [expandedUserIds, setExpandedUserIds] = useState<Set<string>>(new Set());
   const [reviewSort, setReviewSort] = useState<"relevant" | "newest" | "highest" | "lowest">(
@@ -82,17 +92,33 @@ export default function DestinationDetailScreen() {
   const [starFilters, setStarFilters] = useState<Set<number>>(new Set());
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [reportTarget, setReportTarget] = useState<{
-    contentType: "review" | "reply";
+    contentType: "review";
     contentRefId: string;
   } | null>(null);
   const [withPhotosOnly, setWithPhotosOnly] = useState(false);
   const [tripTypeFilter, setTripTypeFilter] = useState<"any" | "solo" | "couple" | "family">("any");
-  const [openReplyThreads, setOpenReplyThreads] = useState<Set<string>>(new Set());
-  // Optimistic vote counts per (userId|tripId) key
+  // Optimistic vote counts per (userId|tripId) key — hydrated from server data
   const [helpfulCounts, setHelpfulCounts] = useState<
     Record<string, { count: number; voted: boolean }>
   >({});
   const voteReviewMut = useVoteReview();
+  const removeVoteMut = useRemoveVote();
+
+  // Hydrate helpful state from server-side review data
+  useEffect(() => {
+    if (!reviews.length) return;
+    const next: Record<string, { count: number; voted: boolean }> = {};
+    for (const r of reviews) {
+      if (r.itineraryId) {
+        const key = `${r.userId}|${r.itineraryId}`;
+        next[key] = {
+          count: r.helpfulCount ?? 0,
+          voted: !!r.viewerVotedHelpful,
+        };
+      }
+    }
+    setHelpfulCounts(next);
+  }, [reviews]);
 
   const toggleHelpful = useCallback(
     async (reviewUserIdStr: string, reviewTripIdStr: string) => {
@@ -104,7 +130,10 @@ export default function DestinationDetailScreen() {
       setHelpfulCounts((prev) => ({ ...prev, [key]: optimistic }));
       try {
         if (current.voted) {
-          // No-op: simple toggle UX without separate remove endpoint call
+          await removeVoteMut.mutateAsync({
+            reviewUserId: Number(reviewUserIdStr),
+            reviewTripId: Number(reviewTripIdStr),
+          });
         } else {
           await voteReviewMut.mutateAsync({
             reviewUserId: Number(reviewUserIdStr),
@@ -119,14 +148,6 @@ export default function DestinationDetailScreen() {
     [helpfulCounts, voteReviewMut],
   );
 
-  const toggleReplyThread = useCallback((key: string) => {
-    setOpenReplyThreads((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
 
   // ─── Review form/edit ──
   const [userRating, setUserRating] = useState(0);
@@ -778,7 +799,15 @@ export default function DestinationDetailScreen() {
                   </Text>
                 </View>
               </View>
-              <Pressable onPress={() => router.push("/(tabs)/community")} hitSlop={6}>
+              <Pressable
+                onPress={() =>
+                  router.push({
+                    pathname: "/community/by-destination",
+                    params: { tab: "blog", name: destination.name },
+                  })
+                }
+                hitSlop={6}
+              >
                 <Text style={[styles.sectionRightLink, { color: colors.primary }]}>
                   Xem tất cả →
                 </Text>
@@ -901,7 +930,15 @@ export default function DestinationDetailScreen() {
                   </Text>
                 </View>
               </View>
-              <Pressable onPress={() => router.push("/(tabs)/community")} hitSlop={6}>
+              <Pressable
+                onPress={() =>
+                  router.push({
+                    pathname: "/community/by-destination",
+                    params: { tab: "forum", name: destination.name },
+                  })
+                }
+                hitSlop={6}
+              >
                 <Text style={[styles.sectionRightLink, { color: colors.primary }]}>
                   Xem tất cả →
                 </Text>
@@ -1432,15 +1469,11 @@ export default function DestinationDetailScreen() {
               {(showAllUserReviews ? sortedReviewsByUser : sortedReviewsByUser.slice(0, 5)).map(
                 (group) => {
                   const isOwn = user?.id === group.userId;
-                  const avatarColors = [
-                    "#6C5CE7",
-                    "#00B894",
-                    "#E17055",
-                    "#0984E3",
-                    "#FDCB6E",
-                    "#E84393",
-                  ];
-                  const avatarBg = avatarColors[group.userName.charCodeAt(0) % avatarColors.length];
+                  // Use the shared avatar color helper so reviewer initials
+                  // match what they look like on the trip / companions
+                  // screens (was a different palette here, which made it
+                  // look like avatars were missing from the DB).
+                  const avatarBg = avatarColorFor(group.userId);
                   const expanded = expandedUserIds.has(group.userId);
                   const visibleReviews =
                     expanded || group.reviews.length === 1 ? group.reviews : [group.reviews[0]];
@@ -1448,18 +1481,22 @@ export default function DestinationDetailScreen() {
                   return (
                     <View
                       key={group.userId}
-                      style={[
-                        styles.reviewCardV2,
-                        { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                      ]}
+                      style={[styles.reviewCardV2, { borderBottomColor: colors.divider }]}
                     >
                       {/* ── User header ── */}
                       <View style={styles.reviewHeaderV2}>
-                        <View
+                        <Pressable
+                          onPress={() =>
+                            router.push({
+                              pathname: "/user/[id]",
+                              params: { id: String(group.userId) },
+                            })
+                          }
                           style={[
                             styles.avatarRing,
                             { borderColor: isOwn ? colors.primary : colors.cardBorder },
                           ]}
+                          hitSlop={4}
                         >
                           {avatarSrc ? (
                             <Image
@@ -1483,7 +1520,7 @@ export default function DestinationDetailScreen() {
                               </Text>
                             </View>
                           )}
-                        </View>
+                        </Pressable>
                         <View style={{ flex: 1 }}>
                           <View
                             style={{
@@ -1493,9 +1530,19 @@ export default function DestinationDetailScreen() {
                               flexWrap: "wrap",
                             }}
                           >
-                            <Text style={[styles.reviewNameV2, { color: colors.text }]}>
-                              {group.userName}
-                            </Text>
+                            <Pressable
+                              onPress={() =>
+                                router.push({
+                                  pathname: "/user/[id]",
+                                  params: { id: String(group.userId) },
+                                })
+                              }
+                              hitSlop={4}
+                            >
+                              <Text style={[styles.reviewNameV2, { color: colors.text }]}>
+                                {group.userName}
+                              </Text>
+                            </Pressable>
                             {isOwn && (
                               <View
                                 style={[styles.ownBadgeV2, { backgroundColor: colors.primary }]}
@@ -1554,22 +1601,6 @@ export default function DestinationDetailScreen() {
                         const hasMultiVisit = group.reviews.length > 1;
                         return (
                           <View key={`${review.id}-${idx}`} style={styles.visitEntryRow}>
-                            {/* Timeline dot + line (only when multi-visit) */}
-                            {hasMultiVisit && (
-                              <View style={styles.timelineCol}>
-                                <View
-                                  style={[styles.timelineDot, { backgroundColor: colors.primary }]}
-                                />
-                                {!isLast && (
-                                  <View
-                                    style={[
-                                      styles.timelineLine,
-                                      { backgroundColor: colors.divider },
-                                    ]}
-                                  />
-                                )}
-                              </View>
-                            )}
 
                             <View style={{ flex: 1, gap: 8 }}>
                               {/* Top row: stars + date */}
@@ -1681,51 +1712,20 @@ export default function DestinationDetailScreen() {
                                   count: 0,
                                   voted: false,
                                 };
-                                const replyKey = `${review.userId}|${review.itineraryId}`;
-                                const replyOpen = openReplyThreads.has(replyKey);
                                 return (
                                   <>
                                     <View style={styles.actionRowV2}>
-                                      {!isOwn && (
-                                        <HelpfulButton
-                                          count={voteState.count}
-                                          voted={voteState.voted}
-                                          onPress={() => {
-                                            if (review.itineraryId)
-                                              toggleHelpful(review.userId, review.itineraryId);
-                                          }}
-                                          colors={colors}
-                                        />
-                                      )}
-                                      <Pressable
-                                        onPress={() => toggleReplyThread(replyKey)}
-                                        hitSlop={6}
-                                        style={({ pressed }) => [
-                                          styles.helpfulBtn,
-                                          {
-                                            borderColor: colors.cardBorder,
-                                            opacity: pressed ? 0.7 : 1,
-                                          },
-                                        ]}
-                                      >
-                                        <Ionicons
-                                          name={replyOpen ? "chatbubble" : "chatbubble-outline"}
-                                          size={12}
-                                          color={replyOpen ? colors.primary : colors.textSecondary}
-                                        />
-                                        <Text
-                                          style={[
-                                            styles.helpfulText,
-                                            {
-                                              color: replyOpen
-                                                ? colors.primary
-                                                : colors.textSecondary,
-                                            },
-                                          ]}
-                                        >
-                                          Phản hồi
-                                        </Text>
-                                      </Pressable>
+                                      <HelpfulButton
+                                        count={voteState.count}
+                                        voted={voteState.voted}
+                                        onPress={() => {
+                                          if (isOwn) return; // can't like your own review
+                                          if (review.itineraryId)
+                                            toggleHelpful(review.userId, review.itineraryId);
+                                        }}
+                                        colors={colors}
+                                        readOnly={isOwn}
+                                      />
                                       {isOwn ? (
                                         <>
                                           <Pressable
@@ -1810,21 +1810,6 @@ export default function DestinationDetailScreen() {
                                       )}
                                     </View>
 
-                                    {/* Reply thread (expandable) */}
-                                    {replyOpen && review.itineraryId && (
-                                      <ReplyThread
-                                        reviewUserId={Number(review.userId)}
-                                        reviewTripId={Number(review.itineraryId)}
-                                        currentUserId={user ? Number(user.id) : undefined}
-                                        colors={colors}
-                                        onReport={(replyId) =>
-                                          setReportTarget({
-                                            contentType: "reply",
-                                            contentRefId: String(replyId),
-                                          })
-                                        }
-                                      />
-                                    )}
                                   </>
                                 );
                               })()}
@@ -2519,10 +2504,9 @@ const styles = StyleSheet.create({
   sortChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
   reviewCardV2: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    marginBottom: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 12,
   },
   reviewHeaderV2: { flexDirection: "row", alignItems: "center", gap: 12 },

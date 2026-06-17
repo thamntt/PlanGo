@@ -7,16 +7,19 @@ export const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
 export const OSRM_BASE = "https://router.project-osrm.org";
 export const SERPAPI_BASE = "https://serpapi.com/search.json";
 
+// All getters .trim() — Windows .env files use CRLF and dotenv sometimes
+// leaves a trailing \r on the value. Google/SerpAPI/etc reject those as
+// "invalid key" with hard-to-debug 401 errors.
 export function getGoogleKey(): string {
-  return process.env.GOOGLE_PLACES_API_KEY || "";
+  return (process.env.GOOGLE_PLACES_API_KEY || "").trim();
 }
 
 export function getGoongKey(): string {
-  return process.env.GOONG_API_KEY || "";
+  return (process.env.GOONG_API_KEY || "").trim();
 }
 
 export function getSerpApiKey(): string {
-  const key = process.env.SERPAPI_KEY || "";
+  const key = (process.env.SERPAPI_KEY || "").trim();
   console.log(`[Debug] Using SerpAPI Key: ${key.slice(0, 5)}...${key.slice(-5)}`);
   return key;
 }

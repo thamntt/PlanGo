@@ -259,6 +259,12 @@ function setupGracefulShutdown(server: import("node:http").Server) {
     logger.info({ port: env.PORT, env: env.NODE_ENV }, "Server listening");
   });
 
+  // Nightly SerpAPI refresh for top-viewed POIs (skip in test runs).
+  if (env.NODE_ENV !== "test") {
+    const { startSerpRefreshCron } = await import("./lib/serp-refresh-cron");
+    startSerpRefreshCron();
+  }
+
   setupGracefulShutdown(server);
 })().catch((err) => {
   logger.fatal({ err }, "Failed to bootstrap server");

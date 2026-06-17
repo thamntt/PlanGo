@@ -6,6 +6,11 @@ import { validate } from "../../middlewares/validate";
 import { requireAuth } from "../../middlewares/auth";
 import { mapTripToFrontend } from "../../mappers/trip.mapper";
 import {
+  notifyMemberJoined,
+  notifyMemberLeft,
+  notifyRoleChanged,
+} from "../../lib/notify";
+import {
   shareTripInputSchema,
   shareCodeParamSchema,
   joinSharedTripInputSchema,
@@ -31,7 +36,10 @@ async function shareTrip(req: Request, res: Response) {
 
 async function getSharedTrip(req: Request, res: Response) {
   const { code } = (req as any).validatedParams;
-  const trip = await storage.getTripByInvitationToken(code);
+  // Use the lightweight lookup — the join landing page only needs trip header
+  // data + members, not all nested days/activities/expenses. The full query
+  // takes 5-10s cold; this trims to ~200ms.
+  const trip = await storage.getTripByInvitationTokenLight(code);
   if (!trip) throw new AppError("SHARE_CODE_NOT_FOUND", "Share code not found");
   sendResponse(res, 200, "Trip found", mapTripToFrontend(trip));
 }
@@ -59,6 +67,13 @@ async function joinSharedTrip(req: Request, res: Response) {
     role: finalRole,
   });
 
+  // Fire notification to all existing members + owner (skip joiner).
+  const joiner = await storage.getUser(Number(finalUserId)).catch(() => null);
+  const joinerName = joiner
+    ? (joiner as any).fullName || (joiner as any).userName || `Người dùng ${finalUserId}`
+    : `Người dùng ${finalUserId}`;
+  notifyMemberJoined(trip.tripId, Number(finalUserId), joinerName).catch(() => {});
+
   const updatedTrip = await storage.getTripByInvitationToken(shareCode);
   sendResponse(res, 200, "Joined trip", {
     alreadyJoined: false,
@@ -74,14 +89,77 @@ async function updateCompanionRole(req: Request, res: Response) {
   if (!trip) throw new AppError("SHARE_CODE_NOT_FOUND", "Share code not found");
 
   await storage.updateTripMember(trip.tripId, userId, { role });
+
+  const actor = (req as any).user;
+  const actorName = actor
+    ? (actor as any).fullName || (actor as any).userName || "Chủ chuyến"
+    : "Chủ chuyến";
+  notifyRoleChanged(trip.tripId, Number(userId), role, {
+    id: Number(actor?.id || 0),
+    name: actorName,
+  }).catch(() => {});
+
   sendResponse(res, 200, "Success", null);
+}
+
+/**
+ * Owner-initiated invite by username: looks up the user, ensures they're not
+ * already a member, then adds them as a companion in one shot. Used by the
+ * invite-by-username flow in the Companions tab.
+ */
+async function inviteMemberByUserId(req: Request, res: Response) {
+  const tripId = Number(req.params.tripId);
+  const { userId, role } = req.body;
+  if (!tripId || isNaN(tripId)) throw errors.badRequest("Invalid trip ID");
+  if (!userId) throw errors.badRequest("userId is required");
+
+  const trip = await storage.getTrip(tripId);
+  if (!trip) throw new AppError("TRIP_NOT_FOUND", "Trip not found");
+
+  // Only owner can invite by direct add
+  const viewer = (req as any).user;
+  if (!viewer || String(viewer.id) !== String(trip.ownerId)) {
+    throw errors.forbidden();
+  }
+
+  if (String(userId) === String(trip.ownerId)) {
+    throw errors.badRequest("Cannot invite the trip owner");
+  }
+
+  const members = await storage.getTripMembers(tripId);
+  if (members.some((m) => m.userId === Number(userId))) {
+    return sendResponse(res, 200, "Already a member", { alreadyMember: true });
+  }
+
+  await storage.addTripMember({
+    tripId,
+    userId: Number(userId),
+    role: role || "viewer",
+  });
+
+  const joiner = await storage.getUser(Number(userId)).catch(() => null);
+  const joinerName = joiner
+    ? (joiner as any).fullName || (joiner as any).userName || `Người dùng ${userId}`
+    : `Người dùng ${userId}`;
+  notifyMemberJoined(tripId, Number(userId), joinerName).catch(() => {});
+
+  sendResponse(res, 200, "Member added", { alreadyMember: false });
 }
 
 async function removeCompanion(req: Request, res: Response) {
   const { shareCode, userId } = req.body;
   const trip = await storage.getTripByInvitationToken(shareCode);
   if (!trip) throw new AppError("SHARE_CODE_NOT_FOUND", "Share code not found");
+
+  const leaver = await storage.getUser(Number(userId)).catch(() => null);
+  const leaverName = leaver
+    ? (leaver as any).fullName || (leaver as any).userName || `Người dùng ${userId}`
+    : `Người dùng ${userId}`;
+
   await storage.removeTripMember(trip.tripId, userId);
+
+  notifyMemberLeft(trip.tripId, Number(userId), leaverName).catch(() => {});
+
   sendResponse(res, 200, "Success", null);
 }
 
@@ -108,6 +186,11 @@ export function registerShareRoutes(app: Express) {
     requireAuth,
     validate({ body: companionInputSchema }),
     asyncHandler(updateCompanionRole),
+  );
+  app.post(
+    "/api/trips/:tripId/invite-member",
+    requireAuth,
+    asyncHandler(inviteMemberByUserId),
   );
   app.delete(
     "/api/share/companion",

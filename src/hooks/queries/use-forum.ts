@@ -103,7 +103,8 @@ export function useForumThreads(filters: ForumFilters = {}) {
       const res = await apiRequest("GET", `/api/forum/threads${qs ? "?" + qs : ""}`);
       return unwrap<ForumThread[]>(res);
     },
-    staleTime: 30 * 1000,
+    staleTime: 15 * 1000,
+    refetchOnMount: "always",
   });
 }
 

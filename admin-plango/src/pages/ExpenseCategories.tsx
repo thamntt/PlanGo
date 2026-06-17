@@ -55,7 +55,7 @@ const ExpenseCategories: React.FC = () => {
     setIsLoading(true);
     try {
       const data = await apiRequest("GET", "/api/expense-types");
-      setCategories(data);
+      setCategories(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch categories:", error);
     } finally {

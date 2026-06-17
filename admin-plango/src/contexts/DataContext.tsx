@@ -54,7 +54,8 @@ function mapUser(u: any): UserData {
     email: u.email || "",
     fullName: u.fullName || u.full_name || u.userName || "",
     phone: u.phone || "",
-    avatar: u.avatar || "",
+    // BE returns `avatarUrl`; older endpoints + admin form use `avatar`. Read both.
+    avatar: u.avatarUrl || u.avatar_url || u.avatar || "",
     role: u.role || "user",
     isLocked: u.status === "locked" || u.status === "banned" || u.isLocked || u.is_locked || false,
     preferences: u.preferences || [],
@@ -119,11 +120,28 @@ function mapReview(r: any): Review {
   const rawId = r.reviewId || r.id || "";
   // uniqueId dùng cho React key, rawId dùng để gọi API DELETE
   const uniqueId = `${reviewType}-${r.userId}-${rawId}`;
+  // Photos: BE returns `photos: jsonb` (array of URLs/data URIs); some legacy
+  // payloads use `photo_urls`. Drizzle's jsonb usually returns parsed JS, but
+  // some Postgres drivers/setups return a JSON string — parse defensively.
+  let rawPhotos: unknown = r.photos ?? r.photo_urls;
+  if (typeof rawPhotos === "string") {
+    try {
+      rawPhotos = JSON.parse(rawPhotos);
+    } catch {
+      rawPhotos = null;
+    }
+  }
+  const photos: string[] = Array.isArray(rawPhotos)
+    ? (rawPhotos as unknown[]).filter(
+        (p: unknown): p is string => typeof p === "string" && !!p,
+      )
+    : [];
   return {
     id: uniqueId,
     rawId: rawId.toString(),
     userId: (r.userId ?? r.user_id ?? "")?.toString(),
     userName: r.userName ?? r.user_name ?? "",
+    userAvatarUrl: r.userAvatarUrl ?? r.user_avatar_url ?? null,
     destinationId: (r.destinationId ?? r.destination_id ?? "")?.toString(),
     poiId: (r.poiId ?? r.poi_id ?? "")?.toString(),
     poiName: r.poiName ?? r.poi_name ?? "",
@@ -134,6 +152,8 @@ function mapReview(r: any): Review {
     destinationName: r.destinationName,
     rating: r.rating ? Number(r.rating) : 0,
     comment: r.comment || "",
+    photos,
+    helpfulCount: r.helpfulCount ?? r.helpful_count ?? 0,
     createdAt: r.createdAt ?? r.created_at ?? new Date().toISOString(),
   };
 }

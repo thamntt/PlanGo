@@ -16,33 +16,46 @@ import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useThemeColors } from "@/constants/colors";
 import { useSettings } from "@/contexts/SettingsContext";
+import { usePopularDestinations } from "@/hooks/queries/use-destinations";
+import { apiRequest } from "@/lib/api/query-client";
+import { useQuery } from "@tanstack/react-query";
 
-const RECENT_KEY = "search_recent_community";
 const MAX_RECENT = 8;
 
-const TRENDING = [
-  "Hà Nội",
-  "Đà Nẵng",
-  "Sa Pa",
-  "Phú Quốc",
-  "Hội An",
-  "Đà Lạt",
-  "Phượt",
-  "Ẩm thực",
-  "Hướng dẫn",
-  "Review",
-];
+export type SearchContext = "community" | "destination" | "trip";
+
+const TIP_BY_CONTEXT: Record<SearchContext, string> = {
+  community: "Mẹo: nhập tên địa danh (Sa Pa, Phú Quốc) hoặc loại bài (Hướng dẫn, Ẩm thực…)",
+  destination: "Mẹo: nhập tên địa danh (Sa Pa, Phú Quốc) hoặc loại điểm đến",
+  trip: "Mẹo: nhập tên chuyến đi hoặc điểm đến",
+};
+
+// Top tags ordered by usageCount (BE listTags already sorts desc)
+function usePopularBlogTags() {
+  return useQuery<{ tagId: number; name: string; color?: string | null }[]>({
+    queryKey: ["blog", "tags", "popular"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/blog/tags");
+      const json = await res.json();
+      return ("data" in json ? json.data : json) || [];
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+}
 
 export function SearchOverlay({
   visible,
   onClose,
   onSubmit,
   placeholder,
+  context = "destination",
 }: {
   visible: boolean;
   onClose: () => void;
   onSubmit: (q: string) => void;
   placeholder?: string;
+  context?: SearchContext;
 }) {
   const insets = useSafeAreaInsets();
   const { isDark } = useSettings();
@@ -50,6 +63,19 @@ export function SearchOverlay({
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState("");
   const [recent, setRecent] = useState<string[]>([]);
+  const RECENT_KEY = `search_recent_${context}`;
+
+  // Pick popular data based on context
+  const popularDest = usePopularDestinations(context === "community" ? 0 : 10);
+  const popularTags = usePopularBlogTags();
+  const popularItems: { key: string; label: string; subtitle?: string }[] =
+    context === "community"
+      ? (popularTags.data || []).slice(0, 12).map((t) => ({ key: `tag-${t.tagId}`, label: t.name }))
+      : (popularDest.data || []).map((d) => ({
+          key: `dest-${d.destinationId}`,
+          label: d.name,
+          subtitle: d.tripCount > 0 ? String(d.tripCount) : undefined,
+        }));
 
   useEffect(() => {
     if (visible) {
@@ -59,11 +85,13 @@ export function SearchOverlay({
           try {
             setRecent(JSON.parse(v) || []);
           } catch {}
+        } else {
+          setRecent([]);
         }
       });
       setTimeout(() => inputRef.current?.focus(), 250);
     }
-  }, [visible]);
+  }, [visible, RECENT_KEY]);
 
   const handleSubmit = (raw: string) => {
     const q = raw.trim();
@@ -81,10 +109,18 @@ export function SearchOverlay({
     AsyncStorage.removeItem(RECENT_KEY);
   };
 
+  const tip = TIP_BY_CONTEXT[context];
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="fullScreen"
+      statusBarTranslucent
+    >
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -172,27 +208,39 @@ export function SearchOverlay({
               </View>
             )}
 
-            {/* Trending */}
-            <View>
-              <View style={styles.sectionRow}>
-                <MaterialCommunityIcons name="trending-up" size={16} color={colors.primary} />
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Tìm phổ biến</Text>
+            {/* Popular — destinations or tags depending on context */}
+            {popularItems.length > 0 && (
+              <View>
+                <View style={styles.sectionRow}>
+                  <MaterialCommunityIcons name="trending-up" size={16} color={colors.primary} />
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                    {context === "community" ? "Chủ đề phổ biến" : "Tìm phổ biến"}
+                  </Text>
+                </View>
+                <View style={styles.chipsWrap}>
+                  {popularItems.map((it) => (
+                    <Pressable
+                      key={it.key}
+                      onPress={() => handleSubmit(it.label)}
+                      style={[
+                        styles.chip,
+                        { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                      ]}
+                    >
+                      {context === "community" && (
+                        <Text style={[styles.chipHash, { color: colors.textTertiary }]}>#</Text>
+                      )}
+                      <Text style={[styles.chipText, { color: colors.text }]}>{it.label}</Text>
+                      {it.subtitle && (
+                        <Text style={[styles.chipCount, { color: colors.textTertiary }]}>
+                          {it.subtitle}
+                        </Text>
+                      )}
+                    </Pressable>
+                  ))}
+                </View>
               </View>
-              <View style={styles.chipsWrap}>
-                {TRENDING.map((t) => (
-                  <Pressable
-                    key={t}
-                    onPress={() => handleSubmit(t)}
-                    style={[
-                      styles.chip,
-                      { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                    ]}
-                  >
-                    <Text style={[styles.chipText, { color: colors.text }]}>{t}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
+            )}
 
             {/* Tips */}
             <View
@@ -202,10 +250,7 @@ export function SearchOverlay({
               ]}
             >
               <Ionicons name="bulb-outline" size={16} color={colors.primary} />
-              <Text style={[styles.tipText, { color: colors.text }]}>
-                Mẹo: tìm tên địa danh (Sa Pa, Phú Quốc) hoặc chủ đề (Ẩm thực, Phượt) để ra kết quả
-                tốt nhất
-              </Text>
+              <Text style={[styles.tipText, { color: colors.text }]}>{tip}</Text>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -259,12 +304,17 @@ const styles = StyleSheet.create({
 
   chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 14,
     borderWidth: 1,
   },
   chipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  chipCount: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  chipHash: { fontSize: 12, fontFamily: "Inter_700Bold", marginRight: -3 },
 
   tipBox: {
     flexDirection: "row",

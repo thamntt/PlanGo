@@ -31,7 +31,13 @@ export function useCreateNotification() {
     Omit<Notification, "id" | "createdAt" | "isRead"> & { isRead?: boolean }
   >({
     mutationFn: async (input) => {
-      const res = await apiRequest("POST", "/api/notifications", input);
+      // BE schema expects `tripId` (server column), but FE callers pass
+      // `itineraryId` (FE field). Mirror it so the FK linkage lands correctly.
+      const payload: any = { ...input };
+      if (payload.itineraryId && !payload.tripId) {
+        payload.tripId = Number(payload.itineraryId) || undefined;
+      }
+      const res = await apiRequest("POST", "/api/notifications", payload);
       const data = await unwrap<any>(res);
       return mapNotification(data);
     },

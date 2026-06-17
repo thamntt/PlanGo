@@ -20,6 +20,10 @@ export function usePois(destinationId?: number) {
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapPoi);
     },
+    // POIs change rarely; large list — refetching on every screen mount
+    // burns ~300-500ms of cold time. Keep a 5-minute window.
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -33,6 +37,8 @@ export function usePoi(id: string | number | undefined) {
       return data ? mapPoi(data) : null;
     },
     enabled: id !== undefined && id !== null && id !== "",
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 }
 

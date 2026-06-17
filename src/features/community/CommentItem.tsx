@@ -9,6 +9,7 @@ import type { useThemeColors } from "@/constants/colors";
 import { AdminBadge } from "./AdminBadge";
 import { CommentActionSheet, type ActionItem } from "./CommentActionSheet";
 import { useToast } from "@/contexts/ToastContext";
+import { useConfirm } from "@/contexts/ConfirmContext";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -97,6 +98,7 @@ export function CommentItem({
   const [postingReply, setPostingReply] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const toast = useToast();
+  const { confirm } = useConfirm();
 
   const handleSaveEdit = useCallback(async () => {
     const text = draft.trim();
@@ -136,17 +138,15 @@ export function CommentItem({
     }
   }, [replyDraft, comment.commentId, onReply]);
 
-  const confirmDelete = useCallback(() => {
-    const doDel = () => onDelete(comment.commentId);
-    if (Platform.OS === "web") {
-      if (confirm("Xóa bình luận này?")) doDel();
-    } else {
-      Alert.alert("Xóa bình luận", "Bình luận sẽ bị xóa vĩnh viễn", [
-        { text: "Hủy", style: "cancel" },
-        { text: "Xóa", style: "destructive", onPress: doDel },
-      ]);
-    }
-  }, [comment.commentId, onDelete]);
+  const confirmDelete = useCallback(async () => {
+    const ok = await confirm({
+      title: "Xóa bình luận?",
+      message: "Bình luận sẽ bị xóa vĩnh viễn.",
+      destructive: true,
+      confirmText: "Xóa",
+    });
+    if (ok) onDelete(comment.commentId);
+  }, [comment.commentId, onDelete, confirm]);
 
   return (
     <View style={styles.wrap}>

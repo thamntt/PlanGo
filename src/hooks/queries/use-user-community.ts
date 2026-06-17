@@ -12,6 +12,7 @@ export interface UserProfile {
   fullName?: string | null;
   role?: string | null;
   avatarUrl?: string | null;
+  bio?: string | null;
   reviewerLevel?: string | null;
   reviewCount: number;
   helpfulReceived: number;

@@ -35,10 +35,13 @@ const StatusIndicator: React.FC<{ isLocked: boolean }> = ({ isLocked }) => {
   );
 };
 
+const PAGE_SIZE = 25;
+
 const Users: React.FC = () => {
   const { users, updateUser, deleteUser, fetchUsers } = useData();
   const [filterMode, setFilterMode] = useState<"all" | "active" | "locked">("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -46,6 +49,12 @@ const Users: React.FC = () => {
     }, 500);
     return () => clearTimeout(timer);
   }, [searchTerm, fetchUsers]);
+
+  // Reset to page 0 when filter/search changes so the user doesn't land on an
+  // empty page after the result set shrinks.
+  useEffect(() => {
+    setPage(0);
+  }, [filterMode, searchTerm]);
 
   const filteredUsers = users.filter((u) => {
     // 1. Hide Admin accounts
@@ -57,6 +66,13 @@ const Users: React.FC = () => {
 
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const pageUsers = filteredUsers.slice(
+    currentPage * PAGE_SIZE,
+    (currentPage + 1) * PAGE_SIZE,
+  );
 
   const toggleLock = async (u: UserData) => {
     await updateUser(u.id, { isLocked: !u.isLocked });
@@ -136,7 +152,7 @@ const Users: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredUsers.map((user) => (
+            {pageUsers.map((user) => (
               <tr
                 key={user.id}
                 className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors group"
@@ -147,7 +163,7 @@ const Users: React.FC = () => {
                       <img src={user.avatar} className="w-12 h-12 rounded-xl object-cover" alt="" />
                     ) : (
                       <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center text-primary font-bold text-lg">
-                        {user.fullName.charAt(0).toUpperCase()}
+                        {(user.fullName || user.username || "?").charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div className="flex flex-col">
@@ -200,13 +216,23 @@ const Users: React.FC = () => {
         {/* Pagination Footer */}
         <div className="px-8 py-6 border-t border-slate-100 flex justify-between items-center">
           <p className="text-xs font-bold text-slate-500 italic">
-            Hiển thị {filteredUsers.length} thành viên hệ thống
+            {filteredUsers.length === 0
+              ? "Không có người dùng"
+              : `Trang ${currentPage + 1}/${totalPages} · ${filteredUsers.length} thành viên`}
           </p>
           <div className="flex gap-2">
-            <button className="p-2 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-900 transition-colors">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={currentPage === 0}
+              className="p-2 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
               <ChevronLeft size={16} />
             </button>
-            <button className="p-2 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-900 transition-colors">
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={currentPage >= totalPages - 1}
+              className="p-2 border border-slate-200 rounded-lg text-slate-400 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
               <ChevronRight size={16} />
             </button>
           </div>

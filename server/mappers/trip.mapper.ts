@@ -20,18 +20,21 @@ export function mapTripToFrontend(trip: any) {
   if (mapped.expenses && Array.isArray(mapped.expenses)) {
     mapped.expenses = mapped.expenses.map((e: any) => ({
       ...e,
-      id: (e.expenseId || "").toString(),
+      id: (e.expenseId ?? "").toString(),
       title: e.description || e.title || "",
       amount: Number(e.amount || 0),
       date: e.expenseDate || e.date || "",
       category: e.expenseType ? e.expenseType.name : "Khác",
       payer: e.paidByInfo ? e.paidByInfo.fullName || e.paidByInfo.userName : "Không rõ",
-      paidByUserId: e.paidByInfo ? e.paidByInfo.userId.toString() : undefined,
+      // Use optional chaining — previously crashed with TypeError when
+      // paidByInfo existed but its userId was null (orphaned record after
+      // a user delete). That crash bubbled up as a 500 on /api/trips.
+      paidByUserId: e.paidByInfo?.userId != null ? String(e.paidByInfo.userId) : undefined,
       splitType: e.splitMethod || "none",
-      activityId: e.itemId ? e.itemId.toString() : undefined,
-      splits: e.splits
+      activityId: e.itemId != null ? String(e.itemId) : undefined,
+      splits: Array.isArray(e.splits)
         ? e.splits.map((s: any) => ({
-            userId: s.userId?.toString() || "",
+            userId: s.userId != null ? String(s.userId) : "",
             userName: s.user ? s.user.fullName || s.user.userName : "",
             amount: Number(s.amount || 0),
           }))
@@ -41,18 +44,21 @@ export function mapTripToFrontend(trip: any) {
 
   if (mapped.members && Array.isArray(mapped.members)) {
     mapped.companions = mapped.members.map((m: any) => ({
-      userId: (m.userId || "").toString(),
+      userId: m.userId != null ? String(m.userId) : "",
       userName: m.user ? m.user.fullName || m.user.userName : "",
+      avatarUrl: m.user?.avatarUrl || null,
       role: m.role || "member",
+      joinedAt: m.joinedAt || m.createdAt || null,
     }));
 
-    if (mapped.owner) {
-      const ownerIdStr = mapped.owner.userId.toString();
+    if (mapped.owner && mapped.owner.userId != null) {
+      const ownerIdStr = String(mapped.owner.userId);
       const isOwnerInCompanions = mapped.companions.some((c: any) => c.userId === ownerIdStr);
       if (!isOwnerInCompanions) {
         mapped.companions.unshift({
           userId: ownerIdStr,
           userName: mapped.owner.fullName || mapped.owner.userName,
+          avatarUrl: mapped.owner.avatarUrl || null,
           role: "owner",
           isOwner: true,
         });
@@ -63,12 +69,18 @@ export function mapTripToFrontend(trip: any) {
       }
     }
   } else if (mapped.owner) {
+    // Include avatarUrl and joinedAt here too so the owner row is rendered
+    // identically across screens. Previously this branch skipped avatarUrl,
+    // which made the Companions tab fall back to a colored initial whenever
+    // the BE query returned no members[] (e.g. solo trips).
     mapped.companions = [
       {
-        userId: mapped.owner.userId.toString(),
+        userId: String(mapped.owner.userId),
         userName: mapped.owner.fullName || mapped.owner.userName,
+        avatarUrl: mapped.owner.avatarUrl || null,
         role: "owner",
         isOwner: true,
+        joinedAt: mapped.owner.createdAt || null,
       },
     ];
   }
@@ -87,27 +99,40 @@ export function mapTripToFrontend(trip: any) {
         ? e.paidByInfo.fullName || e.paidByInfo.userName
         : e.payer || "Không rõ";
       const rawType = e.expenseType ? e.expenseType.name : "Khác";
+      // Optional-chain every nested .toString() — these were the main source
+      // of /api/trips returning 500 when an expense referenced a since-
+      // deleted user (paidBy / split.userId became orphans).
+      const paidByUserId =
+        e.paidByInfo?.userId != null
+          ? String(e.paidByInfo.userId)
+          : e.paidBy != null
+            ? String(e.paidBy)
+            : undefined;
       return {
         ...e,
-        id: (e.expenseId || "").toString(),
+        id: (e.expenseId ?? "").toString(),
         title: e.description || e.title || "",
         amount: Number(e.amount || 0),
         date: e.expenseDate || e.date || "",
         type: typeInverseMap[rawType] || "other",
         payer: payerName,
         paidBy: payerName,
-        paidByUserId: e.paidByInfo ? e.paidByInfo.userId.toString() : e.paidBy?.toString(),
+        paidByUserId,
         splitType: e.splitMethod || "none",
-        activityId: e.itemId ? e.itemId.toString() : undefined,
-        splits: e.splits
+        activityId: e.itemId != null ? String(e.itemId) : undefined,
+        splits: Array.isArray(e.splits)
           ? e.splits.map((s: any) => {
               let uName = s.user ? s.user.fullName || s.user.userName : "";
+              const splitUserId =
+                s.userId != null ? String(s.userId) : "";
               if (!uName && mapped.companions) {
-                const comp = mapped.companions.find((c: any) => c.userId === s.userId?.toString());
+                const comp = mapped.companions.find(
+                  (c: any) => c.userId === splitUserId,
+                );
                 if (comp) uName = comp.userName;
               }
               return {
-                userId: s.userId?.toString() || "",
+                userId: splitUserId,
                 userName: uName,
                 amount: Number(s.amount || 0),
               };
@@ -138,7 +163,11 @@ export function mapTripToFrontend(trip: any) {
         ? [...day.items]
             .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0))
             .map((item: any) => {
-              const itemIdStr = item.itemId.toString();
+              // Skip the row gracefully if itemId is null — previously
+              // `null.toString()` here would crash the whole mapper and
+              // surface as a 500 on /api/trips.
+              if (item.itemId == null) return null;
+              const itemIdStr = String(item.itemId);
               const linkedExp = activitiesWithExpenses.get(itemIdStr);
               const actualCost = item.actualCost ? Number(item.actualCost) : 0;
               totalActivityCost += actualCost;
@@ -184,6 +213,7 @@ export function mapTripToFrontend(trip: any) {
                 poiId: item.poiId,
               };
             })
+            .filter(Boolean) as any[]
         : [],
     }));
   }

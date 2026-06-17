@@ -23,13 +23,6 @@ interface Report {
   createdAt: string;
 }
 
-interface GroupedReport {
-  contentType: Report["contentType"];
-  contentRefId: string;
-  reportCount: number;
-  latestAt: string;
-}
-
 const REASON_LABEL: Record<string, string> = {
   spam: "Spam",
   misinformation: "Sai lệch",
@@ -54,21 +47,21 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
 };
 
 const Reports: React.FC = () => {
-  const [view, setView] = useState<"individual" | "grouped">("grouped");
   const [reports, setReports] = useState<Report[]>([]);
-  const [grouped, setGrouped] = useState<GroupedReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Report | null>(null);
   const [contentPreview, setContentPreview] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  // Filter chips — type + reason. Only one view now (per request), so reason
+  // filter always applies.
+  const [typeFilter, setTypeFilter] = useState<"all" | Report["contentType"]>("all");
+  const [reasonFilter, setReasonFilter] = useState<string>("all");
 
   const fetchReports = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiRequest("GET", "/api/admin/moderation/queue");
-      setReports(res.data || []);
-      const resG = await apiRequest("GET", "/api/admin/moderation/queue?grouped=true");
-      setGrouped(resG.data || []);
+      setReports(Array.isArray(res) ? res : []);
     } catch (err) {
       console.error("Failed to fetch reports", err);
     } finally {
@@ -97,7 +90,7 @@ const Reports: React.FC = () => {
         return;
       }
       const res = await apiRequest("GET", url);
-      setContentPreview(res.data || res);
+      setContentPreview(res);
     } catch (err) {
       setContentPreview({ error: "Không tải được nội dung" });
     } finally {
@@ -157,8 +150,31 @@ const Reports: React.FC = () => {
     }
   };
 
-  const totalPending = reports.length;
-  const totalGrouped = grouped.length;
+  const filteredReports = reports.filter(
+    (r) =>
+      (typeFilter === "all" || r.contentType === typeFilter) &&
+      (reasonFilter === "all" || r.reason === reasonFilter),
+  );
+
+  const totalPending = filteredReports.length;
+
+  // Type counts from the unfiltered list so chips show absolute totals.
+  const typeCounts: Record<string, number> = {
+    all: reports.length,
+    blog: reports.filter((r) => r.contentType === "blog").length,
+    forum_thread: reports.filter((r) => r.contentType === "forum_thread").length,
+    forum_reply: reports.filter((r) => r.contentType === "forum_reply").length,
+    blog_comment: reports.filter((r) => r.contentType === "blog_comment").length,
+  };
+  const reasonCounts: Record<string, number> = {
+    all: reports.length,
+    spam: reports.filter((r) => r.reason === "spam").length,
+    misinformation: reports.filter((r) => r.reason === "misinformation").length,
+    harassment: reports.filter((r) => r.reason === "harassment").length,
+    offensive: reports.filter((r) => r.reason === "offensive").length,
+    illegal: reports.filter((r) => r.reason === "illegal").length,
+    other: reports.filter((r) => r.reason === "other").length,
+  };
 
   return (
     <main className="flex-1 p-8 overflow-y-auto">
@@ -169,7 +185,7 @@ const Reports: React.FC = () => {
             Báo cáo cộng đồng
           </h2>
           <p className="text-slate-500 mt-1">
-            {totalPending} báo cáo đang chờ xử lý · {totalGrouped} nội dung bị báo cáo
+            {totalPending} báo cáo đang chờ xử lý
           </p>
         </div>
         <button
@@ -181,107 +197,89 @@ const Reports: React.FC = () => {
         </button>
       </div>
 
-      {/* View switcher */}
-      <div className="flex gap-2 mb-6">
-        <button
-          onClick={() => setView("grouped")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${
-            view === "grouped"
-              ? "bg-primary text-white"
-              : "bg-white border border-slate-200 text-slate-600"
-          }`}
-        >
-          Nhóm theo nội dung ({grouped.length})
-        </button>
-        <button
-          onClick={() => setView("individual")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${
-            view === "individual"
-              ? "bg-primary text-white"
-              : "bg-white border border-slate-200 text-slate-600"
-          }`}
-        >
-          Từng báo cáo ({reports.length})
-        </button>
+      {/* Filter chips — type + reason */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mr-1">
+            <Filter size={12} className="inline mr-1" />
+            Loại nội dung
+          </span>
+          {(
+            [
+              { key: "all", label: "Tất cả" },
+              { key: "blog", label: CONTENT_TYPE_LABEL.blog },
+              { key: "forum_thread", label: CONTENT_TYPE_LABEL.forum_thread },
+              { key: "forum_reply", label: CONTENT_TYPE_LABEL.forum_reply },
+              { key: "blog_comment", label: CONTENT_TYPE_LABEL.blog_comment },
+            ] as const
+          ).map((c) => {
+            const active = typeFilter === c.key;
+            return (
+              <button
+                key={c.key}
+                onClick={() => setTypeFilter(c.key as any)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                  active
+                    ? "bg-primary text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {c.label}
+                {typeCounts[c.key] > 0 ? ` · ${typeCounts[c.key]}` : ""}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mr-1">
+            <AlertTriangle size={12} className="inline mr-1" />
+            Lý do
+          </span>
+          {(
+            [
+              { key: "all", label: "Tất cả" },
+              ...Object.keys(REASON_LABEL).map((k) => ({
+                key: k,
+                label: REASON_LABEL[k],
+              })),
+            ]
+          ).map((c) => {
+            const active = reasonFilter === c.key;
+            const colorCls = active
+              ? c.key === "all"
+                ? "bg-primary text-white"
+                : `${REASON_COLOR[c.key] || "bg-slate-200"} ring-2 ring-offset-1 ring-slate-400`
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200";
+            return (
+              <button
+                key={c.key}
+                onClick={() => setReasonFilter(c.key)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${colorCls}`}
+              >
+                {c.label}
+                {reasonCounts[c.key] > 0 ? ` · ${reasonCounts[c.key]}` : ""}
+              </button>
+            );
+          })}
+        </div>
+
+        {(typeFilter !== "all" || reasonFilter !== "all") && (
+          <button
+            onClick={() => {
+              setTypeFilter("all");
+              setReasonFilter("all");
+            }}
+            className="text-xs font-bold text-rose-500 hover:text-rose-700 transition-colors"
+          >
+            Bỏ lọc
+          </button>
+        )}
       </div>
 
       {loading ? (
         <div className="bg-white rounded-xl p-12 text-center text-slate-500">Đang tải...</div>
-      ) : view === "grouped" ? (
-        grouped.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="text-left p-4 text-xs font-bold text-slate-600 uppercase">
-                    Loại nội dung
-                  </th>
-                  <th className="text-left p-4 text-xs font-bold text-slate-600 uppercase">ID</th>
-                  <th className="text-left p-4 text-xs font-bold text-slate-600 uppercase">
-                    Số báo cáo
-                  </th>
-                  <th className="text-left p-4 text-xs font-bold text-slate-600 uppercase">
-                    Mới nhất
-                  </th>
-                  <th className="text-right p-4 text-xs font-bold text-slate-600 uppercase">
-                    Hành động
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {grouped
-                  .sort((a, b) => b.reportCount - a.reportCount)
-                  .map((g) => (
-                    <tr
-                      key={`${g.contentType}-${g.contentRefId}`}
-                      className="border-t border-slate-100 hover:bg-slate-50"
-                    >
-                      <td className="p-4">
-                        <span className="px-2 py-1 text-xs font-semibold bg-slate-100 rounded">
-                          {CONTENT_TYPE_LABEL[g.contentType] || g.contentType}
-                        </span>
-                      </td>
-                      <td className="p-4 font-mono text-sm text-slate-700">#{g.contentRefId}</td>
-                      <td className="p-4">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-bold ${
-                            g.reportCount >= 5
-                              ? "bg-red-100 text-red-700"
-                              : g.reportCount >= 3
-                                ? "bg-orange-100 text-orange-700"
-                                : "bg-amber-100 text-amber-700"
-                          }`}
-                        >
-                          {g.reportCount} báo cáo
-                        </span>
-                      </td>
-                      <td className="p-4 text-sm text-slate-500">
-                        {new Date(g.latestAt).toLocaleString("vi-VN")}
-                      </td>
-                      <td className="p-4 text-right">
-                        <button
-                          onClick={() => {
-                            const firstReport = reports.find(
-                              (r) =>
-                                r.contentType === g.contentType &&
-                                String(r.contentRefId) === String(g.contentRefId),
-                            );
-                            if (firstReport) openReportDetail(firstReport);
-                          }}
-                          className="px-3 py-1.5 bg-primary text-white rounded-lg text-sm font-semibold hover:opacity-90"
-                        >
-                          Xem & Xử lý
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      ) : reports.length === 0 ? (
+      ) : filteredReports.length === 0 ? (
         <EmptyState />
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -305,7 +303,7 @@ const Reports: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {reports.map((r) => (
+              {filteredReports.map((r) => (
                 <tr key={r.reportId} className="border-t border-slate-100 hover:bg-slate-50">
                   <td className="p-4 text-sm text-slate-700">
                     {r.reporterName || `User #${r.reporterId}`}

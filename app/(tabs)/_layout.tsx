@@ -508,7 +508,8 @@ const styles = StyleSheet.create({
   },
   tabIconWrap: {
     height: 32,
-    borderRadius: 16,
+    borderRadius: 999,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },

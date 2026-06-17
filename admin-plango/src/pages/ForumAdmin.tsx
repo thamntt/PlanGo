@@ -63,7 +63,7 @@ const ForumAdmin: React.FC = () => {
         params.set("status", statusFilter);
       }
       const res = await apiRequest("GET", `/api/forum/threads?${params.toString()}`);
-      let data = res.data || [];
+      let data: ForumThread[] = Array.isArray(res) ? res : [];
       if (statusFilter === "unanswered") {
         data = data.filter((t: ForumThread) => t.replyCount === 0);
       }

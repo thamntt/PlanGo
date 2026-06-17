@@ -231,9 +231,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = useCallback(
     async (data: Partial<UserData>) => {
       if (!user) throw new Error("Chưa đăng nhập");
-      const res = await apiRequest("PUT", `/api/users/${user.id}`, data);
-      const respData = await unwrapResponse(res);
-      await persistUser(mapUser(respData));
+      // Optimistic local merge — UI sees the new name/avatar/bio instantly
+      // when this resolves; the server confirm runs in parallel.
+      const optimistic: UserData = { ...user, ...(data as Partial<UserData>) };
+      await persistUser(optimistic);
+      try {
+        const res = await apiRequest("PUT", `/api/users/${user.id}`, data);
+        const respData = await unwrapResponse(res);
+        await persistUser(mapUser(respData));
+      } catch (err) {
+        // Roll back to the pre-update snapshot on server failure
+        await persistUser(user);
+        throw err;
+      }
     },
     [user, persistUser],
   );

@@ -57,7 +57,7 @@ const DestinationTypes: React.FC = () => {
     setIsLoading(true);
     try {
       const data = await apiRequest("GET", "/api/destination-types");
-      setTypes(data);
+      setTypes(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch destination types:", error);
     } finally {

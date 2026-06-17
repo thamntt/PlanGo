@@ -10,6 +10,15 @@ async function unwrap<T>(res: Response): Promise<T> {
   return json as T;
 }
 
+// Lookup tables are essentially static within a session (expense types, POI
+// types, preferences rarely change). Cache for 30 minutes and never refetch
+// on window focus — saves dozens of round-trips across a normal session.
+const LOOKUP_OPTS = {
+  staleTime: 30 * 60 * 1000,
+  refetchOnWindowFocus: false,
+  refetchOnMount: false,
+} as const;
+
 export function useExpenseTypes() {
   return useQuery<ExpenseType[]>({
     queryKey: queryKeys.expenseTypes(),
@@ -18,6 +27,7 @@ export function useExpenseTypes() {
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapExpenseType);
     },
+    ...LOOKUP_OPTS,
   });
 }
 
@@ -29,6 +39,7 @@ export function usePoiTypes() {
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapPoiType);
     },
+    ...LOOKUP_OPTS,
   });
 }
 
@@ -40,5 +51,6 @@ export function usePreferences() {
       const data = await unwrap<any[]>(res);
       return (data ?? []).map(mapPreference);
     },
+    ...LOOKUP_OPTS,
   });
 }

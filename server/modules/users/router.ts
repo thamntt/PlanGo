@@ -52,6 +52,26 @@ async function listUsers(req: Request, res: Response) {
   sendResponse(res, 200, "Users retrieved successfully", sanitized);
 }
 
+/**
+ * Lightweight authenticated user search for invite-by-username flows.
+ * Returns up to 8 matches with only public-safe fields (userId/name/username/avatar).
+ * No email/phone/role leaked.
+ */
+async function searchUsersForInvite(req: Request, res: Response) {
+  const q = ((req.query.q as string) || "").trim();
+  if (!q || q.length < 2) {
+    return sendResponse(res, 200, "OK", []);
+  }
+  const users = await storage.getUsers(q);
+  const safe = users.slice(0, 8).map((u) => ({
+    userId: u.userId,
+    userName: u.userName,
+    fullName: u.fullName || null,
+    avatarUrl: u.avatarUrl || null,
+  }));
+  sendResponse(res, 200, "OK", safe);
+}
+
 async function getUserById(req: Request, res: Response) {
   const id = Number(req.params.id);
   if (isNaN(id)) throw errors.badRequest("Invalid user ID");
@@ -93,6 +113,7 @@ async function updateUser(req: Request, res: Response) {
   // Stored as TEXT in DB so base64 data URIs fit.
   if (body.avatar !== undefined) updateData.avatarUrl = body.avatar;
   if (body.avatarUrl !== undefined) updateData.avatarUrl = body.avatarUrl;
+  if (body.bio !== undefined) updateData.bio = String(body.bio).slice(0, 300);
 
   const user = await storage.updateUser(id, updateData);
   if (!user) throw errors.notFound("User");
@@ -247,6 +268,7 @@ async function changePassword(req: Request, res: Response) {
 
 export function registerUserRoutes(app: Express) {
   app.get("/api/users", requireAdmin, asyncHandler(listUsers));
+  app.get("/api/users/search", requireAuth, asyncHandler(searchUsersForInvite));
   app.get("/api/users/me", requireAuth, asyncHandler(getCurrentUser));
   app.get("/api/users/:id/profile", optionalAuth, asyncHandler(getUserProfile));
   app.get("/api/users/:id/followers", optionalAuth, asyncHandler(listFollowers));

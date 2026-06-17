@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   tripReviews,
@@ -9,6 +9,7 @@ import {
   itineraryDay,
   itineraryItems,
   pois,
+  reviewVotes,
   type TripReview,
   type ItemReview,
   type InsertTripReview,
@@ -19,7 +20,10 @@ import { destinationRepo } from "../destinations/repository";
 import { poiRepo } from "../pois/repository";
 
 export const reviewRepo = {
-  async getReviews(filters?: { tripId?: number; itemId?: number; destinationId?: number }) {
+  async getReviews(
+    filters?: { tripId?: number; itemId?: number; destinationId?: number },
+    viewerId?: number,
+  ) {
     // Trip reviews — JOIN trip context (title, dates, people) so the FE can
     // display each review with the visit-context label (TripAdvisor pattern:
     // every visit = a separate review with its own context).
@@ -60,7 +64,9 @@ export const reviewRepo = {
         itemId: itemReviews.itemId,
         rating: itemReviews.rating,
         comment: itemReviews.comment,
+        photos: itemReviews.photos,
         userName: users.userName,
+        userAvatarUrl: users.avatarUrl,
         destinationId: itineraryDay.tripId,
         poiId: itineraryItems.poiId,
         activityId: itineraryItems.itemId,
@@ -100,6 +106,46 @@ export const reviewRepo = {
         new Date((b as any).createdAt ?? 0).getTime() -
         new Date((a as any).createdAt ?? 0).getTime(),
     );
+
+    // Attach helpfulCount + viewerVoted via single batch query keyed by
+    // (reviewUserId, reviewTripId). Only applies to trip reviews — item reviews
+    // don't participate in helpful voting in current scope.
+    const tripPairs = all
+      .filter((r: any) => r.type === "trip" && r.tripId != null && r.userId != null)
+      .map((r: any) => ({ userId: r.userId as number, tripId: r.tripId as number }));
+    if (tripPairs.length > 0) {
+      const userIds = [...new Set(tripPairs.map((p) => p.userId))];
+      const tripIds = [...new Set(tripPairs.map((p) => p.tripId))];
+      const voteRows = await db
+        .select({
+          reviewUserId: reviewVotes.reviewUserId,
+          reviewTripId: reviewVotes.reviewTripId,
+          voterUserId: reviewVotes.voterUserId,
+          voteType: reviewVotes.voteType,
+        })
+        .from(reviewVotes)
+        .where(
+          and(
+            inArray(reviewVotes.reviewUserId, userIds),
+            inArray(reviewVotes.reviewTripId, tripIds),
+          ),
+        );
+      const helpfulMap = new Map<string, number>();
+      const viewerVotedSet = new Set<string>();
+      for (const v of voteRows) {
+        if (v.voteType !== "helpful") continue;
+        const k = `${v.reviewUserId}|${v.reviewTripId}`;
+        helpfulMap.set(k, (helpfulMap.get(k) || 0) + 1);
+        if (viewerId && v.voterUserId === viewerId) viewerVotedSet.add(k);
+      }
+      for (const r of all as any[]) {
+        if (r.type === "trip" && r.tripId != null && r.userId != null) {
+          const k = `${r.userId}|${r.tripId}`;
+          r.helpfulCount = helpfulMap.get(k) || 0;
+          r.viewerVotedHelpful = viewerVotedSet.has(k);
+        }
+      }
+    }
 
     return all;
   },

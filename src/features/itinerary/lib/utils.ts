@@ -32,10 +32,17 @@ export function getActivityTypeLabel(type: string, ets?: ExpenseType[]): string 
 
 export function getActivityTypeIcon(type: string): string {
   const map: Record<string, string> = {
-    sightseeing: "eye-outline",
+    sightseeing: "camera-outline",
+    attraction: "camera-outline",
     food: "restaurant-outline",
+    restaurant: "restaurant-outline",
+    cafe: "cafe-outline",
     transport: "car-outline",
+    transit: "car-outline",
     shopping: "bag-outline",
+    hotel: "bed-outline",
+    accommodation: "bed-outline",
+    homestay: "bed-outline",
     other: "ellipse-outline",
   };
   return map[type] || "ellipse-outline";

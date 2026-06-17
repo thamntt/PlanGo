@@ -90,7 +90,11 @@ export function useBlogPosts(filters: BlogFilters = {}) {
       const res = await apiRequest("GET", `/api/blog/posts${qs ? "?" + qs : ""}`);
       return unwrap<BlogPost[]>(res);
     },
-    staleTime: 60 * 1000,
+    // Shorter stale + refetchOnMount so profile screen always shows fresh
+    // author posts when tabbed into. Previously a stale (empty) cache from
+    // before the user published a post would persist for a minute.
+    staleTime: 15 * 1000,
+    refetchOnMount: "always",
   });
 }
 

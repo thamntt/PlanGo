@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import { useScrollToTop } from "@react-navigation/native";
 import {
   View,
@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -30,6 +30,7 @@ import {
   FORUM_CATEGORIES,
   type CategoryMeta,
 } from "@/features/community/categories";
+import { SkeletonCard } from "@/components/Skeleton";
 
 type Tab = "blog" | "forum";
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -65,8 +66,18 @@ export default function CommunityScreen() {
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
   const tabBar = useTabBar();
-  const [tab, setTab] = useState<Tab>("blog");
-  const [search, setSearch] = useState("");
+  // Accept deep-link params so other screens (e.g. destination detail "Xem tất cả")
+  // can open this tab pre-filtered by a destination name + which sub-tab to show.
+  const navParams = useLocalSearchParams<{ tab?: string; search?: string }>();
+  const [tab, setTab] = useState<Tab>(navParams.tab === "forum" ? "forum" : "blog");
+  const [search, setSearch] = useState(navParams.search ? String(navParams.search) : "");
+
+  // Re-apply nav params if user navigates here again with new ones (Expo Router
+  // re-uses the screen — useState init only runs once).
+  useEffect(() => {
+    if (navParams.tab === "blog" || navParams.tab === "forum") setTab(navParams.tab);
+    if (typeof navParams.search === "string") setSearch(navParams.search);
+  }, [navParams.tab, navParams.search]);
   const [sortBlog, setSortBlog] = useState<"latest" | "popular" | "trending">("latest");
   const [sortForum, setSortForum] = useState<"latest" | "popular" | "unanswered">("latest");
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
@@ -394,6 +405,7 @@ export default function CommunityScreen() {
         onClose={() => setSearchOpen(false)}
         onSubmit={(q) => setSearch(q)}
         placeholder={tab === "blog" ? "Tìm bài viết, tác giả, địa danh..." : "Tìm câu hỏi..."}
+        context="community"
       />
     </View>
   );
@@ -484,8 +496,10 @@ function BlogList({
 }) {
   if (query.isLoading) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <View style={{ paddingHorizontal: 20, gap: 14, paddingTop: 12 }}>
+        <SkeletonCard height={150} />
+        <SkeletonCard height={150} />
+        <SkeletonCard height={150} />
       </View>
     );
   }
@@ -650,8 +664,10 @@ function ForumList({
 }) {
   if (query.isLoading) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <View style={{ paddingHorizontal: 20, gap: 14, paddingTop: 12 }}>
+        <SkeletonCard height={150} />
+        <SkeletonCard height={150} />
+        <SkeletonCard height={150} />
       </View>
     );
   }

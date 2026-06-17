@@ -59,7 +59,7 @@ const PoiTypes: React.FC = () => {
     setIsLoading(true);
     try {
       const data = await apiRequest("GET", "/api/poi-types");
-      setTypes(data);
+      setTypes(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch POI types:", error);
     } finally {

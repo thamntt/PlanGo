@@ -230,9 +230,11 @@ const POIs: React.FC = () => {
       openHours: `${poiOpenDayStart} - ${poiOpenDayEnd} | ${poiTimeStart} - ${poiTimeEnd}`,
       estimatedCost: parseInt(poiCost) || undefined,
       description: typeof poiDesc === "string" && poiDesc.trim() ? poiDesc.trim() : undefined,
+      // Keep ALL Google photo names + any uploaded images. Truncating to 3
+      // here was silently dropping gallery images visible on user-side.
       images:
         poiPhotos.length > 0
-          ? poiPhotos.slice(0, 3).map((p) => p.name)
+          ? poiPhotos.map((p) => p.name).filter(Boolean)
           : ["https://images.unsplash.com/photo-1599708153386-62dc3942360b?w=800"],
       googlePlaceId: poiGoogleId || undefined,
       googlePhotos: poiPhotos.length > 0 ? poiPhotos : undefined,

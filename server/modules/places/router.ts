@@ -2,6 +2,15 @@ import type { Express, Request, Response } from "express";
 import { asyncHandler, sendResponse } from "../../lib/http";
 import { AppError } from "../../lib/errors";
 import { placesLimiter } from "../../middlewares/rate-limit";
+import { db } from "../../db";
+import { pois } from "../../../shared/schema";
+import { eq, ilike, sql } from "drizzle-orm";
+import { logger } from "../../lib/logger";
+
+// Lazy-refresh policy for SerpAPI Google Maps reviews.
+// 180 days = ~6 months. Reviews change slowly on most places; for hot spots
+// the nightly cron refreshes top-viewed POIs.
+const SERP_CACHE_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 import {
   GOOGLE_PLACES_BASE,
   GOOGLE_GEOCODE_BASE,
@@ -524,6 +533,77 @@ async function searchPlaces(req: Request, res: Response) {
 
   const nominatimResult = await searchPlacesNominatim(query, language);
   return res.json(nominatimResult);
+}
+
+/**
+ * Unified search across PlanGo's DB + Google Maps / SerpAPI in one call.
+ * Returns DB matches (instant, free) PLUS external matches (live, broader).
+ * Frontend renders them in 2 grouped sections so users don't have to know
+ * "where to search" — single input, both sources surfaced.
+ */
+async function unifiedSearchPlaces(req: Request, res: Response) {
+  const query = ((req.query.q as string) || "").trim();
+  const language = (req.query.language as string) || "vi";
+  if (!query || query.length < 2) {
+    return res.json({ db: [], external: [], query });
+  }
+
+  // DB search — name/address ILIKE matches, capped at 8
+  let dbMatches: any[] = [];
+  try {
+    const rows = await db.query.pois.findFirst({
+      where: ilike(pois.name, `%${query}%`),
+      columns: { poiId: true },
+    });
+    if (rows) {
+      const list = await db
+        .select({
+          id: pois.poiId,
+          name: pois.name,
+          address: pois.address,
+          latitude: pois.latitude,
+          longitude: pois.longitude,
+          rating: pois.rating,
+          reviewCount: pois.reviewCounts,
+          googlePlaceId: pois.googlePlaceId,
+        })
+        .from(pois)
+        .where(ilike(pois.name, `%${query}%`))
+        .limit(8);
+      dbMatches = list.map((p) => ({
+        ...p,
+        source: "db",
+        id: String(p.id),
+        latitude: p.latitude ? Number(p.latitude) : 0,
+        longitude: p.longitude ? Number(p.longitude) : 0,
+        rating: p.rating ? Number(p.rating) : 0,
+      }));
+    }
+  } catch (err) {
+    logger.warn({ err, query }, "Unified DB search failed");
+  }
+
+  // External search (SerpAPI → Google → Goong → Nominatim — same waterfall as /search)
+  let externalMatches: any[] = [];
+  try {
+    const externalResult =
+      (await searchPlacesSerpApi(query)) ||
+      (await searchPlacesGoogle(query, language)) ||
+      (await searchPlacesGoong(query, language)) ||
+      (await searchPlacesNominatim(query, language));
+    const places = (externalResult?.places || []).slice(0, 10);
+    // Drop external entries that we already have in DB (match by googlePlaceId or by name+coords)
+    const dbPlaceIds = new Set(
+      dbMatches.map((p) => p.googlePlaceId).filter(Boolean) as string[],
+    );
+    externalMatches = places
+      .filter((p: any) => !p.placeId || !dbPlaceIds.has(p.placeId))
+      .map((p: any) => ({ ...p, source: "external" }));
+  } catch (err) {
+    logger.warn({ err, query }, "Unified external search failed");
+  }
+
+  return res.json({ db: dbMatches, external: externalMatches, query });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1071,6 +1151,44 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
   const nextPageToken = req.query.next_page_token as string | undefined;
 
   if (!placeId && !q) throw new AppError(400, "place_id or q parameter is required");
+
+  // ────────────────────────────────────────────────────────────────────
+  // DB cache lookup (only for first page; pagination always goes to SerpAPI)
+  // ────────────────────────────────────────────────────────────────────
+  if (placeId && !nextPageToken) {
+    try {
+      const cached = await db.query.pois.findFirst({
+        where: eq(pois.googlePlaceId, placeId),
+        columns: {
+          poiId: true,
+          serpReviewsJson: true,
+          serpPlaceInfoJson: true,
+          serpFetchedAt: true,
+        },
+      });
+      if (
+        cached?.serpReviewsJson &&
+        cached.serpFetchedAt &&
+        Date.now() - new Date(cached.serpFetchedAt).getTime() < SERP_CACHE_TTL_MS
+      ) {
+        // Increment view counter (fire and forget — refresh-priority signal)
+        db.update(pois)
+          .set({ serpViewCount: sql`${pois.serpViewCount} + 1` })
+          .where(eq(pois.poiId, cached.poiId))
+          .catch(() => {});
+        logger.info({ placeId }, "SerpAPI cache HIT (DB)");
+        return res.json({
+          placeInfo: cached.serpPlaceInfoJson || null,
+          reviews: cached.serpReviewsJson,
+          nextPageToken: null,
+          cached: true,
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, placeId }, "SerpAPI DB cache lookup failed, falling through to API");
+    }
+  }
+
   const apiKey = getSerpApiKey();
   if (!apiKey) throw new AppError(501, "SERPAPI_KEY not configured");
 
@@ -1169,6 +1287,32 @@ async function getPlaceReviewsSerpApi(req: Request, res: Response) {
 
     const nextToken = data.serpapi_pagination?.next_page_token || null;
     console.log(`[SerpAPI] Got ${reviews.length} reviews for "${placeInfo?.title || placeId}"`);
+
+    // Persist to DB cache (first page only, to avoid storing huge paginated payloads).
+    // Also update the canonical rating/reviewCount on the POI from placeInfo —
+    // this way the count appears INSTANTLY on the next open from cached trip
+    // data, instead of waiting for the SerpAPI roundtrip to fill it in.
+    if (placeId && !nextPageToken && reviews.length > 0) {
+      const updatePayload: Record<string, any> = {
+        serpReviewsJson: reviews as any,
+        serpPlaceInfoJson: placeInfo as any,
+        serpFetchedAt: new Date(),
+        serpViewCount: sql`${pois.serpViewCount} + 1`,
+      };
+      if (placeInfo?.rating && placeInfo.rating > 0) {
+        updatePayload.rating = String(placeInfo.rating);
+      }
+      if (placeInfo?.totalReviews && placeInfo.totalReviews > 0) {
+        updatePayload.reviewCounts = placeInfo.totalReviews;
+      }
+      db.update(pois)
+        .set(updatePayload)
+        .where(eq(pois.googlePlaceId, placeId))
+        .catch((err) => {
+          logger.warn({ err, placeId }, "SerpAPI cache persist failed");
+        });
+    }
+
     return res.json({ placeInfo, reviews, nextPageToken: nextToken });
   } catch (error) {
     console.error("[SerpAPI] Reviews error:", error);
@@ -1275,6 +1419,11 @@ async function autoDiscoverPOIs(req: Request, res: Response) {
 export function registerPlacesRoutes(app: Express) {
   app.get("/api/places/provider", getProviderStatus);
   app.get("/api/places/search", placesLimiter, asyncHandler(searchPlaces));
+  app.get(
+    "/api/places/unified-search",
+    placesLimiter,
+    asyncHandler(unifiedSearchPlaces),
+  );
   app.get("/api/places/details/:placeId", placesLimiter, asyncHandler(getPlaceDetails));
   app.get("/api/places/photo", placesLimiter, asyncHandler(getPlacePhoto));
   app.get("/api/places/serp-photos/:dataId", placesLimiter, asyncHandler(getSerpPhotos));

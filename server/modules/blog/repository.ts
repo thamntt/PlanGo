@@ -29,6 +29,25 @@ interface ListFilters {
   bookmarkedOnly?: boolean; // posts I have bookmarked
 }
 
+// Vietnamese label → category key (so typing "Ẩm thực" matches posts with category='food')
+const BLOG_LABEL_TO_KEY: Record<string, string[]> = {
+  "hướng dẫn": ["guide"],
+  review: ["review"],
+  "ẩm thực": ["food"],
+  "mẹo hay": ["tips", "tip"],
+  mẹo: ["tips", "tip"],
+  "trải nghiệm": ["experience", "story"],
+};
+
+function resolveBlogCategoryKeys(search: string): string[] {
+  const q = search.trim().toLowerCase();
+  const keys = new Set<string>();
+  for (const [label, ks] of Object.entries(BLOG_LABEL_TO_KEY)) {
+    if (label.includes(q) || q.includes(label)) ks.forEach((k) => keys.add(k));
+  }
+  return [...keys];
+}
+
 export const blogRepo = {
   async listPosts(filters: ListFilters = {}, viewerId?: number) {
     let query = db
@@ -62,8 +81,25 @@ export const blogRepo = {
     if (filters.category) conds.push(eq(blogPosts.category, filters.category));
     if (filters.authorId) conds.push(eq(blogPosts.authorId, filters.authorId));
     if (filters.search) {
+      const q = `%${filters.search}%`;
+      const catKeys = resolveBlogCategoryKeys(filters.search);
       conds.push(
-        sql`(${blogPosts.title} ILIKE ${`%${filters.search}%`} OR ${blogPosts.excerpt} ILIKE ${`%${filters.search}%`})`,
+        sql`(
+          ${blogPosts.title} ILIKE ${q}
+          OR ${blogPosts.excerpt} ILIKE ${q}
+          OR ${blogPosts.content} ILIKE ${q}
+          OR EXISTS (
+            SELECT 1 FROM ${blogPostTags} bpt
+            JOIN ${communityTags} ct ON ct.tag_id = bpt.tag_id
+            WHERE bpt.post_id = ${blogPosts.postId} AND ct.name ILIKE ${q}
+          )
+          OR EXISTS (
+            SELECT 1 FROM ${blogPostDestinations} bpd
+            JOIN ${destinations} d ON d.destination_id = bpd.destination_id
+            WHERE bpd.post_id = ${blogPosts.postId} AND d.name ILIKE ${q}
+          )
+          ${catKeys.length ? sql`OR ${blogPosts.category} IN (${sql.join(catKeys.map((k) => sql`${k}`), sql`, `)})` : sql``}
+        )`,
       );
     }
     if (filters.destinationId) {
@@ -575,12 +611,36 @@ export const blogRepo = {
 
   // ─── User bookmarks list ──
   async listUserBookmarks(userId: number) {
-    const rows = await db
-      .select({ postId: blogBookmarks.postId, createdAt: blogBookmarks.createdAt })
+    // Join with posts + author so the FE can render the bookmark list directly
+    // without an N+1 round-trip per id.
+    return db
+      .select({
+        postId: blogPosts.postId,
+        authorId: blogPosts.authorId,
+        title: blogPosts.title,
+        slug: blogPosts.slug,
+        excerpt: blogPosts.excerpt,
+        coverImage: blogPosts.coverImage,
+        category: blogPosts.category,
+        readMinutes: blogPosts.readMinutes,
+        status: blogPosts.status,
+        viewCount: blogPosts.viewCount,
+        likeCount: blogPosts.likeCount,
+        commentCount: blogPosts.commentCount,
+        bookmarkCount: blogPosts.bookmarkCount,
+        publishedAt: blogPosts.publishedAt,
+        createdAt: blogPosts.createdAt,
+        authorName: sql<string>`COALESCE(${users.fullName}, ${users.userName})`,
+        authorHandle: users.userName,
+        authorAvatar: users.avatarUrl,
+        authorRole: users.role,
+        bookmarkedAt: blogBookmarks.createdAt,
+      })
       .from(blogBookmarks)
+      .innerJoin(blogPosts, eq(blogBookmarks.postId, blogPosts.postId))
+      .innerJoin(users, eq(blogPosts.authorId, users.userId))
       .where(eq(blogBookmarks.userId, userId))
       .orderBy(desc(blogBookmarks.createdAt));
-    return rows;
   },
 
   // ─── Tags ──

@@ -166,24 +166,34 @@ const Reviews: React.FC = () => {
             >
               <div className="flex justify-between items-start mb-6">
                 <div className="flex items-center gap-4">
-                  {reviewer?.avatar ? (
+                  {review.userAvatarUrl || reviewer?.avatar ? (
                     <img
-                      src={reviewer.avatar}
+                      src={review.userAvatarUrl || reviewer?.avatar}
                       className="w-14 h-14 rounded-2xl object-cover ring-4 ring-slate-50"
                       alt=""
                     />
                   ) : (
                     <div className="w-14 h-14 rounded-2xl bg-primary/20 text-primary flex items-center justify-center font-bold text-xl">
-                      {reviewer?.fullName?.[0] || "?"}
+                      {(reviewer?.fullName || review.userName || "?")[0]}
                     </div>
                   )}
                   <div>
                     <h4 className="text-base font-black text-slate-800 tracking-tight">
                       {reviewer?.fullName || review.userName || "Người dùng ẩn danh"}
                     </h4>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                      {reviewDate}
-                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        {reviewDate}
+                      </p>
+                      {(review.helpfulCount || 0) > 0 && (
+                        <>
+                          <span className="text-slate-300">·</span>
+                          <p className="text-xs font-bold text-emerald-600">
+                            ★ {review.helpfulCount} hữu ích
+                          </p>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -231,6 +241,22 @@ const Reviews: React.FC = () => {
                   .trim()}
                 &rdquo;
               </p>
+
+              {review.photos && review.photos.length > 0 && (
+                <div className="mt-4 flex gap-2 flex-wrap">
+                  {review.photos.map((url, idx) => (
+                    <a
+                      key={idx}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block w-24 h-24 rounded-xl overflow-hidden ring-1 ring-slate-200 hover:ring-primary transition-all"
+                    >
+                      <img src={url} alt={`Ảnh ${idx + 1}`} className="w-full h-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
